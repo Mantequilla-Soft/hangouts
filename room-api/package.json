@@ -1,0 +1,22 @@
+{
+  "name": "hive-hangouts-room-api",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@fastify/sensible": "^6.0.0",
+    "dotenv": "^16.0.0",
+    "fastify": "^5.0.0",
+    "livekit-server-sdk": "^2.0.0",
+    "zod": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
