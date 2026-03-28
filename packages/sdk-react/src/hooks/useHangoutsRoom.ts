@@ -33,11 +33,15 @@ export function useHangoutsRoom() {
   const join = useCallback(async (roomName: string) => {
     setIsLoading(true);
     try {
-      const result = await apiClient.joinRoom(roomName);
+      const [result, rooms] = await Promise.all([
+        apiClient.joinRoom(roomName),
+        apiClient.listRooms(),
+      ]);
+      const meta = rooms.find((r) => r.name === roomName) ?? null;
       setState({
         livekitToken: result.token,
         roomName: result.roomName,
-        roomMeta: null,
+        roomMeta: meta,
         isHost: result.isHost,
       });
       return result;
