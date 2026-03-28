@@ -43,7 +43,7 @@ export function HangoutsRoom({ roomName, onLeave }: HangoutsRoomProps) {
       token={room.livekitToken}
       serverUrl={room.livekitServerUrl}
       connect={true}
-      audio={room.isHost}
+      audio={true}
       onDisconnected={handleLeave}
     >
       <RoomAudioRenderer />
