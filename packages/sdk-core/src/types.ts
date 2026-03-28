@@ -1,0 +1,45 @@
+export interface Room {
+  name: string;
+  title: string;
+  host: string;
+  description?: string;
+  numParticipants?: number;
+  maxParticipants?: number;
+  createdAt: string;
+}
+
+export interface CreateRoomResponse {
+  room: Room;
+  token: string;
+}
+
+export interface JoinRoomResponse {
+  token: string;
+  roomName: string;
+  identity: string;
+  isHost: boolean;
+}
+
+export interface AuthSession {
+  token: string;
+  username: string;
+}
+
+export interface ChallengeResponse {
+  challenge: string;
+  expires: number;
+}
+
+export type ParticipantRole = 'host' | 'speaker' | 'listener';
+
+export interface HandRaiseEvent {
+  type: 'hand_raise';
+  raised: boolean;
+  identity: string;
+  timestamp: number;
+}
+
+export interface DataMessage {
+  type: string;
+  [key: string]: unknown;
+}

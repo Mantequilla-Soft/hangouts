@@ -7,7 +7,7 @@ const envSchema = z.object({
   LIVEKIT_API_SECRET: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
   HIVE_API_NODE: z.string().url().default('https://api.hive.blog'),
-  PORT: z.coerce.number().default(3000),
+  PORT: z.coerce.number().default(3002),
 });
 
 const parsed = envSchema.safeParse(process.env);
