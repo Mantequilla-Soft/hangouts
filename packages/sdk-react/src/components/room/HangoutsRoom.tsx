@@ -5,6 +5,7 @@ import { RoomHeader } from './RoomHeader.js';
 import { SpeakerStage } from './SpeakerStage.js';
 import { AudienceSection } from './AudienceSection.js';
 import { RoomControls } from './RoomControls.js';
+import { ChatPanel } from './ChatPanel.js';
 
 export interface HangoutsRoomProps {
   roomName: string;
@@ -59,6 +60,7 @@ export function HangoutsRoom({ roomName, onLeave }: HangoutsRoomProps) {
           isCurrentUserHost={room.isHost}
           roomName={roomName}
         />
+        <ChatPanel />
         <RoomControls
           isHost={room.isHost}
           onLeave={handleLeave}

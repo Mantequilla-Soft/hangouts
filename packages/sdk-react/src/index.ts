@@ -34,6 +34,10 @@ export { RoomControls, type RoomControlsProps } from './components/room/RoomCont
 export { ParticipantTile, type ParticipantTileProps } from './components/room/ParticipantTile.js';
 export { HostControlsPanel, type HostControlsPanelProps } from './components/room/HostControlsPanel.js';
 export { RoomHeader, type RoomHeaderProps } from './components/room/RoomHeader.js';
+export { ChatPanel } from './components/room/ChatPanel.js';
+
+// Hooks — Chat
+export { useChat, type ChatMessage } from './hooks/useChat.js';
 
 // Components — Lobby
 export { RoomLobby, type RoomLobbyProps } from './components/lobby/RoomLobby.js';
