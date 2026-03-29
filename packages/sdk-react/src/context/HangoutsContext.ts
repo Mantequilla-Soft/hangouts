@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { HangoutsApiClient } from '@hive-hangouts/core';
+import type { HangoutsApiClient } from '@snapie/hangouts-core';
 
 export interface HangoutsContextValue {
   apiClient: HangoutsApiClient;

@@ -12,7 +12,7 @@ export {
   type ParticipantRole,
   type HandRaiseEvent,
   type HangoutsApiClientOptions,
-} from '@hive-hangouts/core';
+} from '@snapie/hangouts-core';
 
 // Provider
 export { HangoutsProvider, type HangoutsProviderProps } from './context/HangoutsProvider.js';

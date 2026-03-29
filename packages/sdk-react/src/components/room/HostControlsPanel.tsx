@@ -1,4 +1,4 @@
-import type { ParticipantRole } from '@hive-hangouts/core';
+import type { ParticipantRole } from '@snapie/hangouts-core';
 import { useHostControls } from '../../hooks/useHostControls.js';
 
 export interface HostControlsPanelProps {

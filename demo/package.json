@@ -8,7 +8,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@hive-hangouts/react": "file:../packages/sdk-react",
+    "@snapie/hangouts-react": "file:../packages/sdk-react",
     "@livekit/components-react": "^2.0.0",
     "livekit-client": "^2.0.0",
     "react": "^19.0.0",

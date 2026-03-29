@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
-import { HangoutsApiClient } from '@hive-hangouts/core';
+import { HangoutsApiClient } from '@snapie/hangouts-core';
 import { HangoutsContext } from './HangoutsContext.js';
 
 export interface HangoutsProviderProps {

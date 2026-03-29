@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Room } from '@hive-hangouts/core';
+import type { Room } from '@snapie/hangouts-core';
 import { useHangoutsAuth } from '../../hooks/useHangoutsAuth.js';
 import { useRoomList } from '../../hooks/useRoomList.js';
 import { RoomCard } from './RoomCard.js';

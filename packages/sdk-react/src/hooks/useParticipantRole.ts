@@ -1,4 +1,4 @@
-import type { ParticipantRole } from '@hive-hangouts/core';
+import type { ParticipantRole } from '@snapie/hangouts-core';
 
 interface ParticipantLike {
   identity: string;

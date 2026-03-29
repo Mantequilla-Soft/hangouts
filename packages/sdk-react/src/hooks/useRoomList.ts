@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Room } from '@hive-hangouts/core';
+import type { Room } from '@snapie/hangouts-core';
 import { useHangoutsContext } from '../context/HangoutsContext.js';
 
 const POLL_INTERVAL = 10_000;

@@ -1,4 +1,4 @@
-import type { Room } from '@hive-hangouts/core';
+import type { Room } from '@snapie/hangouts-core';
 import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
 
 export interface RoomCardProps {

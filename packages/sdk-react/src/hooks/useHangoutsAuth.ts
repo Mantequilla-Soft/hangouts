@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { loginWithKeychain, isKeychainAvailable } from '@hive-hangouts/core';
+import { loginWithKeychain, isKeychainAvailable } from '@snapie/hangouts-core';
 import { useHangoutsContext } from '../context/HangoutsContext.js';
 
 export function useHangoutsAuth() {

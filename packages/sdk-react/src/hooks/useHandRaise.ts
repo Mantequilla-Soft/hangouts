@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useDataChannel, useLocalParticipant } from '@livekit/components-react';
-import type { HandRaiseEvent } from '@hive-hangouts/core';
+import type { HandRaiseEvent } from '@snapie/hangouts-core';
 
 const TOPIC = 'hand-raise';
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Room } from '@hive-hangouts/core';
+import type { Room } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 
 export interface CreateRoomDialogProps {

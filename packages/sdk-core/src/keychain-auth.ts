@@ -19,24 +19,23 @@ interface HiveKeychain {
   ): void;
 }
 
-declare global {
-  interface Window {
-    hive_keychain?: HiveKeychain;
-  }
+function getKeychain(): HiveKeychain | undefined {
+  return (window as unknown as Record<string, unknown>).hive_keychain as HiveKeychain | undefined;
 }
 
 export function isKeychainAvailable(): boolean {
-  return typeof window !== 'undefined' && !!window.hive_keychain;
+  return typeof window !== 'undefined' && !!getKeychain();
 }
 
 function signWithKeychain(username: string, message: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (!window.hive_keychain) {
+    const keychain = getKeychain();
+    if (!keychain) {
       reject(new Error('Hive Keychain extension is not installed'));
       return;
     }
 
-    window.hive_keychain.requestSignBuffer(
+    keychain.requestSignBuffer(
       username,
       message,
       'Posting',

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useIsSpeaking } from '@livekit/components-react';
 import type { Participant } from 'livekit-client';
-import type { ParticipantRole } from '@hive-hangouts/core';
+import type { ParticipantRole } from '@snapie/hangouts-core';
 import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
 import { HostControlsPanel } from './HostControlsPanel.js';
 

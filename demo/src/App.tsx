@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { HangoutsProvider, RoomLobby, HangoutsRoom } from '@hive-hangouts/react';
-import '@hive-hangouts/react/src/styles/hangouts.css';
+import { HangoutsProvider, RoomLobby, HangoutsRoom } from '@snapie/hangouts-react';
+import '@snapie/hangouts-react/src/styles/hangouts.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'wss://livekit.3speak.tv';
