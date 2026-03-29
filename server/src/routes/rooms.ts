@@ -65,6 +65,37 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send(result);
   });
 
+  // Get a single room by name (public — no auth required)
+  fastify.get('/rooms/:name', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['name'],
+        properties: { name: { type: 'string' } },
+      },
+    },
+  }, async (request, reply) => {
+    const { name } = request.params as { name: string };
+    const rooms = await roomService.listRooms([name]);
+    if (rooms.length === 0) {
+      return reply.notFound('Room not found');
+    }
+
+    const r = rooms[0];
+    let meta: Partial<RoomMetadata> = {};
+    try { meta = JSON.parse(r.metadata || '{}'); } catch { /* ignore */ }
+
+    return reply.send({
+      name: r.name,
+      title: meta.title || r.name,
+      host: meta.host || 'unknown',
+      description: meta.description,
+      numParticipants: r.numParticipants,
+      maxParticipants: r.maxParticipants,
+      createdAt: meta.createdAt || new Date(Number(r.creationTime) * 1000).toISOString(),
+    });
+  });
+
   // Create a room (auth required — caller becomes host)
   fastify.post('/rooms', {
     preHandler: requireAuth,

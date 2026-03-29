@@ -72,6 +72,15 @@ export class HangoutsApiClient {
     return this.request('GET', '/rooms');
   }
 
+  async getRoom(roomName: string): Promise<Room | null> {
+    try {
+      return await this.request('GET', `/rooms/${encodeURIComponent(roomName)}`);
+    } catch (err) {
+      if (err instanceof HangoutsApiError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
   async createRoom(title: string, description?: string): Promise<CreateRoomResponse> {
     return this.request('POST', '/rooms', { title, description });
   }

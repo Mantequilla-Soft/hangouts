@@ -35,6 +35,7 @@ export { ParticipantTile, type ParticipantTileProps } from './components/room/Pa
 export { HostControlsPanel, type HostControlsPanelProps } from './components/room/HostControlsPanel.js';
 export { RoomHeader, type RoomHeaderProps } from './components/room/RoomHeader.js';
 export { ChatPanel } from './components/room/ChatPanel.js';
+export { HangoutsErrorBoundary } from './components/room/HangoutsErrorBoundary.js';
 
 // Hooks — Chat
 export { useChat, type ChatMessage } from './hooks/useChat.js';

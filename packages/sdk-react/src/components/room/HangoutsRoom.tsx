@@ -6,13 +6,15 @@ import { SpeakerStage } from './SpeakerStage.js';
 import { AudienceSection } from './AudienceSection.js';
 import { RoomControls } from './RoomControls.js';
 import { ChatPanel } from './ChatPanel.js';
+import { HangoutsErrorBoundary } from './HangoutsErrorBoundary.js';
 
 export interface HangoutsRoomProps {
   roomName: string;
   onLeave?: () => void;
+  onError?: (error: Error) => void;
 }
 
-export function HangoutsRoom({ roomName, onLeave }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onError }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
 
   useEffect(() => {
@@ -40,33 +42,35 @@ export function HangoutsRoom({ roomName, onLeave }: HangoutsRoomProps) {
   const host = room.roomMeta?.host ?? '';
 
   return (
-    <LiveKitRoom
-      token={room.livekitToken}
-      serverUrl={room.livekitServerUrl}
-      connect={true}
-      audio={true}
-      onDisconnected={handleLeave}
-    >
-      <RoomAudioRenderer />
-      <div className="hh-room">
-        <RoomHeader title={title} host={host} />
-        <SpeakerStage
-          hostIdentity={host}
-          isCurrentUserHost={room.isHost}
-          roomName={roomName}
-        />
-        <AudienceSection
-          hostIdentity={host}
-          isCurrentUserHost={room.isHost}
-          roomName={roomName}
-        />
-        <ChatPanel />
-        <RoomControls
-          isHost={room.isHost}
-          onLeave={handleLeave}
-          onEndRoom={room.isHost ? handleEndRoom : undefined}
-        />
-      </div>
-    </LiveKitRoom>
+    <HangoutsErrorBoundary onError={onError}>
+      <LiveKitRoom
+        token={room.livekitToken}
+        serverUrl={room.livekitServerUrl}
+        connect={true}
+        audio={true}
+        onDisconnected={handleLeave}
+      >
+        <RoomAudioRenderer />
+        <div className="hh-room">
+          <RoomHeader title={title} host={host} />
+          <SpeakerStage
+            hostIdentity={host}
+            isCurrentUserHost={room.isHost}
+            roomName={roomName}
+          />
+          <AudienceSection
+            hostIdentity={host}
+            isCurrentUserHost={room.isHost}
+            roomName={roomName}
+          />
+          <ChatPanel />
+          <RoomControls
+            isHost={room.isHost}
+            onLeave={handleLeave}
+            onEndRoom={room.isHost ? handleEndRoom : undefined}
+          />
+        </div>
+      </LiveKitRoom>
+    </HangoutsErrorBoundary>
   );
 }
