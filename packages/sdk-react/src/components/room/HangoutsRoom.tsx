@@ -12,9 +12,13 @@ export interface HangoutsRoomProps {
   roomName: string;
   onLeave?: () => void;
   onError?: (error: Error) => void;
+  /** When true, removes min-height and fits within parent container. Use when embedding in modals or panels. */
+  embedded?: boolean;
+  /** Optional max height for the room container (e.g., "80vh", "600px"). */
+  maxHeight?: string;
 }
 
-export function HangoutsRoom({ roomName, onLeave, onError }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
 
   useEffect(() => {
@@ -51,19 +55,24 @@ export function HangoutsRoom({ roomName, onLeave, onError }: HangoutsRoomProps) 
         onDisconnected={handleLeave}
       >
         <RoomAudioRenderer />
-        <div className="hh-room">
+        <div
+          className={`hh-room ${embedded ? 'hh-room--embedded' : ''}`}
+          style={maxHeight ? { maxHeight } : undefined}
+        >
           <RoomHeader title={title} host={host} />
-          <SpeakerStage
-            hostIdentity={host}
-            isCurrentUserHost={room.isHost}
-            roomName={roomName}
-          />
-          <AudienceSection
-            hostIdentity={host}
-            isCurrentUserHost={room.isHost}
-            roomName={roomName}
-          />
-          <ChatPanel />
+          <div className="hh-room__content">
+            <SpeakerStage
+              hostIdentity={host}
+              isCurrentUserHost={room.isHost}
+              roomName={roomName}
+            />
+            <AudienceSection
+              hostIdentity={host}
+              isCurrentUserHost={room.isHost}
+              roomName={roomName}
+            />
+            <ChatPanel />
+          </div>
           <RoomControls
             isHost={room.isHost}
             onLeave={handleLeave}

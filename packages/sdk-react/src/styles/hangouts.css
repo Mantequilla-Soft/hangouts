@@ -251,11 +251,25 @@
   color: var(--hh-text);
 }
 
+/* Embedded mode: fits within parent container (modals, panels, etc.) */
+.hh-room--embedded {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.hh-room--embedded .hh-room__content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 .hh-room__header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 1.5rem;
+  flex-shrink: 0;
 }
 
 .hh-room__title {
@@ -392,6 +406,11 @@
   padding: 1rem;
   border-top: 1px solid var(--hh-border-light);
   margin-top: auto;
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  background: var(--hh-bg);
+  z-index: 5;
 }
 
 /* === Host Controls Panel === */
