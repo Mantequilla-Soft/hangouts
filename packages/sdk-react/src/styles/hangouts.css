@@ -1,4 +1,70 @@
 /* Hive Hangouts — .hh- prefix to avoid collisions */
+/* Theme via CSS custom properties — override these in your app */
+
+/* === Theme Variables === */
+
+:root, [data-hh-theme="light"] {
+  --hh-bg: #ffffff;
+  --hh-bg-secondary: #f5f5f5;
+  --hh-bg-hover: #f0f0f0;
+  --hh-text: #1a1a1a;
+  --hh-text-secondary: #666666;
+  --hh-text-muted: #888888;
+  --hh-border: #e0e0e0;
+  --hh-border-light: #eeeeee;
+  --hh-input-border: #cccccc;
+  --hh-primary: #e31337;
+  --hh-primary-hover: #c41030;
+  --hh-danger: #ff4444;
+  --hh-success: #22c55e;
+  --hh-btn-secondary-bg: #eeeeee;
+  --hh-btn-secondary-text: #333333;
+  --hh-btn-secondary-hover: #dddddd;
+  --hh-shadow: rgba(0, 0, 0, 0.15);
+}
+
+[data-hh-theme="dark"] {
+  --hh-bg: #1a1a2e;
+  --hh-bg-secondary: #16213e;
+  --hh-bg-hover: #1f2b47;
+  --hh-text: #e0e0e0;
+  --hh-text-secondary: #a0a0a0;
+  --hh-text-muted: #888888;
+  --hh-border: #2a2a4a;
+  --hh-border-light: #2a2a4a;
+  --hh-input-border: #3a3a5a;
+  --hh-primary: #e31337;
+  --hh-primary-hover: #ff2a4a;
+  --hh-danger: #ff4444;
+  --hh-success: #22c55e;
+  --hh-btn-secondary-bg: #2a2a4a;
+  --hh-btn-secondary-text: #e0e0e0;
+  --hh-btn-secondary-hover: #3a3a5a;
+  --hh-shadow: rgba(0, 0, 0, 0.4);
+}
+
+/* Auto-detect system preference */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-hh-theme]) {
+    --hh-bg: #1a1a2e;
+    --hh-bg-secondary: #16213e;
+    --hh-bg-hover: #1f2b47;
+    --hh-text: #e0e0e0;
+    --hh-text-secondary: #a0a0a0;
+    --hh-text-muted: #888888;
+    --hh-border: #2a2a4a;
+    --hh-border-light: #2a2a4a;
+    --hh-input-border: #3a3a5a;
+    --hh-primary: #e31337;
+    --hh-primary-hover: #ff2a4a;
+    --hh-danger: #ff4444;
+    --hh-success: #22c55e;
+    --hh-btn-secondary-bg: #2a2a4a;
+    --hh-btn-secondary-text: #e0e0e0;
+    --hh-btn-secondary-hover: #3a3a5a;
+    --hh-shadow: rgba(0, 0, 0, 0.4);
+  }
+}
 
 /* === Layout === */
 
@@ -7,6 +73,7 @@
   margin: 0 auto;
   padding: 1.5rem;
   font-family: system-ui, -apple-system, sans-serif;
+  color: var(--hh-text);
 }
 
 .hh-lobby__header {
@@ -24,7 +91,7 @@
 
 .hh-lobby__empty {
   text-align: center;
-  color: #888;
+  color: var(--hh-text-muted);
   padding: 3rem 0;
 }
 
@@ -35,10 +102,12 @@
 
 .hh-lobby__auth-input {
   padding: 0.5rem 0.75rem;
-  border: 1px solid #ccc;
+  border: 1px solid var(--hh-input-border);
   border-radius: 6px;
   font-size: 1rem;
   margin-right: 0.5rem;
+  background: var(--hh-bg);
+  color: var(--hh-text);
 }
 
 /* === Room Card === */
@@ -48,15 +117,16 @@
   align-items: center;
   gap: 1rem;
   padding: 1rem;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--hh-border);
   border-radius: 12px;
   margin-bottom: 0.75rem;
   cursor: pointer;
   transition: background 0.15s;
+  color: var(--hh-text);
 }
 
 .hh-room-card:hover {
-  background: #f5f5f5;
+  background: var(--hh-bg-hover);
 }
 
 .hh-room-card__avatar {
@@ -82,12 +152,12 @@
 
 .hh-room-card__meta {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--hh-text-secondary);
 }
 
 .hh-room-card__count {
   font-size: 0.85rem;
-  color: #888;
+  color: var(--hh-text-muted);
   white-space: nowrap;
 }
 
@@ -104,10 +174,12 @@
 .hh-create-dialog__input {
   width: 100%;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #ccc;
+  border: 1px solid var(--hh-input-border);
   border-radius: 6px;
   font-size: 1rem;
   box-sizing: border-box;
+  background: var(--hh-bg);
+  color: var(--hh-text);
 }
 
 /* === Buttons === */
@@ -132,25 +204,25 @@
 }
 
 .hh-btn--primary {
-  background: #e31337;
+  background: var(--hh-primary);
   color: white;
 }
 
 .hh-btn--primary:hover:not(:disabled) {
-  background: #c41030;
+  background: var(--hh-primary-hover);
 }
 
 .hh-btn--secondary {
-  background: #eee;
-  color: #333;
+  background: var(--hh-btn-secondary-bg);
+  color: var(--hh-btn-secondary-text);
 }
 
 .hh-btn--secondary:hover:not(:disabled) {
-  background: #ddd;
+  background: var(--hh-btn-secondary-hover);
 }
 
 .hh-btn--danger {
-  background: #ff4444;
+  background: var(--hh-danger);
   color: white;
 }
 
@@ -176,6 +248,7 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  color: var(--hh-text);
 }
 
 .hh-room__header {
@@ -193,12 +266,12 @@
 
 .hh-room__host {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--hh-text-secondary);
 }
 
 .hh-room__count {
   font-size: 0.85rem;
-  color: #888;
+  color: var(--hh-text-muted);
 }
 
 /* === Speaker Stage === */
@@ -211,7 +284,7 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #888;
+  color: var(--hh-text-muted);
   margin-bottom: 0.75rem;
 }
 
@@ -233,7 +306,7 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #888;
+  color: var(--hh-text-muted);
   margin-bottom: 0.75rem;
 }
 
@@ -275,7 +348,7 @@
 }
 
 .hh-tile--speaking .hh-tile__avatar {
-  border-color: #22c55e;
+  border-color: var(--hh-success);
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3);
 }
 
@@ -299,11 +372,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: center;
+  color: var(--hh-text);
 }
 
 .hh-tile__role {
   font-size: 0.65rem;
-  color: #e31337;
+  color: var(--hh-primary);
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -316,7 +390,7 @@
   align-items: center;
   gap: 1rem;
   padding: 1rem;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--hh-border-light);
   margin-top: auto;
 }
 
@@ -327,10 +401,10 @@
   top: 100%;
   left: 50%;
   transform: translateX(-50%);
-  background: white;
-  border: 1px solid #ddd;
+  background: var(--hh-bg);
+  border: 1px solid var(--hh-border);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 12px var(--hh-shadow);
   padding: 0.5rem;
   z-index: 10;
   display: flex;
@@ -348,14 +422,15 @@
   border-radius: 4px;
   font-size: 0.85rem;
   cursor: pointer;
+  color: var(--hh-text);
 }
 
 .hh-host-panel__btn:hover {
-  background: #f0f0f0;
+  background: var(--hh-bg-hover);
 }
 
 .hh-host-panel__btn--danger {
-  color: #e31337;
+  color: var(--hh-primary);
 }
 
 /* === Chat === */
@@ -368,7 +443,7 @@
   position: absolute;
   top: -6px;
   right: -6px;
-  background: #e31337;
+  background: var(--hh-primary);
   color: white;
   font-size: 0.65rem;
   font-weight: 700;
@@ -381,13 +456,13 @@
 }
 
 .hh-chat {
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--hh-border);
   border-radius: 12px;
   margin: 0.75rem 0;
   display: flex;
   flex-direction: column;
   max-height: 300px;
-  background: white;
+  background: var(--hh-bg);
 }
 
 .hh-chat__messages {
@@ -402,7 +477,7 @@
 
 .hh-chat__empty {
   text-align: center;
-  color: #aaa;
+  color: var(--hh-text-muted);
   font-size: 0.85rem;
   padding: 2rem 0;
 }
@@ -425,28 +500,32 @@
   font-size: 0.8rem;
   font-weight: 600;
   margin-right: 0.4rem;
+  color: var(--hh-text);
 }
 
 .hh-chat__msg-text {
   font-size: 0.85rem;
+  color: var(--hh-text);
 }
 
 .hh-chat__input-row {
   display: flex;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--hh-border-light);
 }
 
 .hh-chat__input {
   flex: 1;
   padding: 0.4rem 0.6rem;
-  border: 1px solid #ccc;
+  border: 1px solid var(--hh-input-border);
   border-radius: 6px;
   font-size: 0.85rem;
   outline: none;
+  background: var(--hh-bg);
+  color: var(--hh-text);
 }
 
 .hh-chat__input:focus {
-  border-color: #e31337;
+  border-color: var(--hh-primary);
 }
