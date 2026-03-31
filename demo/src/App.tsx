@@ -10,8 +10,21 @@ function getRoomFromUrl(): string | null {
   return match ? match[1] : null;
 }
 
+function getInitialTheme(): 'light' | 'dark' {
+  const saved = localStorage.getItem('hh-theme');
+  if (saved === 'light' || saved === 'dark') return saved;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 export default function App() {
   const [activeRoom, setActiveRoom] = useState<string | null>(getRoomFromUrl);
+  const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
+
+  const toggleTheme = () => {
+    const next = theme === 'light' ? 'dark' : 'light';
+    setTheme(next);
+    localStorage.setItem('hh-theme', next);
+  };
 
   // Sync URL with room state
   useEffect(() => {
@@ -30,17 +43,25 @@ export default function App() {
   }, []);
 
   return (
-    <HangoutsProvider apiBaseUrl={API_BASE_URL} livekitServerUrl={LIVEKIT_URL}>
-      {activeRoom ? (
-        <HangoutsRoom
-          roomName={activeRoom}
-          onLeave={() => setActiveRoom(null)}
-        />
-      ) : (
-        <RoomLobby
-          onJoinRoom={(roomName) => setActiveRoom(roomName)}
-        />
-      )}
-    </HangoutsProvider>
+    <div data-hh-theme={theme} className="hh-app">
+      <div className="hh-app__theme-toggle">
+        <button onClick={toggleTheme} className="hh-btn hh-btn--secondary hh-btn--small">
+          {theme === 'light' ? '🌙' : '☀️'}
+        </button>
+      </div>
+      <HangoutsProvider apiBaseUrl={API_BASE_URL} livekitServerUrl={LIVEKIT_URL}>
+        {activeRoom ? (
+          <HangoutsRoom
+            roomName={activeRoom}
+            onLeave={() => setActiveRoom(null)}
+            embedded
+          />
+        ) : (
+          <RoomLobby
+            onJoinRoom={(roomName) => setActiveRoom(roomName)}
+          />
+        )}
+      </HangoutsProvider>
+    </div>
   );
 }

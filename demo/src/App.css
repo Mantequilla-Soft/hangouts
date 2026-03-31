@@ -6,7 +6,19 @@
 
 body {
   font-family: system-ui, -apple-system, sans-serif;
-  background: #fafafa;
-  color: #1a1a1a;
   min-height: 100vh;
+}
+
+.hh-app {
+  min-height: 100vh;
+  background: var(--hh-bg);
+  color: var(--hh-text);
+  transition: background 0.2s, color 0.2s;
+}
+
+.hh-app__theme-toggle {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 50;
 }
