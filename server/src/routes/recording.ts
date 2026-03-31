@@ -136,6 +136,7 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
         required: ['filePath'],
         properties: {
           filePath: { type: 'string' },
+          duration: { type: 'number' },
           title: { type: 'string', maxLength: 128 },
           tags: { type: 'array', items: { type: 'string' } },
         },
@@ -143,8 +144,9 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
     },
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
-    const { filePath, title, tags } = request.body as {
+    const { filePath, duration, title, tags } = request.body as {
       filePath: string;
+      duration?: number;
       title?: string;
       tags?: string[];
     };
@@ -178,14 +180,19 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
       roomTitle = meta.title || name;
     } catch { /* ignore */ }
 
+    // Use provided duration or estimate from file size (MP3 at 128kbps ≈ 16KB/sec)
+    const estimatedDuration = duration || Math.round(fileBuffer.length / 16000);
+
     const formData = new FormData();
     formData.append('audio', new Blob([new Uint8Array(fileBuffer)], { type: 'audio/mpeg' }), `${name}.mp3`);
+    formData.append('duration', estimatedDuration.toString());
     formData.append('format', 'mp3');
     formData.append('title', title || roomTitle);
     formData.append('category', 'podcast');
     formData.append('tags', JSON.stringify(tags || ['hangout', 'podcast', 'hive']));
 
-    const audioResponse = await fetch(`${config.AUDIO_API_URL}/api/audio/upload`, {
+    const audioApiUrl = config.AUDIO_API_URL.replace(/\/$/, '');
+    const audioResponse = await fetch(`${audioApiUrl}/api/audio/upload`, {
       method: 'POST',
       headers: {
         'X-API-Key': config.AUDIO_API_KEY,
@@ -196,6 +203,7 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
 
     if (!audioResponse.ok) {
       const err = await audioResponse.text();
+      request.log.error({ audioApiUrl, status: audioResponse.status, err }, 'Audio upload failed');
       return reply.internalServerError(`Audio upload failed: ${err}`);
     }
 

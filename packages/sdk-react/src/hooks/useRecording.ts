@@ -58,7 +58,7 @@ export function useRecording(roomName: string | null) {
     if (!roomName || !state.filePath) return;
     setIsLoading(true);
     try {
-      const result = await apiClient.uploadRecording(roomName, state.filePath, title, tags);
+      const result = await apiClient.uploadRecording(roomName, state.filePath, state.duration ?? undefined, title, tags);
       setState((prev) => ({ ...prev, uploadResult: result }));
       return result;
     } finally {

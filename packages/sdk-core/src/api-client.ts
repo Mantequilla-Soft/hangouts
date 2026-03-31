@@ -124,9 +124,10 @@ export class HangoutsApiClient {
     return this.request('GET', `/rooms/${encodeURIComponent(roomName)}/record/status`);
   }
 
-  async uploadRecording(roomName: string, filePath: string, title?: string, tags?: string[]): Promise<RecordingUploadResponse> {
+  async uploadRecording(roomName: string, filePath: string, duration?: number, title?: string, tags?: string[]): Promise<RecordingUploadResponse> {
     return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/record/upload`, {
       filePath,
+      duration,
       title,
       tags,
     });
