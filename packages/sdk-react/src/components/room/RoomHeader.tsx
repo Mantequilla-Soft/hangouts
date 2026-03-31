@@ -1,19 +1,25 @@
 import { useParticipants } from '@livekit/components-react';
 import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
+import { useRecording } from '../../hooks/useRecording.js';
+import { RecordingIndicator } from './RecordingControls.js';
 
 export interface RoomHeaderProps {
   title: string;
   host: string;
+  roomName?: string;
 }
 
-export function RoomHeader({ title, host }: RoomHeaderProps) {
+export function RoomHeader({ title, host, roomName }: RoomHeaderProps) {
   const participants = useParticipants();
   const hostAvatar = useHiveAvatar(host, 'small');
+  const recording = useRecording(roomName ?? null);
 
   return (
     <div className="hh-room__header">
       <div>
-        <h2 className="hh-room__title">{title}</h2>
+        <h2 className="hh-room__title">
+          {title} <RecordingIndicator isRecording={recording.isRecording} />
+        </h2>
         <div className="hh-room__host">
           <img
             src={hostAvatar}

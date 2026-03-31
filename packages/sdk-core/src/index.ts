@@ -10,4 +10,8 @@ export type {
   ParticipantRole,
   HandRaiseEvent,
   DataMessage,
+  RecordingStartResponse,
+  RecordingStopResponse,
+  RecordingStatusResponse,
+  RecordingUploadResponse,
 } from './types.js';

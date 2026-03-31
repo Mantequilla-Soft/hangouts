@@ -43,3 +43,28 @@ export interface DataMessage {
   type: string;
   [key: string]: unknown;
 }
+
+export interface RecordingStartResponse {
+  egressId: string;
+  status: string;
+  filepath: string;
+}
+
+export interface RecordingStopResponse {
+  egressId: string;
+  status: string;
+  filePath: string;
+  duration: number;
+}
+
+export interface RecordingStatusResponse {
+  recording: boolean;
+  egressId?: string;
+}
+
+export interface RecordingUploadResponse {
+  success: boolean;
+  permlink: string;
+  cid: string;
+  playUrl: string;
+}

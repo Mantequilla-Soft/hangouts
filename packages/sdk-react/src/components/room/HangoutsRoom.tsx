@@ -59,7 +59,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
           className={`hh-room ${embedded ? 'hh-room--embedded' : ''}`}
           style={maxHeight ? { maxHeight } : undefined}
         >
-          <RoomHeader title={title} host={host} />
+          <RoomHeader title={title} host={host} roomName={roomName} />
           <div className="hh-room__content">
             <SpeakerStage
               hostIdentity={host}
@@ -75,6 +75,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
           </div>
           <RoomControls
             isHost={room.isHost}
+            roomName={roomName}
             onLeave={handleLeave}
             onEndRoom={room.isHost ? handleEndRoom : undefined}
           />

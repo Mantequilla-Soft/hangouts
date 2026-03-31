@@ -1,13 +1,15 @@
 import { useLocalParticipant } from '@livekit/components-react';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
+import { RecordingControls } from './RecordingControls.js';
 
 export interface RoomControlsProps {
   isHost: boolean;
+  roomName: string;
   onLeave: () => void;
   onEndRoom?: () => void;
 }
 
-export function RoomControls({ isHost, onLeave, onEndRoom }: RoomControlsProps) {
+export function RoomControls({ isHost, roomName, onLeave, onEndRoom }: RoomControlsProps) {
   const { localParticipant } = useLocalParticipant();
   const canPublish = localParticipant?.permissions?.canPublish ?? false;
   const isMuted = !localParticipant?.isMicrophoneEnabled;
@@ -42,6 +44,8 @@ export function RoomControls({ isHost, onLeave, onEndRoom }: RoomControlsProps) 
       <button className="hh-btn hh-btn--secondary" onClick={onLeave}>
         Leave
       </button>
+
+      {isHost && <RecordingControls roomName={roomName} />}
 
       {isHost && onEndRoom && (
         <button className="hh-btn hh-btn--danger" onClick={onEndRoom}>

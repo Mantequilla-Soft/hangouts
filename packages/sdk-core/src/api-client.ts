@@ -1,4 +1,4 @@
-import type { Room, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse } from './types.js';
+import type { Room, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingUploadResponse } from './types.js';
 import { HangoutsApiError } from './errors.js';
 
 export interface HangoutsApiClientOptions {
@@ -108,5 +108,27 @@ export class HangoutsApiClient {
       'DELETE',
       `/rooms/${encodeURIComponent(roomName)}/participants/${encodeURIComponent(identity)}`,
     );
+  }
+
+  // Recording
+
+  async startRecording(roomName: string): Promise<RecordingStartResponse> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/record/start`);
+  }
+
+  async stopRecording(roomName: string): Promise<RecordingStopResponse> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/record/stop`);
+  }
+
+  async getRecordingStatus(roomName: string): Promise<RecordingStatusResponse> {
+    return this.request('GET', `/rooms/${encodeURIComponent(roomName)}/record/status`);
+  }
+
+  async uploadRecording(roomName: string, filePath: string, title?: string, tags?: string[]): Promise<RecordingUploadResponse> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/record/upload`, {
+      filePath,
+      title,
+      tags,
+    });
   }
 }

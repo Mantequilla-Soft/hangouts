@@ -561,3 +561,55 @@
 .hh-chat__input:focus {
   border-color: var(--hh-primary);
 }
+
+/* === Recording === */
+
+.hh-recording-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--hh-danger);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.hh-recording-indicator__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hh-danger);
+  animation: hh-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes hh-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.hh-recording-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--hh-border);
+  border-radius: 8px;
+  background: var(--hh-bg-secondary);
+}
+
+.hh-recording-upload__info {
+  font-size: 0.85rem;
+  color: var(--hh-text-secondary);
+}
+
+.hh-recording-upload__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.hh-recording-upload__success {
+  font-size: 0.8rem;
+  color: var(--hh-success);
+  word-break: break-all;
+}
