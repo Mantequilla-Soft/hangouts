@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useHangoutsContext } from '../context/HangoutsContext.js';
 
 interface RecordingState {
@@ -6,6 +6,7 @@ interface RecordingState {
   filePath: string | null;
   duration: number | null;
   uploadResult: { permlink: string; cid: string; playUrl: string } | null;
+  elapsed: number; // seconds since recording started
 }
 
 export function useRecording(roomName: string | null) {
@@ -15,10 +16,30 @@ export function useRecording(roomName: string | null) {
     filePath: null,
     duration: null,
     uploadResult: null,
+    elapsed: 0,
   });
   const [isLoading, setIsLoading] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Check recording status on mount
+  // Timer: count up every second while recording
+  useEffect(() => {
+    if (state.isRecording) {
+      setState((prev) => ({ ...prev, elapsed: 0 }));
+      timerRef.current = setInterval(() => {
+        setState((prev) => ({ ...prev, elapsed: prev.elapsed + 1 }));
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [state.isRecording]);
+
+  // Check recording status on mount (so listeners see recording state too)
   useEffect(() => {
     if (!roomName) return;
     apiClient.getRecordingStatus(roomName).then((status) => {
@@ -31,7 +52,7 @@ export function useRecording(roomName: string | null) {
     setIsLoading(true);
     try {
       await apiClient.startRecording(roomName);
-      setState((prev) => ({ ...prev, isRecording: true, filePath: null, duration: null, uploadResult: null }));
+      setState((prev) => ({ ...prev, isRecording: true, filePath: null, duration: null, uploadResult: null, elapsed: 0 }));
     } finally {
       setIsLoading(false);
     }

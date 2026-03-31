@@ -100,18 +100,31 @@ export function RecordingControls({ roomName }: RecordingControlsProps) {
       onClick={recording.isRecording ? handleStop : recording.startRecording}
       disabled={recording.isLoading}
     >
-      {recording.isRecording ? '⏹ Stop Rec' : '⏺ Record'}
+      {recording.isRecording
+        ? `⏹ Stop (${formatTime(recording.elapsed)})`
+        : '⏺ Record'}
     </button>
   );
 }
 
-export function RecordingIndicator({ isRecording }: { isRecording: boolean }) {
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+export interface RecordingIndicatorProps {
+  isRecording: boolean;
+  elapsed?: number;
+}
+
+export function RecordingIndicator({ isRecording, elapsed = 0 }: RecordingIndicatorProps) {
   if (!isRecording) return null;
 
   return (
     <span className="hh-recording-indicator">
       <span className="hh-recording-indicator__dot" />
-      REC
+      REC {formatTime(elapsed)}
     </span>
   );
 }

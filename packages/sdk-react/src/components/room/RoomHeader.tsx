@@ -18,7 +18,7 @@ export function RoomHeader({ title, host, roomName }: RoomHeaderProps) {
     <div className="hh-room__header">
       <div>
         <h2 className="hh-room__title">
-          {title} <RecordingIndicator isRecording={recording.isRecording} />
+          {title} <RecordingIndicator isRecording={recording.isRecording} elapsed={recording.elapsed} />
         </h2>
         <div className="hh-room__host">
           <img

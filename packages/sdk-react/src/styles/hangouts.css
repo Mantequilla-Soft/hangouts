@@ -573,6 +573,10 @@
   color: var(--hh-danger);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  background: rgba(255, 68, 68, 0.1);
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 68, 68, 0.3);
 }
 
 .hh-recording-indicator__dot {
