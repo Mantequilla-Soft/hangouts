@@ -6,9 +6,10 @@ export interface HostControlsPanelProps {
   role: ParticipantRole;
   roomName: string;
   onClose: () => void;
+  position?: { top: number; left: number };
 }
 
-export function HostControlsPanel({ identity, role, roomName, onClose }: HostControlsPanelProps) {
+export function HostControlsPanel({ identity, role, roomName, onClose, position }: HostControlsPanelProps) {
   const { promote, demote, kick, pending } = useHostControls(roomName);
   const isPending = pending.has(identity);
 
@@ -18,7 +19,11 @@ export function HostControlsPanel({ identity, role, roomName, onClose }: HostCon
   };
 
   return (
-    <div className="hh-host-panel" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="hh-host-panel"
+      style={position ? { top: position.top, left: position.left } : undefined}
+      onClick={(e) => e.stopPropagation()}
+    >
       {role === 'listener' && (
         <button
           className="hh-host-panel__btn"

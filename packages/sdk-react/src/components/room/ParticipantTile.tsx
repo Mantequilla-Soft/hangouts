@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, type MouseEvent } from 'react';
 import { useIsSpeaking } from '@livekit/components-react';
 import type { Participant } from 'livekit-client';
 import type { ParticipantRole } from '@snapie/hangouts-core';
@@ -26,6 +26,26 @@ export function ParticipantTile({
   const avatarUrl = useHiveAvatar(participant.identity);
   const isMuted = role !== 'listener' && !participant.isMicrophoneEnabled;
   const [showPanel, setShowPanel] = useState(false);
+  const [panelPos, setPanelPos] = useState({ top: 0, left: 0 });
+  const tileRef = useRef<HTMLDivElement>(null);
+
+  const handleClick = (e: MouseEvent) => {
+    if (!isCurrentUserHost) return;
+
+    if (showPanel) {
+      setShowPanel(false);
+      return;
+    }
+
+    // Position panel near the click, clamped to viewport
+    const rect = tileRef.current?.getBoundingClientRect();
+    if (rect) {
+      const top = Math.min(rect.bottom + 4, window.innerHeight - 200);
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - 160));
+      setPanelPos({ top, left });
+    }
+    setShowPanel(true);
+  };
 
   const classes = [
     'hh-tile',
@@ -35,10 +55,7 @@ export function ParticipantTile({
   ].filter(Boolean).join(' ');
 
   return (
-    <div
-      className={classes}
-      onClick={() => isCurrentUserHost && setShowPanel(!showPanel)}
-    >
+    <div className={classes} ref={tileRef} onClick={handleClick}>
       <div className="hh-tile__avatar-wrap">
         <img
           className="hh-tile__avatar"
@@ -56,6 +73,7 @@ export function ParticipantTile({
           role={role}
           roomName={roomName}
           onClose={() => setShowPanel(false)}
+          position={panelPos}
         />
       )}
     </div>
