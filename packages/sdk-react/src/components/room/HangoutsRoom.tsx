@@ -16,9 +16,11 @@ export interface HangoutsRoomProps {
   embedded?: boolean;
   /** Optional max height for the room container (e.g., "80vh", "600px"). */
   maxHeight?: string;
+  /** Called when the host uploads a recording to IPFS. */
+  onRecordingUploaded?: (result: { permlink: string; cid: string; playUrl: string }) => void;
 }
 
-export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onRecordingUploaded }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
 
   useEffect(() => {
@@ -78,6 +80,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
             roomName={roomName}
             onLeave={handleLeave}
             onEndRoom={room.isHost ? handleEndRoom : undefined}
+            onRecordingUploaded={onRecordingUploaded}
           />
         </div>
       </LiveKitRoom>

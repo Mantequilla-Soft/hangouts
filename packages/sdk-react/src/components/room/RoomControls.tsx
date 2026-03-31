@@ -7,9 +7,10 @@ export interface RoomControlsProps {
   roomName: string;
   onLeave: () => void;
   onEndRoom?: () => void;
+  onRecordingUploaded?: (result: { permlink: string; cid: string; playUrl: string }) => void;
 }
 
-export function RoomControls({ isHost, roomName, onLeave, onEndRoom }: RoomControlsProps) {
+export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecordingUploaded }: RoomControlsProps) {
   const { localParticipant } = useLocalParticipant();
   const canPublish = localParticipant?.permissions?.canPublish ?? false;
   const isMuted = !localParticipant?.isMicrophoneEnabled;
@@ -45,7 +46,7 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom }: RoomContr
         Leave
       </button>
 
-      {isHost && <RecordingControls roomName={roomName} />}
+      {isHost && <RecordingControls roomName={roomName} onUploaded={onRecordingUploaded} />}
 
       {isHost && onEndRoom && (
         <button className="hh-btn hh-btn--danger" onClick={onEndRoom}>

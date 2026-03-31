@@ -3,9 +3,10 @@ import { useRecording } from '../../hooks/useRecording.js';
 
 export interface RecordingControlsProps {
   roomName: string;
+  onUploaded?: (result: { permlink: string; cid: string; playUrl: string }) => void;
 }
 
-export function RecordingControls({ roomName }: RecordingControlsProps) {
+export function RecordingControls({ roomName, onUploaded }: RecordingControlsProps) {
   const recording = useRecording(roomName);
   const [showUpload, setShowUpload] = useState(false);
   const [uploadTitle, setUploadTitle] = useState('');
@@ -25,7 +26,7 @@ export function RecordingControls({ roomName }: RecordingControlsProps) {
       const tags = ['hangout', 'podcast', 'hive'];
       const result = await recording.uploadRecording(uploadTitle || undefined, tags);
       console.log('[Hangouts] Upload complete:', result);
-      // Don't hide the dialog — show the result
+      if (result) onUploaded?.(result);
     } catch (err) {
       console.error('[Hangouts] Upload failed:', err);
     }
