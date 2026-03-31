@@ -609,7 +609,14 @@
 }
 
 .hh-recording-upload__success {
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   color: var(--hh-success);
+  font-weight: 600;
+}
+
+.hh-recording-upload__link {
+  font-size: 0.8rem;
+  color: var(--hh-primary);
   word-break: break-all;
+  text-decoration: underline;
 }
