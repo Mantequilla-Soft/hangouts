@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useLocalParticipant } from '@livekit/components-react';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { RecordingControls } from './RecordingControls.js';
@@ -15,6 +16,15 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecording
   const canPublish = localParticipant?.permissions?.canPublish ?? false;
   const isMuted = !localParticipant?.isMicrophoneEnabled;
   const { isRaised, raiseHand, lowerHand } = useHandRaise();
+  const prevCanPublish = useRef(canPublish);
+
+  // Auto-lower hand when promoted (canPublish transitions false → true)
+  useEffect(() => {
+    if (canPublish && !prevCanPublish.current && isRaised) {
+      lowerHand();
+    }
+    prevCanPublish.current = canPublish;
+  }, [canPublish, isRaised, lowerHand]);
 
   const toggleMute = async () => {
     if (!localParticipant) return;
@@ -33,7 +43,7 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecording
         </button>
       )}
 
-      {!canPublish && (
+      {(!canPublish || isRaised) && (
         <button
           className={`hh-btn ${isRaised ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
           onClick={isRaised ? lowerHand : raiseHand}
