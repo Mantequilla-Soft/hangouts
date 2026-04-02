@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { roomService } from '../lib/livekit.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { checkBan } from '../middleware/checkBan.js';
 
 /** Parse room metadata and verify the caller is the host. */
 async function verifyHost(roomName: string, username: string) {
@@ -17,7 +18,7 @@ async function verifyHost(roomName: string, username: string) {
 export const participantRoutes: FastifyPluginAsync = async (fastify) => {
   // Promote/demote a participant (host only)
   fastify.patch('/rooms/:name/participants/:identity/permissions', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, checkBan],
     schema: {
       params: {
         type: 'object',
@@ -57,7 +58,7 @@ export const participantRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Kick a participant (host only)
   fastify.delete('/rooms/:name/participants/:identity', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, checkBan],
     schema: {
       params: {
         type: 'object',

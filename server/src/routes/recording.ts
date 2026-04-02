@@ -3,6 +3,7 @@ import { EgressClient, EncodedFileOutput, EncodedFileType } from 'livekit-server
 import { roomService } from '../lib/livekit.js';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { checkBan } from '../middleware/checkBan.js';
 import { readFile, unlink } from 'node:fs/promises';
 
 const egressClient = new EgressClient(
@@ -26,7 +27,7 @@ async function verifyHost(roomName: string, username: string) {
 export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
   // Start recording (host only)
   fastify.post('/rooms/:name/record/start', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, checkBan],
     schema: {
       params: {
         type: 'object',
@@ -67,7 +68,7 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Stop recording (host only)
   fastify.post('/rooms/:name/record/stop', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, checkBan],
     schema: {
       params: {
         type: 'object',
@@ -103,7 +104,7 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Get recording status (host only)
   fastify.get('/rooms/:name/record/status', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, checkBan],
     schema: {
       params: {
         type: 'object',
@@ -124,7 +125,7 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Upload recording to audio.3speak.tv (host only)
   fastify.post('/rooms/:name/record/upload', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, checkBan],
     schema: {
       params: {
         type: 'object',

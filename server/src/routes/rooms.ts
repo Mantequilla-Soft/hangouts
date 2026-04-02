@@ -1,8 +1,11 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { AccessToken } from 'livekit-server-sdk';
+import { TrackSource } from '@livekit/protocol';
 import { roomService } from '../lib/livekit.js';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { checkBan } from '../middleware/checkBan.js';
+import { getUserStatus } from '../lib/users.js';
 
 interface RoomMetadata {
   title: string;
@@ -24,21 +27,33 @@ function generateRoomName(username: string, title: string): string {
 async function createLivekitToken(
   room: string,
   identity: string,
-  options: { canPublish: boolean; canPublishData: boolean },
+  options: { canPublish: boolean; canPublishData: boolean; premium?: boolean },
 ): Promise<string> {
   const at = new AccessToken(config.LIVEKIT_API_KEY, config.LIVEKIT_API_SECRET, {
     identity,
     ttl: '6h',
   });
 
-  at.addGrant({
+  const grant: Record<string, unknown> = {
     roomJoin: true,
     room,
-    canPublish: options.canPublish,
     canSubscribe: true,
     canPublishData: options.canPublishData,
-  });
+  };
 
+  if (options.canPublish) {
+    if (options.premium) {
+      // Premium: full publish (audio + video + screen share)
+      grant.canPublish = true;
+    } else {
+      // Non-premium: audio only via source restriction
+      grant.canPublishSources = [TrackSource.MICROPHONE];
+    }
+  } else {
+    grant.canPublish = false;
+  }
+
+  at.addGrant(grant);
   return at.toJwt();
 }
 
@@ -98,7 +113,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Create a room (auth required — caller becomes host)
   fastify.post('/rooms', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, checkBan],
     schema: {
       body: {
         type: 'object',
@@ -112,6 +127,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
   }, async (request, reply) => {
     const { title, description } = request.body as { title: string; description?: string };
     const host = request.username;
+    const { premium } = await getUserStatus(host);
 
     const roomName = generateRoomName(host, title);
     const metadata: RoomMetadata = {
@@ -128,10 +144,11 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       metadata: JSON.stringify(metadata),
     });
 
-    // Issue a host token with full permissions
+    // Issue a host token — premium gets video, non-premium gets audio only
     const token = await createLivekitToken(roomName, host, {
       canPublish: true,
       canPublishData: true,
+      premium,
     });
 
     return reply.code(201).send({
@@ -143,12 +160,13 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         createdAt: metadata.createdAt,
       },
       token,
+      isPremium: premium,
     });
   });
 
   // Join a room as a listener (auth required — identity from session)
   fastify.post('/rooms/:name/join', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, checkBan],
     schema: {
       params: {
         type: 'object',
@@ -159,6 +177,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
     const identity = request.username;
+    const { premium } = await getUserStatus(identity);
 
     // Verify the room exists
     const rooms = await roomService.listRooms([name]);
@@ -174,14 +193,15 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     const token = await createLivekitToken(name, identity, {
       canPublish: isHost,
       canPublishData: true, // all participants can send data (hand raise, etc.)
+      premium,
     });
 
-    return reply.send({ token, roomName: name, identity, isHost });
+    return reply.send({ token, roomName: name, identity, isHost, isPremium: premium });
   });
 
   // Delete/close a room (auth required — host only)
   fastify.delete('/rooms/:name', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, checkBan],
     schema: {
       params: {
         type: 'object',

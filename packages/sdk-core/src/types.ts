@@ -11,6 +11,7 @@ export interface Room {
 export interface CreateRoomResponse {
   room: Room;
   token: string;
+  isPremium?: boolean;
 }
 
 export interface JoinRoomResponse {
@@ -18,6 +19,7 @@ export interface JoinRoomResponse {
   roomName: string;
   identity: string;
   isHost: boolean;
+  isPremium?: boolean;
 }
 
 export interface AuthSession {
