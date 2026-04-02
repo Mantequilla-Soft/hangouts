@@ -12,7 +12,7 @@ export interface ParticipantTileProps {
   isHandRaised?: boolean;
   isCurrentUserHost?: boolean;
   roomName?: string;
-  size?: 'normal' | 'small';
+  size?: 'large' | 'normal' | 'small';
   isPanelOpen?: boolean;
   onTogglePanel?: () => void;
   videoEnabled?: boolean;
@@ -78,6 +78,7 @@ export function ParticipantTile({
 
   const classes = [
     'hh-tile',
+    size === 'large' && 'hh-tile--large',
     size === 'small' && 'hh-tile--small',
     isSpeaking && 'hh-tile--speaking',
     isMuted && 'hh-tile--muted',
