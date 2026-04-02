@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import './styles.css';
 
-type Section = 'getting-started' | 'authentication' | 'sdk-core' | 'sdk-react' | 'theming' | 'api-reference' | 'recording' | 'integration-guides';
+type Section = 'getting-started' | 'authentication' | 'sdk-core' | 'sdk-react' | 'theming' | 'recording' | 'premium-and-bans' | 'api-reference' | 'integration-guides';
 
 const NAV: { id: Section; label: string }[] = [
   { id: 'getting-started', label: 'Getting Started' },
@@ -10,6 +10,7 @@ const NAV: { id: Section; label: string }[] = [
   { id: 'sdk-react', label: '@snapie/hangouts-react' },
   { id: 'theming', label: 'Theming' },
   { id: 'recording', label: 'Recording' },
+  { id: 'premium-and-bans', label: 'Premium & Bans' },
   { id: 'api-reference', label: 'API Reference' },
   { id: 'integration-guides', label: 'Integration Guides' },
 ];
@@ -43,6 +44,7 @@ export default function App() {
         {active === 'sdk-react' && <SdkReact />}
         {active === 'theming' && <Theming />}
         {active === 'recording' && <Recording />}
+        {active === 'premium-and-bans' && <PremiumAndBans />}
         {active === 'api-reference' && <ApiReference />}
         {active === 'integration-guides' && <IntegrationGuides />}
       </main>
@@ -348,11 +350,18 @@ interface AuthSession {
   username: string;
 }
 
+interface CreateRoomResponse {
+  room: Room;
+  token: string;    // LiveKit token
+  isPremium?: boolean;  // true if user has premium video access
+}
+
 interface JoinRoomResponse {
   token: string;    // LiveKit token
   roomName: string;
   identity: string;
   isHost: boolean;
+  isPremium?: boolean;  // true if user has premium video access
 }
 
 interface HandRaiseEvent {
@@ -661,8 +670,8 @@ function ApiReference() {
         rows={[
           ['GET', '/rooms', 'No', 'List all active rooms'],
           ['GET', '/rooms/:name', 'No', 'Get a single room (404 if not found)'],
-          ['POST', '/rooms', 'Yes', 'Create a room. Body: { title, description? }. Returns: { room, token }'],
-          ['POST', '/rooms/:name/join', 'Yes', 'Join a room. Returns: { token, roomName, identity, isHost }'],
+          ['POST', '/rooms', 'Yes', 'Create a room. Body: { title, description? }. Returns: { room, token, isPremium }'],
+          ['POST', '/rooms/:name/join', 'Yes', 'Join a room. Returns: { token, roomName, identity, isHost, isPremium }'],
           ['DELETE', '/rooms/:name', 'Host', 'Close/delete a room'],
         ]}
       />
@@ -696,6 +705,91 @@ function ApiReference() {
 // Error
 { "statusCode": 401, "error": "Unauthorized", "message": "Invalid or expired session token" }
       `}</Code>
+    </>
+  );
+}
+
+function PremiumAndBans() {
+  return (
+    <>
+      <H1>Premium & Bans</H1>
+      <P>
+        The server enforces premium video access and user bans by checking the
+        3speak <code>embed-users</code> MongoDB collection. This is server-side —
+        frontends cannot bypass it.
+      </P>
+
+      <H2>How it works</H2>
+      <Code>{`
+When a user creates or joins a room, the server:
+
+1. Checks embed-users collection for their username
+2. If banned: true → 403 "Your account has been suspended"
+3. If premium: true → token allows audio + video + screen share
+4. If premium: false → token allows audio only (canPublishSources: [MICROPHONE])
+5. Returns isPremium: boolean in the response
+      `}</Code>
+
+      <H2>Banned users</H2>
+      <P>
+        Users with <code>banned: true</code> in the <code>embed-users</code> collection
+        get 403 on ALL authenticated routes — they cannot join rooms, create rooms,
+        record, or perform any action. The ban check runs as middleware before every
+        authenticated endpoint.
+      </P>
+      <P>
+        No frontend changes are needed for ban enforcement. The API client
+        throws <code>HangoutsApiError</code> with status 403.
+      </P>
+
+      <H2>Premium video</H2>
+      <P>
+        Non-premium users can use audio, chat, hand raise, and all non-video features.
+        When promoted to speaker, they can speak — but cannot turn on their camera
+        or share their screen. This is enforced at the LiveKit token level.
+      </P>
+      <P>
+        The <code>create</code> and <code>join</code> responses include <code>isPremium</code>:
+      </P>
+      <Code>{`
+// Create room response
+{ room: { name, title, ... }, token: "...", isPremium: true }
+
+// Join room response
+{ token: "...", roomName: "...", identity: "alice", isHost: false, isPremium: true }
+      `}</Code>
+
+      <H2>Frontend usage</H2>
+      <P>
+        Use <code>isPremium</code> to conditionally enable the video UI.
+        Even if you skip this check, the server blocks video for non-premium users.
+      </P>
+      <Code>{`
+// The server response tells you if the user is premium
+const result = await client.joinRoom(roomName);
+
+// Pass to the component
+<HangoutsRoom
+  roomName={roomName}
+  video={result.isPremium}  // only show video controls for premium
+  embedded
+/>
+      `}</Code>
+
+      <H2>Graceful degradation</H2>
+      <P>
+        If <code>MONGODB_URI</code> is not configured on the server, all users are
+        treated as non-banned and non-premium. The system works without MongoDB —
+        it just doesn't enforce premium or bans. This means self-hosters can run
+        without the 3speak database.
+      </P>
+
+      <H2>Caching</H2>
+      <P>
+        User status is cached in memory for 60 seconds to avoid hitting MongoDB
+        on every request. A user's ban or premium status change takes up to 1 minute
+        to take effect.
+      </P>
     </>
   );
 }
