@@ -324,6 +324,42 @@
   justify-content: center;
 }
 
+.hh-stage__grid--compact {
+  justify-content: flex-start;
+  gap: 0.5rem;
+}
+
+/* Screen share view */
+.hh-screen-share {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  margin-bottom: 1rem;
+}
+
+.hh-screen-share__video {
+  width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+}
+
+.hh-room--embedded .hh-screen-share__video {
+  max-height: 250px;
+}
+
+.hh-screen-share__label {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
 /* === Audience === */
 
 .hh-audience {
@@ -376,9 +412,20 @@
   transition: border-color 0.2s;
 }
 
-.hh-tile--speaking .hh-tile__avatar {
+.hh-tile--speaking .hh-tile__avatar,
+.hh-tile--speaking .hh-tile__video {
   border-color: var(--hh-success);
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3);
+}
+
+/* Video inside participant tile */
+.hh-tile__video {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid transparent;
+  transition: border-color 0.2s;
 }
 
 .hh-tile--muted .hh-tile__avatar {

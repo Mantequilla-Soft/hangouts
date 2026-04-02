@@ -18,9 +18,11 @@ export interface HangoutsRoomProps {
   maxHeight?: string;
   /** Called when the host uploads a recording to IPFS. */
   onRecordingUploaded?: (result: { permlink: string; cid: string; playUrl: string }) => void;
+  /** Enable video and screen sharing for speakers. Default: false (audio-only). */
+  video?: boolean;
 }
 
-export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onRecordingUploaded }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onRecordingUploaded, video = false }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
 
   useEffect(() => {
@@ -54,6 +56,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
         serverUrl={room.livekitServerUrl}
         connect={true}
         audio={true}
+        video={video}
         onDisconnected={handleLeave}
       >
         <RoomAudioRenderer />
@@ -67,6 +70,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
               hostIdentity={host}
               isCurrentUserHost={room.isHost}
               roomName={roomName}
+              videoEnabled={video}
             />
             <AudienceSection
               hostIdentity={host}
@@ -81,6 +85,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
             onLeave={handleLeave}
             onEndRoom={room.isHost ? handleEndRoom : undefined}
             onRecordingUploaded={onRecordingUploaded}
+            videoEnabled={video}
           />
         </div>
       </LiveKitRoom>

@@ -37,6 +37,7 @@ export { RoomHeader, type RoomHeaderProps } from './components/room/RoomHeader.j
 export { ChatPanel } from './components/room/ChatPanel.js';
 export { RecordingControls, RecordingIndicator } from './components/room/RecordingControls.js';
 export { HangoutsErrorBoundary } from './components/room/HangoutsErrorBoundary.js';
+export { ScreenShareView } from './components/room/ScreenShareView.js';
 
 // Hooks — Chat
 export { useChat, type ChatMessage } from './hooks/useChat.js';

@@ -9,12 +9,15 @@ export interface RoomControlsProps {
   onLeave: () => void;
   onEndRoom?: () => void;
   onRecordingUploaded?: (result: { permlink: string; cid: string; playUrl: string }) => void;
+  videoEnabled?: boolean;
 }
 
-export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecordingUploaded }: RoomControlsProps) {
+export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecordingUploaded, videoEnabled = false }: RoomControlsProps) {
   const { localParticipant } = useLocalParticipant();
   const canPublish = localParticipant?.permissions?.canPublish ?? false;
   const isMuted = !localParticipant?.isMicrophoneEnabled;
+  const isCameraOn = localParticipant?.isCameraEnabled ?? false;
+  const isScreenSharing = localParticipant?.isScreenShareEnabled ?? false;
   const { isRaised, raiseHand, lowerHand } = useHandRaise();
   const prevCanPublish = useRef(canPublish);
 
@@ -40,6 +43,26 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecording
           title={isMuted ? 'Unmute' : 'Mute'}
         >
           {isMuted ? '🔇' : '🎙️'}
+        </button>
+      )}
+
+      {videoEnabled && canPublish && (
+        <button
+          className={`hh-btn hh-btn--icon ${isCameraOn ? 'hh-btn--secondary' : 'hh-btn--danger'}`}
+          onClick={() => localParticipant?.setCameraEnabled(!isCameraOn)}
+          title={isCameraOn ? 'Turn off camera' : 'Turn on camera'}
+        >
+          {isCameraOn ? '📹' : '📷'}
+        </button>
+      )}
+
+      {videoEnabled && canPublish && (
+        <button
+          className={`hh-btn hh-btn--icon ${isScreenSharing ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+          onClick={() => localParticipant?.setScreenShareEnabled(!isScreenSharing)}
+          title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
+        >
+          🖥️
         </button>
       )}
 
