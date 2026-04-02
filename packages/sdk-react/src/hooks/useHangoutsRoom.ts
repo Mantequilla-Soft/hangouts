@@ -7,6 +7,7 @@ interface RoomState {
   roomName: string | null;
   roomMeta: Room | null;
   isHost: boolean;
+  isPremium: boolean;
 }
 
 export function useHangoutsRoom() {
@@ -16,15 +17,16 @@ export function useHangoutsRoom() {
     roomName: null,
     roomMeta: null,
     isHost: false,
+    isPremium: false,
   });
   const [isLoading, setIsLoading] = useState(false);
 
   const create = useCallback(async (title: string, description?: string) => {
     setIsLoading(true);
     try {
-      const { room, token } = await apiClient.createRoom(title, description);
-      setState({ livekitToken: token, roomName: room.name, roomMeta: room, isHost: true });
-      return room;
+      const response = await apiClient.createRoom(title, description);
+      setState({ livekitToken: response.token, roomName: response.room.name, roomMeta: response.room, isHost: true, isPremium: response.isPremium ?? false });
+      return response.room;
     } finally {
       setIsLoading(false);
     }
@@ -43,6 +45,7 @@ export function useHangoutsRoom() {
         roomName: result.roomName,
         roomMeta: meta,
         isHost: result.isHost,
+        isPremium: result.isPremium ?? false,
       });
       return result;
     } finally {
@@ -51,7 +54,7 @@ export function useHangoutsRoom() {
   }, [apiClient]);
 
   const leave = useCallback(() => {
-    setState({ livekitToken: null, roomName: null, roomMeta: null, isHost: false });
+    setState({ livekitToken: null, roomName: null, roomMeta: null, isHost: false, isPremium: false });
   }, []);
 
   const endRoom = useCallback(async () => {

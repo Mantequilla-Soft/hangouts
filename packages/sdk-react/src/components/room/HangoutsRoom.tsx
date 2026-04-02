@@ -49,6 +49,9 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
   const title = room.roomMeta?.title ?? roomName;
   const host = room.roomMeta?.host ?? '';
 
+  // Video is only enabled if the prop is true AND the user has premium access
+  const videoEnabled = video && room.isPremium;
+
   return (
     <HangoutsErrorBoundary onError={onError}>
       <LiveKitRoom
@@ -56,7 +59,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
         serverUrl={room.livekitServerUrl}
         connect={true}
         audio={true}
-        video={video}
+        video={videoEnabled}
         onDisconnected={handleLeave}
       >
         <RoomAudioRenderer />
@@ -70,7 +73,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
               hostIdentity={host}
               isCurrentUserHost={room.isHost}
               roomName={roomName}
-              videoEnabled={video}
+              videoEnabled={videoEnabled}
             />
             <AudienceSection
               hostIdentity={host}
@@ -85,7 +88,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
             onLeave={handleLeave}
             onEndRoom={room.isHost ? handleEndRoom : undefined}
             onRecordingUploaded={onRecordingUploaded}
-            videoEnabled={video}
+            videoEnabled={videoEnabled}
           />
         </div>
       </LiveKitRoom>
