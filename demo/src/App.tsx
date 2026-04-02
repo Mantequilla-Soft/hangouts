@@ -55,6 +55,7 @@ export default function App() {
             roomName={activeRoom}
             onLeave={() => setActiveRoom(null)}
             embedded
+            video
           />
         ) : (
           <RoomLobby
