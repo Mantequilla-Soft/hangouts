@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParticipants } from '@livekit/components-react';
 import { getParticipantRole } from '../../hooks/useParticipantRole.js';
 import { ParticipantTile } from './ParticipantTile.js';
@@ -10,6 +11,7 @@ export interface SpeakerStageProps {
 
 export function SpeakerStage({ hostIdentity, isCurrentUserHost, roomName }: SpeakerStageProps) {
   const participants = useParticipants();
+  const [activePanel, setActivePanel] = useState<string | null>(null);
 
   const speakers = participants.filter(
     (p) => p.permissions?.canPublish,
@@ -26,6 +28,8 @@ export function SpeakerStage({ hostIdentity, isCurrentUserHost, roomName }: Spea
             role={getParticipantRole(p, hostIdentity)}
             isCurrentUserHost={isCurrentUserHost}
             roomName={roomName}
+            isPanelOpen={activePanel === p.identity}
+            onTogglePanel={() => setActivePanel(activePanel === p.identity ? null : p.identity)}
           />
         ))}
       </div>

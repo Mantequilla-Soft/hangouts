@@ -1,4 +1,4 @@
-import { useState, useRef, type MouseEvent } from 'react';
+import { useRef, useEffect, type MouseEvent } from 'react';
 import { useIsSpeaking } from '@livekit/components-react';
 import type { Participant } from 'livekit-client';
 import type { ParticipantRole } from '@snapie/hangouts-core';
@@ -12,6 +12,8 @@ export interface ParticipantTileProps {
   isCurrentUserHost?: boolean;
   roomName?: string;
   size?: 'normal' | 'small';
+  isPanelOpen?: boolean;
+  onTogglePanel?: () => void;
 }
 
 export function ParticipantTile({
@@ -21,31 +23,53 @@ export function ParticipantTile({
   isCurrentUserHost = false,
   roomName,
   size = 'normal',
+  isPanelOpen = false,
+  onTogglePanel,
 }: ParticipantTileProps) {
   const isSpeaking = useIsSpeaking(participant);
   const avatarUrl = useHiveAvatar(participant.identity);
   const isMuted = role !== 'listener' && !participant.isMicrophoneEnabled;
-  const [showPanel, setShowPanel] = useState(false);
-  const [panelPos, setPanelPos] = useState({ top: 0, left: 0 });
+  const panelPos = useRef({ top: 0, left: 0 });
   const tileRef = useRef<HTMLDivElement>(null);
 
   const handleClick = (e: MouseEvent) => {
-    if (!isCurrentUserHost) return;
+    if (!isCurrentUserHost || !onTogglePanel) return;
 
-    if (showPanel) {
-      setShowPanel(false);
-      return;
+    // Calculate position before toggling
+    if (!isPanelOpen) {
+      const rect = tileRef.current?.getBoundingClientRect();
+      if (rect) {
+        panelPos.current = {
+          top: Math.min(rect.bottom + 4, window.innerHeight - 200),
+          left: Math.max(8, Math.min(rect.left, window.innerWidth - 160)),
+        };
+      }
     }
-
-    // Position panel near the click, clamped to viewport
-    const rect = tileRef.current?.getBoundingClientRect();
-    if (rect) {
-      const top = Math.min(rect.bottom + 4, window.innerHeight - 200);
-      const left = Math.max(8, Math.min(rect.left, window.innerWidth - 160));
-      setPanelPos({ top, left });
-    }
-    setShowPanel(true);
+    onTogglePanel();
   };
+
+  // Close on Escape
+  useEffect(() => {
+    if (!isPanelOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onTogglePanel?.();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isPanelOpen, onTogglePanel]);
+
+  // Close on click outside
+  useEffect(() => {
+    if (!isPanelOpen) return;
+    const handleClickOutside = (e: Event) => {
+      if (tileRef.current && !tileRef.current.contains(e.target as Node)) {
+        onTogglePanel?.();
+      }
+    };
+    // Delay to avoid catching the opening click
+    setTimeout(() => document.addEventListener('click', handleClickOutside), 0);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [isPanelOpen, onTogglePanel]);
 
   const classes = [
     'hh-tile',
@@ -67,13 +91,13 @@ export function ParticipantTile({
       <span className="hh-tile__name">{participant.identity}</span>
       {role === 'host' && <span className="hh-tile__role">Host</span>}
 
-      {showPanel && isCurrentUserHost && roomName && (
+      {isPanelOpen && isCurrentUserHost && roomName && (
         <HostControlsPanel
           identity={participant.identity}
           role={role}
           roomName={roomName}
-          onClose={() => setShowPanel(false)}
-          position={panelPos}
+          onClose={() => onTogglePanel?.()}
+          position={panelPos.current}
         />
       )}
     </div>

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParticipants } from '@livekit/components-react';
 import { getParticipantRole } from '../../hooks/useParticipantRole.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
@@ -12,6 +13,7 @@ export interface AudienceSectionProps {
 export function AudienceSection({ hostIdentity, isCurrentUserHost, roomName }: AudienceSectionProps) {
   const participants = useParticipants();
   const { raisedHands } = useHandRaise();
+  const [activePanel, setActivePanel] = useState<string | null>(null);
 
   const listeners = participants.filter(
     (p) => !p.permissions?.canPublish,
@@ -32,6 +34,8 @@ export function AudienceSection({ hostIdentity, isCurrentUserHost, roomName }: A
             isCurrentUserHost={isCurrentUserHost}
             roomName={roomName}
             size="small"
+            isPanelOpen={activePanel === p.identity}
+            onTogglePanel={() => setActivePanel(activePanel === p.identity ? null : p.identity)}
           />
         ))}
       </div>
