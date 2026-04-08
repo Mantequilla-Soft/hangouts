@@ -90,6 +90,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
             onEndRoom={room.isHost ? handleEndRoom : undefined}
             onRecordingUploaded={onRecordingUploaded}
             videoEnabled={canPublishVideo}
+            roomVideoEnabled={video}
           />
         </div>
       </LiveKitRoom>

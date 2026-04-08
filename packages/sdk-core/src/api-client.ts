@@ -1,4 +1,4 @@
-import type { Room, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingUploadResponse } from './types.js';
+import type { Room, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingUploadResponse, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse } from './types.js';
 import { HangoutsApiError } from './errors.js';
 
 export interface HangoutsApiClientOptions {
@@ -131,5 +131,24 @@ export class HangoutsApiClient {
       title,
       tags,
     });
+  }
+
+  // Streaming
+
+  async startStream(roomName: string, platform: StreamPlatform, streamKey: string, backgroundImageUrl?: string, videoEnabled?: boolean): Promise<StreamStartResponse> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/stream/start`, {
+      platform,
+      streamKey,
+      backgroundImageUrl,
+      videoEnabled,
+    });
+  }
+
+  async stopStream(roomName: string): Promise<StreamStopResponse> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/stream/stop`);
+  }
+
+  async getStreamStatus(roomName: string): Promise<StreamStatusResponse> {
+    return this.request('GET', `/rooms/${encodeURIComponent(roomName)}/stream/status`);
   }
 }

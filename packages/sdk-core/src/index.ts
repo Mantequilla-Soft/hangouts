@@ -14,4 +14,8 @@ export type {
   RecordingStopResponse,
   RecordingStatusResponse,
   RecordingUploadResponse,
+  StreamPlatform,
+  StreamStartResponse,
+  StreamStopResponse,
+  StreamStatusResponse,
 } from './types.js';

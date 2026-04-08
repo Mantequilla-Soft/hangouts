@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocalParticipant } from '@livekit/components-react';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { RecordingControls } from './RecordingControls.js';
+import { StreamingPanel } from './StreamingPanel.js';
 
 export interface RoomControlsProps {
   isHost: boolean;
@@ -10,9 +11,11 @@ export interface RoomControlsProps {
   onEndRoom?: () => void;
   onRecordingUploaded?: (result: { permlink: string; cid: string; playUrl: string }) => void;
   videoEnabled?: boolean;
+  /** Whether the room was created with video mode on — used to determine streaming layout */
+  roomVideoEnabled?: boolean;
 }
 
-export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecordingUploaded, videoEnabled = false }: RoomControlsProps) {
+export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecordingUploaded, videoEnabled = false, roomVideoEnabled = false }: RoomControlsProps) {
   const { localParticipant } = useLocalParticipant();
   const canPublish = localParticipant?.permissions?.canPublish ?? false;
   const isMuted = !localParticipant?.isMicrophoneEnabled;
@@ -20,6 +23,7 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecording
   const isScreenSharing = localParticipant?.isScreenShareEnabled ?? false;
   const { isRaised, raiseHand, lowerHand } = useHandRaise();
   const prevCanPublish = useRef(canPublish);
+  const [showStreaming, setShowStreaming] = useState(false);
 
   // Auto-lower hand when promoted (canPublish transitions false → true)
   useEffect(() => {
@@ -81,10 +85,28 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecording
 
       {isHost && <RecordingControls roomName={roomName} onUploaded={onRecordingUploaded} />}
 
+      {isHost && (
+        <button
+          className={`hh-btn hh-btn--icon ${showStreaming ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+          onClick={() => setShowStreaming((v) => !v)}
+          title="Go Live"
+        >
+          🔴
+        </button>
+      )}
+
       {isHost && onEndRoom && (
         <button className="hh-btn hh-btn--danger" onClick={onEndRoom}>
           End room
         </button>
+      )}
+
+      {isHost && showStreaming && (
+        <StreamingPanel
+          roomName={roomName}
+          videoEnabled={roomVideoEnabled}
+          onClose={() => setShowStreaming(false)}
+        />
       )}
     </div>
   );

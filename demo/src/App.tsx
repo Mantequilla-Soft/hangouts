@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { HangoutsProvider, RoomLobby, HangoutsRoom } from '@snapie/hangouts-react';
 import '@snapie/hangouts-react/src/styles/hangouts.css';
+import { EgressTemplate } from './EgressTemplate.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'wss://livekit.3speak.tv';
@@ -16,7 +17,7 @@ function getInitialTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-export default function App() {
+function MainApp() {
   const [activeRoom, setActiveRoom] = useState<string | null>(getRoomFromUrl);
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
 
@@ -65,4 +66,12 @@ export default function App() {
       </HangoutsProvider>
     </div>
   );
+}
+
+export default function App() {
+  // Egress template route — served to LiveKit headless Chrome for audio-only streams
+  if (window.location.pathname.startsWith('/egress-template')) {
+    return <EgressTemplate />;
+  }
+  return <MainApp />;
 }

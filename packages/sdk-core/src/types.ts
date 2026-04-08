@@ -70,3 +70,21 @@ export interface RecordingUploadResponse {
   cid: string;
   playUrl: string;
 }
+
+export type StreamPlatform = 'youtube' | 'twitch';
+
+export interface StreamStartResponse {
+  egressId: string;
+  status: string;
+  platform: StreamPlatform;
+}
+
+export interface StreamStopResponse {
+  egressId: string;
+  status: string;
+}
+
+export interface StreamStatusResponse {
+  streaming: boolean;
+  egressId: string | null;
+}
