@@ -44,9 +44,17 @@ async function getUser(username: string): Promise<EmbedUser | null> {
   const col = await getCollection();
   if (!col) return null;
 
-  const user = await col.findOne({ username });
-  cache.set(username, { user, expires: Date.now() + CACHE_TTL });
-  return user;
+  try {
+    const user = await col.findOne({ username });
+    cache.set(username, { user, expires: Date.now() + CACHE_TTL });
+    return user;
+  } catch (err) {
+    // Connection dropped — reset so getCollection() reconnects next time
+    console.error('[Users] Query failed, resetting connection:', err);
+    collection = null;
+    db = null;
+    return null;
+  }
 }
 
 export async function isUserBanned(username: string): Promise<boolean> {

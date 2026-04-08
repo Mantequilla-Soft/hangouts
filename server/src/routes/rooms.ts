@@ -1,6 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { AccessToken } from 'livekit-server-sdk';
-import { TrackSource } from '@livekit/protocol';
 import { roomService } from '../lib/livekit.js';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -41,17 +40,10 @@ async function createLivekitToken(
     canPublishData: options.canPublishData,
   };
 
-  if (options.canPublish) {
-    if (options.premium) {
-      // Premium: full publish (audio + video + screen share)
-      grant.canPublish = true;
-    } else {
-      // Non-premium: audio only via source restriction
-      grant.canPublishSources = [TrackSource.MICROPHONE];
-    }
-  } else {
-    grant.canPublish = false;
-  }
+  // canPublish controls whether the participant can publish any track at all.
+  // Camera/screenshare gating for non-premium users is handled on the frontend —
+  // canPublishSources source restrictions were unreliable across SDK versions.
+  grant.canPublish = options.canPublish;
 
   at.addGrant(grant);
   return at.toJwt();
