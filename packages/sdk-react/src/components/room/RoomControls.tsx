@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocalParticipant } from '@livekit/components-react';
+import type { StreamPlatform } from '@snapie/hangouts-core';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
+import { useStreaming } from '../../hooks/useStreaming.js';
 import { RecordingControls } from './RecordingControls.js';
-import { StreamingPanel } from './StreamingPanel.js';
+import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
 
 export interface RoomControlsProps {
   isHost: boolean;
@@ -24,8 +26,9 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecording
   const { isRaised, raiseHand, lowerHand } = useHandRaise();
   const prevCanPublish = useRef(canPublish);
   const [showStreaming, setShowStreaming] = useState(false);
+  const { isStreaming, platform, isLoading, error, startStream, stopStream } = useStreaming(roomName);
 
-  // Auto-lower hand when promoted (canPublish transitions false → true)
+  // Auto-lower hand when promoted
   useEffect(() => {
     if (canPublish && !prevCanPublish.current && isRaised) {
       lowerHand();
@@ -36,6 +39,16 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecording
   const toggleMute = async () => {
     if (!localParticipant) return;
     await localParticipant.setMicrophoneEnabled(isMuted);
+  };
+
+  const handleStart = async (p: StreamPlatform, streamKey: string, bgUrl: string) => {
+    await startStream(p, streamKey, bgUrl, roomVideoEnabled);
+    setShowStreaming(false); // auto-close setup panel after going live
+  };
+
+  const handleStop = async () => {
+    await stopStream();
+    setShowStreaming(false);
   };
 
   return (
@@ -87,9 +100,9 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecording
 
       {isHost && (
         <button
-          className={`hh-btn hh-btn--icon ${showStreaming ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+          className={`hh-btn hh-btn--icon ${isStreaming ? 'hh-btn--live' : showStreaming ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
           onClick={() => setShowStreaming((v) => !v)}
-          title="Go Live"
+          title={isStreaming ? 'Live — click to stop' : 'Go Live'}
         >
           🔴
         </button>
@@ -101,10 +114,22 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecording
         </button>
       )}
 
-      {isHost && showStreaming && (
+      {isHost && showStreaming && !isStreaming && (
         <StreamingPanel
-          roomName={roomName}
           videoEnabled={roomVideoEnabled}
+          isLoading={isLoading}
+          error={error}
+          onStart={handleStart}
+          onClose={() => setShowStreaming(false)}
+        />
+      )}
+
+      {isHost && showStreaming && isStreaming && platform && (
+        <StopStreamingPanel
+          platform={platform}
+          isLoading={isLoading}
+          error={error}
+          onStop={handleStop}
           onClose={() => setShowStreaming(false)}
         />
       )}

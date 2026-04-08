@@ -226,6 +226,17 @@
   color: white;
 }
 
+.hh-btn--live {
+  background: var(--hh-danger);
+  color: white;
+  animation: hh-live-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes hh-live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--hh-danger-rgb, 220, 53, 69), 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(var(--hh-danger-rgb, 220, 53, 69), 0); }
+}
+
 .hh-btn--small {
   padding: 0.3rem 0.6rem;
   font-size: 0.8rem;
@@ -747,8 +758,7 @@
 .hh-streaming-panel {
   position: absolute;
   bottom: calc(100% + 0.5rem);
-  left: 50%;
-  transform: translateX(-50%);
+  right: 0;
   z-index: 200;
   background: var(--hh-bg);
   border: 1px solid var(--hh-border);
@@ -759,6 +769,10 @@
   flex-direction: column;
   gap: 0.75rem;
   width: 280px;
+}
+
+.hh-streaming-panel--compact {
+  width: 220px;
 }
 
 .hh-streaming-panel__header {
