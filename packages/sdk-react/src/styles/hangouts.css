@@ -847,3 +847,22 @@
   width: 100%;
   justify-content: center;
 }
+
+.hh-streaming-panel__viewer-url {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--hh-bg-secondary);
+  border: 1px solid var(--hh-border);
+  border-radius: 6px;
+}
+
+.hh-streaming-panel__url-text {
+  flex: 1;
+  font-size: 0.75rem;
+  color: var(--hh-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -26,6 +26,7 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecording
   const { isRaised, raiseHand, lowerHand } = useHandRaise();
   const prevCanPublish = useRef(canPublish);
   const [showStreaming, setShowStreaming] = useState(false);
+  const [viewerUrl, setViewerUrl] = useState('');
   const { isStreaming, platform, isLoading, error, startStream, stopStream } = useStreaming(roomName);
 
   // Auto-lower hand when promoted
@@ -41,7 +42,8 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecording
     await localParticipant.setMicrophoneEnabled(isMuted);
   };
 
-  const handleStart = async (p: StreamPlatform, streamKey: string, bgUrl: string) => {
+  const handleStart = async (p: StreamPlatform, streamKey: string, bgUrl: string, url: string) => {
+    setViewerUrl(url);
     await startStream(p, streamKey, bgUrl, roomVideoEnabled);
     setShowStreaming(false); // auto-close setup panel after going live
   };
@@ -127,6 +129,7 @@ export function RoomControls({ isHost, roomName, onLeave, onEndRoom, onRecording
       {isHost && showStreaming && isStreaming && platform && (
         <StopStreamingPanel
           platform={platform}
+          viewerUrl={viewerUrl}
           isLoading={isLoading}
           error={error}
           onStop={handleStop}
