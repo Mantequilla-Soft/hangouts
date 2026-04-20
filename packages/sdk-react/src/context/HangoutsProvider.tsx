@@ -23,27 +23,34 @@ export function HangoutsProvider({
   );
 
   const [username, setUsername] = useState<string | null>(externalUsername ?? null);
+  const [activeToken, setActiveToken] = useState<string | null>(sessionToken ?? null);
 
-  // Support external session token (e.g., from React Native host app)
   useEffect(() => {
     if (sessionToken) {
       apiClient.setSessionToken(sessionToken);
+      setActiveToken(sessionToken);
       if (externalUsername) setUsername(externalUsername);
+    } else {
+      apiClient.clearSessionToken();
+      setActiveToken(null);
     }
   }, [sessionToken, externalUsername, apiClient]);
 
   const setAuth = (name: string | null) => {
     setUsername(name);
-    if (!name) apiClient.clearSessionToken();
+    if (!name) {
+      apiClient.clearSessionToken();
+      setActiveToken(null);
+    }
   };
 
   const value = useMemo(() => ({
     apiClient,
     livekitServerUrl,
     username,
-    isAuthenticated: !!username && !!apiClient.getSessionToken(),
+    isAuthenticated: !!username && !!activeToken,
     setAuth,
-  }), [apiClient, livekitServerUrl, username]);
+  }), [apiClient, livekitServerUrl, username, activeToken]);
 
   return (
     <HangoutsContext.Provider value={value}>

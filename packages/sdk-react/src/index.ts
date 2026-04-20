@@ -3,6 +3,7 @@ export {
   HangoutsApiClient,
   HangoutsApiError,
   loginWithKeychain,
+  loginWithSignFn,
   isKeychainAvailable,
   type Room,
   type AuthSession,

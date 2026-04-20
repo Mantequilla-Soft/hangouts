@@ -60,3 +60,15 @@ export async function loginWithKeychain(
   apiClient.setSessionToken(session.token);
   return session;
 }
+
+export async function loginWithSignFn(
+  apiClient: HangoutsApiClient,
+  username: string,
+  signFn: (message: string) => Promise<string>,
+): Promise<AuthSession> {
+  const { challenge } = await apiClient.requestChallenge(username);
+  const signature = await signFn(challenge);
+  const session = await apiClient.verifySignature(username, challenge, signature);
+  apiClient.setSessionToken(session.token);
+  return session;
+}

@@ -1,5 +1,5 @@
 export { HangoutsApiClient, type HangoutsApiClientOptions } from './api-client.js';
-export { loginWithKeychain, isKeychainAvailable } from './keychain-auth.js';
+export { loginWithKeychain, loginWithSignFn, isKeychainAvailable } from './keychain-auth.js';
 export { HangoutsApiError } from './errors.js';
 export type {
   Room,
