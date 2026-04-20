@@ -41,6 +41,8 @@ export function HangoutsProvider({
     if (!name) {
       apiClient.clearSessionToken();
       setActiveToken(null);
+    } else {
+      setActiveToken(apiClient.getSessionToken());
     }
   };
 
