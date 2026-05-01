@@ -4,6 +4,9 @@
 
 set -e
 
+# Load secrets from /opt/hangouts/.env.local if present (not committed to git)
+[ -f /opt/hangouts/.env.local ] && source /opt/hangouts/.env.local
+
 echo "=== Pulling latest code ==="
 cd /opt/hangouts
 git stash 2>/dev/null || true
@@ -22,7 +25,7 @@ npm run build
 echo "=== Building demo ==="
 cd /opt/hangouts/demo
 npm install --silent
-VITE_API_URL=https://hangout-api.3speak.tv VITE_LIVEKIT_URL=wss://livekit.3speak.tv npx vite build
+VITE_API_URL=https://hangout-api.3speak.tv VITE_LIVEKIT_URL=wss://livekit.3speak.tv VITE_IMAGE_SERVER_API_KEY=${VITE_IMAGE_SERVER_API_KEY:-} npx vite build
 
 echo "=== Building docs ==="
 cd /opt/hangouts/docs-site
