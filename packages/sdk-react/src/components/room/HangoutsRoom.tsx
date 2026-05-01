@@ -69,7 +69,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
           className={`hh-room ${embedded ? 'hh-room--embedded' : ''}`}
           style={{
             ...(maxHeight ? { maxHeight } : {}),
-            ...(backgroundImage ? { backgroundImage: `url(${backgroundImage})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
+            ...(backgroundImage ? { backgroundImage: `url("${backgroundImage}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
           }}
         >
           <RoomHeader title={title} host={host} roomName={roomName} />

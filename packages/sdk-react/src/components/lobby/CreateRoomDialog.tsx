@@ -36,10 +36,13 @@ export function CreateRoomDialog({ onCreated, onCancel }: CreateRoomDialogProps)
   const { username, imageServerApiKey } = useHangoutsContext();
 
   useEffect(() => {
-    if (!username) return;
+    if (!imageServerApiKey || !username) {
+      setBackgroundImageUrl('');
+      return;
+    }
     const stored = localStorage.getItem(getBgStorageKey(username));
-    if (stored) setBackgroundImageUrl(stored);
-  }, [username]);
+    setBackgroundImageUrl(stored ?? '');
+  }, [username, imageServerApiKey]);
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -66,7 +69,8 @@ export function CreateRoomDialog({ onCreated, onCancel }: CreateRoomDialogProps)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
-    const room = await create(title.trim(), description.trim() || undefined, backgroundImageUrl || undefined);
+    const bg = imageServerApiKey ? (backgroundImageUrl || undefined) : undefined;
+    const room = await create(title.trim(), description.trim() || undefined, bg);
     if (room) onCreated(room);
   };
 
