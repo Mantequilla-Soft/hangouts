@@ -11,6 +11,7 @@ interface RoomMetadata {
   description?: string;
   host: string;
   createdAt: string;
+  backgroundImage?: string;
 }
 
 function generateRoomName(username: string, title: string): string {
@@ -63,6 +64,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         title: meta.title || r.name,
         host: meta.host || 'unknown',
         description: meta.description,
+        backgroundImage: meta.backgroundImage,
         numParticipants: r.numParticipants,
         maxParticipants: r.maxParticipants,
         createdAt: meta.createdAt || new Date(Number(r.creationTime) * 1000).toISOString(),
@@ -97,6 +99,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       title: meta.title || r.name,
       host: meta.host || 'unknown',
       description: meta.description,
+      backgroundImage: meta.backgroundImage,
       numParticipants: r.numParticipants,
       maxParticipants: r.maxParticipants,
       createdAt: meta.createdAt || new Date(Number(r.creationTime) * 1000).toISOString(),
@@ -111,13 +114,14 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         required: ['title'],
         properties: {
-          title:       { type: 'string', minLength: 1, maxLength: 64 },
-          description: { type: 'string', maxLength: 256 },
+          title:           { type: 'string', minLength: 1, maxLength: 64 },
+          description:     { type: 'string', maxLength: 256 },
+          backgroundImage: { type: 'string', maxLength: 512 },
         },
       },
     },
   }, async (request, reply) => {
-    const { title, description } = request.body as { title: string; description?: string };
+    const { title, description, backgroundImage } = request.body as { title: string; description?: string; backgroundImage?: string };
     const host = request.username;
     const { premium } = await getUserStatus(host);
 
@@ -127,6 +131,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       description,
       host,
       createdAt: new Date().toISOString(),
+      backgroundImage,
     };
 
     const room = await roomService.createRoom({
@@ -149,6 +154,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         title: metadata.title,
         host: metadata.host,
         description: metadata.description,
+        backgroundImage: metadata.backgroundImage,
         createdAt: metadata.createdAt,
       },
       token,

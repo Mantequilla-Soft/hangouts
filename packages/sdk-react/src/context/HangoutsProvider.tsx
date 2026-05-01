@@ -7,6 +7,7 @@ export interface HangoutsProviderProps {
   livekitServerUrl?: string;
   sessionToken?: string;
   username?: string;
+  imageServerApiKey?: string;
   children: ReactNode;
 }
 
@@ -15,6 +16,7 @@ export function HangoutsProvider({
   livekitServerUrl = 'wss://livekit.3speak.tv',
   sessionToken,
   username: externalUsername,
+  imageServerApiKey,
   children,
 }: HangoutsProviderProps) {
   const apiClient = useMemo(
@@ -52,7 +54,8 @@ export function HangoutsProvider({
     username,
     isAuthenticated: !!username && !!activeToken,
     setAuth,
-  }), [apiClient, livekitServerUrl, username, activeToken]);
+    imageServerApiKey,
+  }), [apiClient, livekitServerUrl, username, activeToken, imageServerApiKey]);
 
   return (
     <HangoutsContext.Provider value={value}>

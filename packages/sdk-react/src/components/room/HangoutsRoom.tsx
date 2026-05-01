@@ -48,6 +48,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
   // Use room metadata title if available, otherwise the room name
   const title = room.roomMeta?.title ?? roomName;
   const host = room.roomMeta?.host ?? '';
+  const backgroundImage = room.roomMeta?.backgroundImage;
 
   // All users can view video; only premium users can publish camera or screen share
   const videoEnabled = video;
@@ -66,7 +67,10 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
         <RoomAudioRenderer />
         <div
           className={`hh-room ${embedded ? 'hh-room--embedded' : ''}`}
-          style={maxHeight ? { maxHeight } : undefined}
+          style={{
+            ...(maxHeight ? { maxHeight } : {}),
+            ...(backgroundImage ? { backgroundImage: `url(${backgroundImage})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
+          }}
         >
           <RoomHeader title={title} host={host} roomName={roomName} />
           <div className="hh-room__content">
