@@ -81,8 +81,8 @@ export class HangoutsApiClient {
     }
   }
 
-  async createRoom(title: string, description?: string): Promise<CreateRoomResponse> {
-    return this.request('POST', '/rooms', { title, description });
+  async createRoom(title: string, description?: string, backgroundImage?: string): Promise<CreateRoomResponse> {
+    return this.request('POST', '/rooms', { title, description, backgroundImage });
   }
 
   async joinRoom(roomName: string): Promise<JoinRoomResponse> {

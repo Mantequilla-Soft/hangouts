@@ -7,6 +7,7 @@ export interface HangoutsContextValue {
   username: string | null;
   isAuthenticated: boolean;
   setAuth: (username: string | null) => void;
+  imageServerApiKey?: string;
 }
 
 export const HangoutsContext = createContext<HangoutsContextValue | null>(null);

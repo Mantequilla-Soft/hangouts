@@ -21,10 +21,10 @@ export function useHangoutsRoom() {
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  const create = useCallback(async (title: string, description?: string) => {
+  const create = useCallback(async (title: string, description?: string, backgroundImage?: string) => {
     setIsLoading(true);
     try {
-      const response = await apiClient.createRoom(title, description);
+      const response = await apiClient.createRoom(title, description, backgroundImage);
       setState({ livekitToken: response.token, roomName: response.room.name, roomMeta: response.room, isHost: true, isPremium: response.isPremium ?? false });
       return response.room;
     } finally {

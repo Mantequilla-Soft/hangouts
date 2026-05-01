@@ -3,6 +3,7 @@ export interface Room {
   title: string;
   host: string;
   description?: string;
+  backgroundImage?: string;
   numParticipants?: number;
   maxParticipants?: number;
   createdAt: string;
