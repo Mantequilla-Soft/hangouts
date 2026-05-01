@@ -5,6 +5,7 @@ import { EgressTemplate } from './EgressTemplate.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'wss://livekit.3speak.tv';
+const IMAGE_SERVER_API_KEY = import.meta.env.VITE_IMAGE_SERVER_API_KEY;
 
 function getRoomFromUrl(): string | null {
   const match = window.location.pathname.match(/^\/room\/([\w-]+)$/);
@@ -50,7 +51,7 @@ function MainApp() {
           {theme === 'light' ? '🌙' : '☀️'}
         </button>
       </div>
-      <HangoutsProvider apiBaseUrl={API_BASE_URL} livekitServerUrl={LIVEKIT_URL}>
+      <HangoutsProvider apiBaseUrl={API_BASE_URL} livekitServerUrl={LIVEKIT_URL} imageServerApiKey={IMAGE_SERVER_API_KEY}>
         {activeRoom ? (
           <HangoutsRoom
             roomName={activeRoom}
