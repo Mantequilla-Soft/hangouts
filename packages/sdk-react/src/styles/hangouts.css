@@ -131,7 +131,7 @@
 .hh-room-card__bg {
   display: block;
   width: 100%;
-  height: 80px;
+  height: var(--hh-room-card-bg-height, 80px);
   object-fit: cover;
 }
 
