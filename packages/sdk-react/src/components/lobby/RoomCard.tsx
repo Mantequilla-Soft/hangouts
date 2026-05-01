@@ -18,13 +18,15 @@ export function RoomCard({ room, onJoin }: RoomCardProps) {
           alt=""
         />
       )}
-      <img className="hh-room-card__avatar" src={hostAvatar} alt={room.host} />
-      <div className="hh-room-card__info">
-        <h3 className="hh-room-card__title">{room.title}</h3>
-        <div className="hh-room-card__meta">Hosted by {room.host}</div>
-      </div>
-      <div className="hh-room-card__count">
-        {room.numParticipants ?? 0} listening
+      <div className="hh-room-card__content">
+        <img className="hh-room-card__avatar" src={hostAvatar} alt={room.host} />
+        <div className="hh-room-card__info">
+          <h3 className="hh-room-card__title">{room.title}</h3>
+          <div className="hh-room-card__meta">Hosted by {room.host}</div>
+        </div>
+        <div className="hh-room-card__count">
+          {room.numParticipants ?? 0} listening
+        </div>
       </div>
     </div>
   );
