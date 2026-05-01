@@ -114,8 +114,10 @@
 
 .hh-room-card {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 1rem;
+  column-gap: 1rem;
+  row-gap: 0;
   padding: 1rem;
   border: 1px solid var(--hh-border);
   border-radius: 12px;
@@ -127,6 +129,15 @@
 
 .hh-room-card:hover {
   background: var(--hh-bg-hover);
+}
+
+.hh-room-card__bg {
+  flex: 0 0 100%;
+  display: block;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 8px 8px 0 0;
+  margin-bottom: 0.75rem;
 }
 
 .hh-room-card__avatar {

@@ -11,6 +11,13 @@ export function RoomCard({ room, onJoin }: RoomCardProps) {
 
   return (
     <div className="hh-room-card" onClick={() => onJoin(room.name)}>
+      {room.backgroundImage && (
+        <img
+          className="hh-room-card__bg"
+          src={room.backgroundImage}
+          alt=""
+        />
+      )}
       <img className="hh-room-card__avatar" src={hostAvatar} alt={room.host} />
       <div className="hh-room-card__info">
         <h3 className="hh-room-card__title">{room.title}</h3>
