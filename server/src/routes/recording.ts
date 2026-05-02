@@ -173,12 +173,14 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.notFound('Recording file not found — it may have been cleaned up');
     }
 
-    // Get room metadata for default title
+    // Get room metadata for default title and thumbnail
     const rooms = await roomService.listRooms([name]);
     let roomTitle = name;
+    let roomThumbnail: string | undefined;
     try {
       const meta = JSON.parse(rooms[0]?.metadata || '{}');
       roomTitle = meta.title || name;
+      roomThumbnail = meta.backgroundImage || undefined;
     } catch { /* ignore */ }
 
     // Use provided duration or estimate from file size (MP3 at 128kbps ≈ 16KB/sec)
@@ -191,6 +193,7 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
     formData.append('title', title || roomTitle);
     formData.append('category', 'podcast');
     formData.append('tags', JSON.stringify(tags || ['hangout', 'podcast', 'hive']));
+    if (roomThumbnail) formData.append('thumbnail_url', roomThumbnail);
 
     const audioApiUrl = config.AUDIO_API_URL.replace(/\/$/, '');
     const audioResponse = await fetch(`${audioApiUrl}/api/audio/upload`, {
