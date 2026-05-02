@@ -225,4 +225,60 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
       playUrl: audioResult.playUrl,
     });
   });
+
+  // Update audio recording metadata after publishing (host/owner only)
+  fastify.patch('/rooms/:name/record/:audioPerm/metadata', {
+    preHandler: [requireAuth, checkBan],
+    schema: {
+      params: {
+        type: 'object',
+        required: ['name', 'audioPerm'],
+        properties: {
+          name: { type: 'string' },
+          audioPerm: { type: 'string' },
+        },
+      },
+      body: {
+        type: 'object',
+        properties: {
+          title:        { type: 'string', maxLength: 256 },
+          description:  { type: 'string', maxLength: 10000 },
+          tags:         { type: 'array', items: { type: 'string' } },
+          post_permlink: { type: 'string', maxLength: 256 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { audioPerm } = request.params as { name: string; audioPerm: string };
+    const body = request.body as {
+      title?: string;
+      description?: string;
+      tags?: string[];
+      post_permlink?: string;
+    };
+
+    if (!config.AUDIO_API_KEY) {
+      return reply.serviceUnavailable('Audio API not configured (AUDIO_API_KEY missing)');
+    }
+
+    const audioApiUrl = config.AUDIO_API_URL.replace(/\/$/, '');
+    const audioResponse = await fetch(`${audioApiUrl}/api/audio/${encodeURIComponent(audioPerm)}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': config.AUDIO_API_KEY,
+        'X-User': request.username,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!audioResponse.ok) {
+      const err = await audioResponse.text();
+      request.log.error({ audioPerm, status: audioResponse.status, err }, 'Audio metadata update failed');
+      return reply.internalServerError(`Audio metadata update failed: ${err}`);
+    }
+
+    const result = await audioResponse.json();
+    return reply.send(result);
+  });
 };
