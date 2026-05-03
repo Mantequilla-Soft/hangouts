@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { LiveKitRoom, RoomAudioRenderer } from '@livekit/components-react';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
+import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { RoomHeader } from './RoomHeader.js';
 import { SpeakerStage } from './SpeakerStage.js';
 import { AudienceSection } from './AudienceSection.js';
@@ -24,12 +25,13 @@ export interface HangoutsRoomProps {
 
 export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onRecordingUploaded, video = false }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
+  const { isAuthenticated } = useHangoutsContext();
 
   useEffect(() => {
-    if (!room.livekitToken) {
+    if (!room.livekitToken && isAuthenticated) {
       room.join(roomName);
     }
-  }, [roomName]);
+  }, [roomName, isAuthenticated]);
 
   if (room.isLoading || !room.livekitToken) {
     return <div className="hh-room">Connecting...</div>;
