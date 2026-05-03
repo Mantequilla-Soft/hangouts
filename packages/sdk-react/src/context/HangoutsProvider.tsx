@@ -19,10 +19,15 @@ export function HangoutsProvider({
   imageServerApiKey,
   children,
 }: HangoutsProviderProps) {
-  const apiClient = useMemo(
-    () => new HangoutsApiClient({ baseUrl: apiBaseUrl }),
-    [apiBaseUrl],
-  );
+  const apiClient = useMemo(() => {
+    const client = new HangoutsApiClient({ baseUrl: apiBaseUrl });
+    // Sync init: child component effects (e.g. HangoutsRoom.join) fire before
+    // parent effects in React, so the token must be on the client before the
+    // first render completes — not deferred to a useEffect.
+    if (sessionToken) client.setSessionToken(sessionToken);
+    return client;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiBaseUrl]); // intentionally excludes sessionToken — updates handled by useEffect below
 
   const [username, setUsername] = useState<string | null>(externalUsername ?? null);
   const [activeToken, setActiveToken] = useState<string | null>(sessionToken ?? null);
