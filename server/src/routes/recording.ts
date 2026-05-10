@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { EgressClient, EncodedFileOutput, EncodedFileType } from 'livekit-server-sdk';
+import { EgressClient, EncodedFileOutput, EncodedFileType, EncodingOptions } from 'livekit-server-sdk';
 import { roomService } from '../lib/livekit.js';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -55,6 +55,7 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
 
     const info = await egressClient.startRoomCompositeEgress(name, { file: output }, {
       audioOnly: true,
+      encodingOptions: new EncodingOptions({ audioBitrate: 64 }),
     });
 
     activeRecordings.set(name, info.egressId);
@@ -183,8 +184,8 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
       roomThumbnail = meta.backgroundImage || undefined;
     } catch { /* ignore */ }
 
-    // Use provided duration or estimate from file size (MP3 at 128kbps ≈ 16KB/sec)
-    const estimatedDuration = duration || Math.round(fileBuffer.length / 16000);
+    // Use provided duration or estimate from file size (MP3 at 64kbps ≈ 8KB/sec)
+    const estimatedDuration = duration || Math.round(fileBuffer.length / 8000);
 
     const formData = new FormData();
     formData.append('audio', new Blob([new Uint8Array(fileBuffer)], { type: 'audio/mpeg' }), `${name}.mp3`);
