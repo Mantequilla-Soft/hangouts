@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { EgressClient, EncodedFileOutput, EncodedFileType, EncodingOptionsPreset } from 'livekit-server-sdk';
+import { EgressClient, EncodedFileOutput, EncodedFileType, EncodingOptionsPreset, EncodingOptions } from 'livekit-server-sdk';
 import { roomService } from '../lib/livekit.js';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -133,9 +133,13 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
         encodingOptions: EncodingOptionsPreset.H264_720P_30,
       });
     } else {
+      // Audio-only egress: 64 kbps is plenty for talk content and roughly
+      // halves storage vs the LiveKit default — picked up from upstream
+      // commit 3f624e8 ("reduce recording bitrate to 64kbps for talk content").
       const output = new EncodedFileOutput({ fileType: EncodedFileType.MP3, filepath });
       info = await egressClient.startRoomCompositeEgress(name, { file: output }, {
         audioOnly: true,
+        encodingOptions: new EncodingOptions({ audioBitrate: 64 }),
       });
     }
 
@@ -395,7 +399,9 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
       roomThumbnail = meta.backgroundImage || undefined;
     } catch { /* ignore */ }
 
-    const estimatedDuration = duration || Math.round(fileBuffer.length / 16000);
+    // Use provided duration or estimate from file size (MP3 at 64kbps ≈ 8KB/sec).
+    // Matches the bitrate set on the audio egress above.
+    const estimatedDuration = duration || Math.round(fileBuffer.length / 8000);
 
     const formData = new FormData();
     formData.append('audio', new Blob([new Uint8Array(fileBuffer)], { type: 'audio/mpeg' }), `${name}.mp3`);
