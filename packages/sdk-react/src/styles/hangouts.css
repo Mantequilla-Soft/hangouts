@@ -195,6 +195,47 @@
   color: var(--hh-text);
 }
 
+.hh-create-dialog__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--hh-text);
+  user-select: none;
+}
+
+.hh-create-dialog__check input[type='checkbox'] {
+  accent-color: var(--hh-primary);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.hh-create-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--hh-text);
+  width: 100%;
+}
+
+.hh-create-dialog__field-label {
+  font-weight: 600;
+  color: var(--hh-text-muted, var(--hh-text));
+}
+
+.hh-create-dialog__select {
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--hh-border-light);
+  background: var(--hh-bg-input, transparent);
+  color: var(--hh-text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
 /* === Buttons === */
 
 .hh-btn {
@@ -202,18 +243,38 @@
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 8px;
+  padding: 0.55rem 1.1rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
   font-size: 0.9rem;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
+}
+
+.hh-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.hh-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), inset 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.hh-btn:focus-visible {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(227, 19, 55, 0.35), 0 4px 12px rgba(0, 0, 0, 0.25);
 }
 
 .hh-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 
 .hh-btn--primary {
@@ -228,6 +289,7 @@
 .hh-btn--secondary {
   background: var(--hh-btn-secondary-bg);
   color: var(--hh-btn-secondary-text);
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
 .hh-btn--secondary:hover:not(:disabled) {
@@ -246,61 +308,213 @@
 }
 
 @keyframes hh-live-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--hh-danger-rgb, 220, 53, 69), 0.5); }
-  50% { box-shadow: 0 0 0 6px rgba(var(--hh-danger-rgb, 220, 53, 69), 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.55), 0 1px 2px rgba(0, 0, 0, 0.2); }
+  50% { box-shadow: 0 0 0 8px rgba(255, 68, 68, 0), 0 1px 2px rgba(0, 0, 0, 0.2); }
 }
 
 .hh-btn--small {
-  padding: 0.3rem 0.6rem;
+  padding: 0.35rem 0.7rem;
   font-size: 0.8rem;
 }
 
 .hh-btn--icon {
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   padding: 0;
   border-radius: 50%;
+  font-size: 1.05rem;
 }
 
 /* === Room Layout === */
 
 .hh-room {
-  max-width: 640px;
+  max-width: 100%;
   margin: 0 auto;
-  padding: 1.5rem;
+  padding: 0.6rem 0.75rem;
   font-family: system-ui, -apple-system, sans-serif;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   color: var(--hh-text);
+  position: relative;
 }
 
-/* Embedded mode: fits within parent container (modals, panels, etc.) */
+/* Background image layer — absolute-positioned so it always covers the
+   full .hh-room area regardless of how the children lay out. The room
+   thumbnail is set via inline style on this element. */
+.hh-room__bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Soft top-down dark scrim above the bg so any text laid over the room
+   thumbnail (title, host, "Speakers" label) stays readable. */
+.hh-room::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.55) 0%,
+    rgba(0, 0, 0, 0.35) 30%,
+    rgba(0, 0, 0, 0.2) 60%,
+    rgba(0, 0, 0, 0.45) 100%
+  );
+  z-index: 1;
+}
+
+.hh-room > *:not(.hh-room__bg) {
+  position: relative;
+  z-index: 2;
+}
+
+/* Embedded mode: fits within parent container (modals, panels, etc.).
+   Explicit width + border-box so the room reliably fills its parent —
+   without it some flex layouts shrink-to-fit the speakers grid. */
 .hh-room--embedded {
   min-height: 0;
+  flex: 1;
+  width: 100%;
   height: 100%;
+  box-sizing: border-box;
   overflow: hidden;
 }
 
-.hh-room--embedded .hh-room__content {
+.hh-room__content {
+  display: flex;
+  flex-direction: row;
+  gap: 1rem;
   flex: 1;
-  overflow-y: auto;
   min-height: 0;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
-.hh-room--embedded .hh-room__content::-webkit-scrollbar {
+/* Left column: stage scrolls (flex:1) and controls dock at the bottom of
+   this column only — they should NOT span under the chat sidebar. */
+.hh-room__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.hh-room__stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  padding-right: 0.25rem;
+}
+
+.hh-room__stage::-webkit-scrollbar {
   width: 6px;
 }
 
-.hh-room--embedded .hh-room__content::-webkit-scrollbar-track {
+.hh-room__stage::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.hh-room--embedded .hh-room__content::-webkit-scrollbar-thumb {
+.hh-room__stage::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
   border-radius: 3px;
+}
+
+.hh-room__sidebar {
+  width: 320px;
+  max-width: 38%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Left rail of small audience avatars — keeps listeners visible without
+   eating vertical space below the speaker grid. Frosted-glass surface
+   matching the chat sidebar and controls bar so the room reads as a
+   coherent set of three panels. Hidden via :empty when there are no
+   listeners so it doesn't waste 80px. */
+.hh-room__listeners {
+  width: 96px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  padding: 0.6rem 0.5rem;
+  background: rgba(20, 20, 30, 0.55);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+
+.hh-room__listeners:empty {
+  display: none;
+}
+
+.hh-room__listeners::-webkit-scrollbar {
+  width: 5px;
+}
+.hh-room__listeners::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+}
+
+/* Audience inside the left rail: vertical column of small avatar tiles.
+   Strip the inner .hh-audience's own background AND backdrop-filter —
+   the rail itself already provides the frosted-glass surface, so a
+   second blur layer ends up looking like a panel-within-a-panel. */
+.hh-room__listeners .hh-audience {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: 0;
+  padding: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.hh-room__listeners .hh-audience__label {
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.4rem;
+  text-align: center;
+}
+
+.hh-room__listeners .hh-audience__grid {
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+/* Mobile: stack content, drop sidebar to a collapsible panel below the
+   main column. The toggle button stays visible (tucked into controls
+   via the page layout) so users can hide the chat to recover space. */
+@media (max-width: 768px) {
+  .hh-room {
+    padding: 0.75rem 0.75rem;
+  }
+  .hh-room__content {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .hh-room__sidebar {
+    width: 100%;
+    max-width: 100%;
+    max-height: 40vh;
+  }
 }
 
 .hh-room__header {
@@ -311,59 +525,309 @@
   flex-shrink: 0;
 }
 
+.hh-room__title-block {
+  min-width: 0;
+  flex: 1;
+}
+
 .hh-room__title {
-  font-size: 1.25rem;
-  font-weight: 700;
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
   margin: 0 0 0.25rem;
+  color: #ffffff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.75), 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.hh-room__description {
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .hh-room__host {
-  font-size: 0.85rem;
-  color: var(--hh-text-secondary);
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7), 0 1px 2px rgba(0, 0, 0, 0.85);
 }
 
 .hh-room__count {
-  font-size: 0.85rem;
-  color: var(--hh-text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+}
+
+.hh-room__header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.hh-room__share {
+  white-space: nowrap;
 }
 
 /* === Speaker Stage === */
 
 .hh-stage {
-  margin-bottom: 1.5rem;
-}
-
-.hh-stage__label {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--hh-text-muted);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0;
   margin-bottom: 0.75rem;
 }
 
-.hh-stage__video-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  justify-content: center;
-  margin-bottom: 1rem;
-}
-
-.hh-stage__video-row--compact {
-  gap: 0.5rem;
-}
-
 .hh-stage__grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  justify-content: center;
+  flex: 1;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  align-content: start;
+  min-height: 0;
 }
 
+/* When a screen share is active OR a tile is focused, speaker tiles drop
+   to a small thumbnail strip — they no longer fight for the main area. */
 .hh-stage__grid--compact {
-  justify-content: flex-start;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 160px));
+  grid-auto-rows: auto;
+  flex: 0 0 auto;
+  justify-content: start;
+}
+
+/* The cell wraps each tile so the click-to-focus handler sits on the
+   wrapper while the tile keeps its own internal click for host controls. */
+.hh-stage__cell {
+  cursor: zoom-in;
+  display: block;
+  min-width: 0;
+}
+
+.hh-stage__cell > .hh-tile {
+  width: 100%;
+  height: 100%;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.hh-stage__cell:hover > .hh-tile {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* When the screenshare lives inside the compact carousel (because a
+   speaker is focused), it should look the same size as a speaker tile
+   instead of the full-width hero strip. */
+.hh-stage__cell--screen {
+  cursor: zoom-in;
+}
+
+.hh-stage__cell--screen .hh-screen-share,
+.hh-stage__cell--screen .hh-room--embedded .hh-screen-share {
+  margin: 0;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+.hh-stage__cell--screen .hh-screen-share__video,
+.hh-stage__cell--screen .hh-room--embedded .hh-screen-share__video {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: cover;
+}
+
+.hh-stage__cell--screen .hh-screen-share__bar {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.5rem;
+}
+
+/* Focused tile takes the dominant area, leaves room for the carousel
+   strip below. The inner tile keeps its 16:9 ratio (so faces don't get
+   stretched into a letterbox) and is centered within the focus area
+   via the position:absolute + inset:0 + margin:auto trick — works
+   reliably regardless of how the parent flex sizes the focus area. */
+.hh-stage__focus {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  margin-bottom: 0.6rem;
+}
+
+.hh-stage__focus > .hh-tile {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+/* Floating screen-share thumbnail in grid mode — the share isn't a
+   grid cell because that would crowd the speaker tiles. Bottom-right
+   of the stage; clickable to bring the share back to the focus area. */
+.hh-stage__screen-thumb {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: zoom-in;
+  z-index: 4;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.hh-stage__screen-thumb .hh-screen-share {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background: #000;
+}
+
+.hh-stage__screen-thumb .hh-screen-share__video {
+  max-height: none;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.hh-stage__screen-thumb .hh-screen-share__bar {
+  font-size: 0.65rem;
+  padding: 0.2rem 0.4rem;
+}
+
+.hh-stage {
+  position: relative;
+}
+
+/* Back-to-grid pill — overlay on the top-left of the focused tile so
+   it's accessible to everyone (not host-gated like the ⋮ menu). */
+.hh-stage__back-to-grid {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 4;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  transition: background 0.15s;
+}
+
+.hh-stage__back-to-grid:hover {
+  background: rgba(0, 0, 0, 0.82);
+}
+
+/* Screen-share-as-focus: same area as a focused speaker tile. The inner
+   ScreenShareView fills the focus area; override the embedded max-height
+   that would otherwise cap the video at 250px. Background is transparent
+   so the room thumbnail (set on .hh-room) shows in the letterboxing
+   instead of opaque black bars. */
+.hh-stage__focus--screen {
+  cursor: default;
+}
+
+.hh-stage__focus--screen.hh-stage__focus--screen > .hh-screen-share,
+.hh-stage__focus--screen.hh-stage__focus--screen .hh-room--embedded .hh-screen-share {
+  /* Same centering trick as the speaker tile — keep the share at 16:9
+     within the focus area, so the recording and live view both look
+     like a proper video frame instead of an arbitrary aspect. The
+     doubled class bumps specificity over the later `.hh-screen-share
+     { width: 100% }` base rule that would otherwise force the
+     container wider than the 16:9 box. */
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+
+/* Doubled selector (.hh-stage__focus--screen.hh-stage__focus--screen)
+   bumps specificity over the later-declared
+   `.hh-room--embedded .hh-screen-share__video { max-height: 250px }`
+   rule, which would otherwise cap the focus video at 250px tall. */
+.hh-stage__focus--screen.hh-stage__focus--screen .hh-screen-share__video,
+.hh-stage__focus--screen.hh-stage__focus--screen .hh-room--embedded .hh-screen-share__video {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  /* `cover` ensures the share fills the tile edge-to-edge without
+     letterboxing — content may crop slightly but the tile no longer
+     shows large black bars around the video. */
+  object-fit: cover;
+}
+
+/* Row layout: when the chat sidebar is collapsed AND we're in compact
+   mode, put the rail of small tiles to the right of the focus area
+   (where the chat used to live) so the focus tile gets maximum width. */
+.hh-stage--row {
+  flex-direction: row;
+  gap: 0.6rem;
+  align-items: stretch;
+}
+
+.hh-stage--row .hh-stage__focus {
+  margin-bottom: 0;
+}
+
+.hh-stage--row .hh-stage__grid--compact {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: 200px;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  align-content: stretch;
   gap: 0.5rem;
 }
+
+.hh-stage--row .hh-stage__grid--compact .hh-stage__cell {
+  width: 100%;
+}
+
+.hh-stage__label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+  margin-bottom: 0.75rem;
+}
+
 
 /* Screen share view */
 .hh-screen-share {
@@ -438,110 +902,209 @@
 /* === Audience === */
 
 .hh-audience {
-  flex: 1;
-  margin-bottom: 1.5rem;
+  flex-shrink: 0;
+  padding: 0.5rem 0.6rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 10px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .hh-audience__label {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--hh-text-muted);
-  margin-bottom: 0.75rem;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+  margin-bottom: 0.4rem;
 }
 
 .hh-audience__grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.4rem;
 }
 
-/* === Participant Tile === */
+/* === Participant Tile (default = Zoom-style 16:9 speaker card) === */
 
 .hh-tile {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(28, 28, 42, 0.55);
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+
+.hh-tile--speaking {
+  border-color: var(--hh-success);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35), 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+
+.hh-tile__media {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hh-tile__placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+
+.hh-tile__placeholder .hh-tile__avatar {
+  width: 30%;
+  max-width: 96px;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.hh-tile__overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.75) 100%);
+  color: #fff;
+}
+
+.hh-tile__overlay .hh-tile__name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: none;
+  flex: 1 1 auto;
+}
+
+.hh-tile__overlay .hh-tile__role {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--hh-primary);
+  color: white;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.hh-tile__mute {
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+/* Compact circular variant — used for the audience strip below speakers. */
+.hh-tile--small {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.4rem;
-  position: relative;
-  cursor: pointer;
+  gap: 0.3rem;
+  width: auto;
+  aspect-ratio: auto;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  overflow: visible;
+  padding: 0.25rem;
 }
 
-.hh-tile__avatar-wrap {
-  position: relative;
-  width: 64px;
-  height: 64px;
-}
-
-.hh-tile--large .hh-tile__avatar-wrap {
-  width: 192px;
-  height: 192px;
+.hh-tile--small.hh-tile--speaking {
+  box-shadow: none;
 }
 
 .hh-tile--small .hh-tile__avatar-wrap {
+  position: relative;
   width: 48px;
   height: 48px;
 }
 
-.hh-tile__avatar {
+.hh-tile--small .hh-tile__avatar {
   width: 100%;
   height: 100%;
   border-radius: 50%;
   object-fit: cover;
-  border: 3px solid transparent;
+  border: 2px solid transparent;
   transition: border-color 0.2s;
 }
 
-.hh-tile--speaking .hh-tile__avatar,
-.hh-tile--speaking .hh-tile__video {
+.hh-tile--small.hh-tile--speaking .hh-tile__avatar {
   border-color: var(--hh-success);
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.35);
 }
 
-/* Video inside participant tile */
+/* Video inside the speaker tile (default size) */
 .hh-tile__video {
   width: 100%;
   height: 100%;
-  border-radius: 50%;
   object-fit: cover;
-  border: 3px solid transparent;
-  transition: border-color 0.2s;
+  border-radius: 0;
 }
 
-.hh-tile--large .hh-tile__video {
-  border-radius: 16px;
-}
-
-.hh-tile--large .hh-tile__avatar {
-  border-radius: 16px;
+.hh-tile--small .hh-tile__video {
+  border-radius: 50%;
 }
 
 .hh-tile--muted .hh-tile__avatar {
-  opacity: 0.7;
+  opacity: 0.85;
 }
 
 .hh-tile__hand {
   position: absolute;
-  top: -4px;
-  right: -4px;
+  top: 6px;
+  left: 6px;
   font-size: 1.1rem;
   line-height: 1;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.hh-tile--large .hh-tile__name {
-  max-width: 192px;
-  font-size: 0.85rem;
+.hh-tile--small .hh-tile__hand {
+  top: -4px;
+  left: -4px;
+  background: transparent;
+  width: auto;
+  height: auto;
 }
 
-.hh-tile__name {
-  font-size: 0.75rem;
-  font-weight: 500;
+/* Compact (audience) name — sits below the small circular avatar */
+.hh-tile--small .hh-tile__name {
+  font-size: 0.72rem;
+  font-weight: 600;
   max-width: 72px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: center;
-  color: var(--hh-text);
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75), 0 0 1px rgba(0, 0, 0, 0.9);
 }
 
 .hh-tile__role {
@@ -556,17 +1119,175 @@
 .hh-controls {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
-  gap: 1rem;
-  padding: 1rem;
-  border-top: 1px solid var(--hh-border-light);
-  margin-top: auto;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 0.75rem;
   flex-shrink: 0;
-  position: sticky;
-  bottom: 0;
-  background: var(--hh-bg);
-  z-index: 5;
+  border-radius: 12px;
+  background: rgba(20, 20, 30, 0.55);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.hh-controls__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* Visible divider between participant-self controls (left) and host
+   controls (right) so the two groups read as distinct. */
+.hh-controls__group--right {
+  margin-left: auto;
+  padding-left: 1rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+@media (max-width: 600px) {
+  .hh-controls__group--right {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: none;
+    width: 100%;
+    justify-content: center;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+}
+
+/* End-room dropdown */
+.hh-end-menu {
+  position: relative;
+}
+
+.hh-end-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.hh-end-menu__chevron {
+  font-size: 0.7rem;
+  opacity: 0.85;
+}
+
+.hh-end-menu__panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  min-width: 220px;
+  max-width: 280px;
+  max-height: 50vh;
+  overflow-y: auto;
+  background: rgba(20, 20, 30, 0.96);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  z-index: 200;
+}
+
+.hh-end-menu__heading {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.65);
+  padding: 0.4rem 0.6rem 0.25rem;
+}
+
+.hh-end-menu__item {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #fff;
+  padding: 0.55rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.hh-end-menu__item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.hh-end-menu__item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hh-end-menu__item--danger {
+  color: #ff7a7a;
+}
+
+.hh-end-menu__item--danger:hover:not(:disabled) {
+  background: rgba(229, 57, 53, 0.18);
+}
+
+.hh-end-menu__item--subtle {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.85rem;
+}
+
+.hh-end-menu__hint {
+  margin-left: 0.3rem;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.hh-end-menu__warn {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.78);
+  padding: 0.25rem 0.7rem 0.6rem;
+}
+
+/* === Tile hamburger button === */
+.hh-tile__menu-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.hh-tile__menu-btn:hover {
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.hh-tile__menu-btn--small {
+  top: -2px;
+  right: -2px;
+  width: 22px;
+  height: 22px;
+  font-size: 0.85rem;
 }
 
 /* === Host Controls Panel === */
@@ -574,42 +1295,201 @@
 .hh-host-panel {
   position: fixed;
   z-index: 100;
-  background: var(--hh-bg);
-  border: 1px solid var(--hh-border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px var(--hh-shadow);
+  background: rgba(20, 20, 30, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
   padding: 0.5rem;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  min-width: 140px;
-  max-width: 200px;
+  min-width: 180px;
+  max-width: 240px;
+  color: #fff;
+}
+
+/* Floating mode: panel is portaled to <body> with fixed coordinates
+   computed from the trigger button. The portal escapes any ancestor
+   `overflow: hidden` so the panel can't get clipped by the tile or
+   the room. Width pinned to match the JS placement constants. */
+.hh-host-panel--floating {
+  width: 220px;
+  z-index: 1000;
 }
 
 .hh-host-panel__btn {
   width: 100%;
   text-align: left;
-  padding: 0.4rem 0.6rem;
+  padding: 0.45rem 0.6rem;
   border: none;
   background: none;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 0.85rem;
   cursor: pointer;
-  color: var(--hh-text);
+  color: rgba(255, 255, 255, 0.92);
 }
 
-.hh-host-panel__btn:hover {
-  background: var(--hh-bg-hover);
+.hh-host-panel__btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.hh-host-panel__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .hh-host-panel__btn--danger {
-  color: var(--hh-primary);
+  color: #ff7a7a;
+}
+
+.hh-host-panel__btn--danger:hover:not(:disabled) {
+  background: rgba(229, 57, 53, 0.18);
+}
+
+.hh-host-panel__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.35rem 0.6rem 0.45rem;
+}
+
+.hh-host-panel__row-label {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.7);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.hh-host-panel__row-value {
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 600;
+}
+
+.hh-host-panel__slider {
+  width: 100%;
+  accent-color: var(--hh-primary);
 }
 
 /* === Chat === */
 
-.hh-chat__toggle {
+/* Hide the screen-share toggle on phones — getDisplayMedia is rarely
+   supported on mobile browsers, and a phone-sized share would be
+   unusable anyway. */
+@media (max-width: 768px) {
+  .hh-btn--screenshare {
+    display: none;
+  }
+}
+
+/* Layout selector lives inline with the host buttons in the right group
+   so the host can pick grid / active-speaker / single without opening a
+   separate menu. The native <select> sits inside the .hh-btn shell so it
+   inherits the same chrome as the surrounding controls. */
+.hh-controls__layout {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding-left: 0.85rem;
+  padding-right: 0.7rem;
+  cursor: pointer;
+}
+
+.hh-controls__layout-label {
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  opacity: 0.75;
+}
+
+.hh-controls__layout-value {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.hh-controls__layout-chevron {
+  font-size: 0.7rem;
+  opacity: 0.85;
+  margin-left: 0.15rem;
+}
+
+/* Transparent overlay select — covers the whole label so clicks
+   anywhere on the button open the dropdown, not only on the chevron.
+   The visible label/value/chevron sit underneath. */
+.hh-controls__layout-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  border: none;
+  color: transparent;
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+  opacity: 0;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.hh-controls__layout-select option {
+  color: #1a1a1a;
+}
+
+/* Chat toggle button in the controls bar — shows an unread badge while
+   the chat sidebar is collapsed. */
+.hh-controls__chat-btn {
+  position: relative;
+}
+
+.hh-controls__chat-badge {
+  background: var(--hh-primary);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 10px;
+  margin-left: 0.25rem;
+  min-width: 18px;
+  text-align: center;
+}
+
+.hh-chat__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.hh-chat__title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.hh-chat__collapse {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 1.4rem;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.hh-chat__collapse:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
 }
 
 .hh-chat__badge {
@@ -629,13 +1509,22 @@
 }
 
 .hh-chat {
-  border: 1px solid var(--hh-border);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
-  margin: 0.75rem 0;
   display: flex;
   flex-direction: column;
-  max-height: 300px;
-  background: var(--hh-bg);
+  flex: 1;
+  min-height: 0;
+  background: rgba(20, 20, 30, 0.6);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+
+@media (max-width: 768px) {
+  .hh-chat {
+    max-height: 40vh;
+  }
 }
 
 .hh-chat__messages {
@@ -673,12 +1562,74 @@
   font-size: 0.8rem;
   font-weight: 600;
   margin-right: 0.4rem;
-  color: var(--hh-text);
+  /* Frosted-glass chat panel sits on a dark surface — pin to white so
+     it's legible regardless of the consumer's --hh-text override. */
+  color: #ffffff;
 }
 
 .hh-chat__msg-text {
   font-size: 0.85rem;
-  color: var(--hh-text);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.hh-chat__input {
+  color: #ffffff;
+}
+
+.hh-chat__input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Listen-only guests see this in place of the chat input. Same height
+   shell so the chat surface doesn't shift when toggling between guest
+   and signed-in views in dev. */
+.hh-chat__guest-prompt {
+  padding: 0.7rem 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.78);
+  text-align: center;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* "Listening as guest" pill in the room header — matches the title's
+   text-shadow treatment so it stays legible over thumbnail backdrops. */
+.hh-room__guest-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+
+.hh-room__guest-badge svg {
+  flex-shrink: 0;
+}
+
+/* Guest listener tile — replaces the broken Hive avatar fallback for
+   `guest-{random}` identities with a clean headphones glyph on a soft
+   neutral background, signalling "anonymous listener" at a glance. */
+.hh-tile__guest-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  border: 2px dashed rgba(255, 255, 255, 0.35);
+  box-sizing: border-box;
+}
+
+.hh-tile--guest .hh-tile__name {
+  color: rgba(255, 255, 255, 0.7);
+  font-style: italic;
 }
 
 .hh-chat__input-row {
@@ -921,7 +1872,7 @@
 
 .hh-bg-picker__preview {
   width: 100%;
-  height: 120px;
+  aspect-ratio: 16 / 9;
   border-radius: 8px;
   background-size: cover;
   background-position: center;
@@ -929,6 +1880,13 @@
   display: flex;
   align-items: flex-end;
   padding: 0.4rem 0.6rem;
+}
+
+.hh-bg-picker__hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  color: var(--hh-text-muted);
+  text-align: center;
 }
 
 .hh-bg-picker__preview-label {
@@ -942,6 +1900,17 @@
 .hh-bg-picker__actions {
   display: flex;
   gap: 0.5rem;
+  align-items: center;
+}
+
+/* Inline hint sits to the right of the Change / Remove buttons. The
+   `margin-left: auto` pushes it to the trailing edge of the row. */
+.hh-bg-picker__hint--inline {
+  margin: 0 0 0 auto;
+  font-size: 0.75rem;
+  color: var(--hh-text-muted);
+  text-align: right;
+  line-height: 1.2;
 }
 
 .hh-bg-picker__error {

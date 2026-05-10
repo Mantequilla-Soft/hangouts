@@ -1,0 +1,38 @@
+# LiveKit + Redis + Egress stack for hangouts.
+#
+# All services use host network mode because:
+#   - LiveKit needs the WebRTC UDP port range (50000-60000) directly on the host
+#     (Docker port mapping a 10k-port range is impractical)
+#   - Egress needs to dial 127.0.0.1:7880 and 127.0.0.1:6379 directly
+#
+# nginx on the host terminates TLS at livekit.okinoko.io:443 and proxies to
+# LiveKit's plain HTTP signaling on 127.0.0.1:7880.
+
+services:
+  redis:
+    image: redis:7-alpine
+    network_mode: host
+    restart: unless-stopped
+    command: redis-server --bind 127.0.0.1 --port 6379 --save "" --appendonly no
+
+  livekit:
+    image: livekit/livekit-server:v1.10.0
+    network_mode: host
+    restart: unless-stopped
+    depends_on: [redis]
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+
+  egress:
+    image: livekit/egress:latest
+    network_mode: host
+    restart: unless-stopped
+    depends_on: [redis, livekit]
+    cap_add:
+      - CAP_SYS_ADMIN     # needed by chromium sandbox
+    environment:
+      - EGRESS_CONFIG_FILE=/etc/egress.yaml
+    volumes:
+      - ./egress.yaml:/etc/egress.yaml:ro
+      - /tmp/livekit-recordings:/tmp/livekit-recordings

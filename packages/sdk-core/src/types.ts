@@ -1,3 +1,6 @@
+/** Visibility / access tier the host picked when creating the room. */
+export type RoomVisibility = 'public' | 'hive-internal' | 'unlisted';
+
 export interface Room {
   name: string;
   title: string;
@@ -7,6 +10,15 @@ export interface Room {
   numParticipants?: number;
   maxParticipants?: number;
   createdAt: string;
+  /** Hostname of the site that created this room (e.g. "3speak.tv").
+   *  Set by the server from the create request's Origin header.
+   *  Use to pick share URLs that drop recipients back into the same surface. */
+  origin?: string;
+  /** `public` (default) — listed and open to guests; `hive-internal` —
+   *  listed but Hive-only (no guest listeners); `unlisted` — hidden
+   *  from the lobby, link-only, guests still allowed. Optional; pre-
+   *  existing rooms behave as `public`. */
+  visibility?: RoomVisibility;
 }
 
 export interface CreateRoomResponse {
@@ -21,6 +33,13 @@ export interface JoinRoomResponse {
   identity: string;
   isHost: boolean;
   isPremium?: boolean;
+  /**
+   * True when the participant is an unauthenticated listener-only
+   * guest. The server stamps `guest-{random}` identities; clients
+   * must treat them as listen-only (no chat, no hand-raise, can't be
+   * promoted to speaker).
+   */
+  isGuest?: boolean;
 }
 
 export interface AuthSession {
@@ -47,10 +66,15 @@ export interface DataMessage {
   [key: string]: unknown;
 }
 
+export type RecordingMode = 'audio' | 'video';
+export type RecordingLayout = 'speaker' | 'grid' | 'single';
+
 export interface RecordingStartResponse {
   egressId: string;
   status: string;
   filepath: string;
+  mode: RecordingMode;
+  layout: RecordingLayout;
 }
 
 export interface RecordingStopResponse {
@@ -58,18 +82,38 @@ export interface RecordingStopResponse {
   status: string;
   filePath: string;
   duration: number;
+  mode: RecordingMode;
+  layout: RecordingLayout;
+  /** Set for video recordings — token used by GET /record/file/:token. */
+  downloadToken?: string;
 }
 
 export interface RecordingStatusResponse {
   recording: boolean;
   egressId?: string;
+  mode?: RecordingMode;
+  layout?: RecordingLayout;
 }
 
+export interface RecordingLayoutResponse {
+  egressId: string;
+  layout: RecordingLayout;
+}
+
+/** Audio recording upload response (audio.3speak.tv → IPFS). */
 export interface RecordingUploadResponse {
   success: boolean;
   permlink: string;
   cid: string;
   playUrl: string;
+}
+
+/** Result of fetching the recorded MP4 from the server. */
+export interface RecordingFileResult {
+  blob: Blob;
+  filename: string;
+  duration: number;
+  size: number;
 }
 
 export type StreamPlatform = 'youtube' | 'twitch';

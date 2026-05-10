@@ -1,0 +1,32 @@
+server {
+    listen 80;
+    server_name hangouts.okinoko.io;
+
+    # Allow Let's Encrypt HTTP-01 challenges before TLS is provisioned.
+    # After running `certbot --nginx -d hangouts.okinoko.io` certbot will rewrite
+    # this file to redirect 80 → 443 and add the listen 443 ssl block.
+
+    client_max_body_size 0;
+
+    location / {
+        proxy_pass http://127.0.0.1:3002;
+        proxy_http_version 1.1;
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_cache_bypass $http_upgrade;
+
+        # Recording uploads can be large MP4s — disable buffering and keep the
+        # connection alive for long enough.
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+}

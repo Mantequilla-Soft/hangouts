@@ -1,6 +1,15 @@
-import { useState, useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useChat } from '../../hooks/useChat.js';
 import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
+
+export interface ChatPanelProps {
+  /** Called when the user clicks the collapse button in the chat header. */
+  onClose?: () => void;
+  /** Listen-only guest — render the chat in read-only mode. Server
+   *  blocks data publishing for guest identities anyway, but hiding
+   *  the input keeps the UI honest. */
+  isGuest?: boolean;
+}
 
 function ChatBubble({ identity, text }: { identity: string; text: string }) {
   const avatar = useHiveAvatar(identity, 'small');
@@ -16,27 +25,17 @@ function ChatBubble({ identity, text }: { identity: string; text: string }) {
   );
 }
 
-export function ChatPanel() {
+export function ChatPanel({ onClose, isGuest = false }: ChatPanelProps = {}) {
   const { messages, sendMessage } = useChat();
   const [input, setInput] = useState('');
-  const [isOpen, setIsOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [unread, setUnread] = useState(0);
 
-  // Auto-scroll to bottom on new messages
+  // Mounted only when the chat is visible — the parent (HangoutsRoom)
+  // unmounts us when the user collapses the panel via the toggle in the
+  // controls bar, so isOpen state lives one level up.
   useEffect(() => {
-    if (isOpen) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-      setUnread(0);
-    } else if (messages.length > 0) {
-      setUnread((prev) => prev + 1);
-    }
-  }, [messages.length, isOpen]);
-
-  // Reset unread when opening
-  useEffect(() => {
-    if (isOpen) setUnread(0);
-  }, [isOpen]);
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length]);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,43 +45,50 @@ export function ChatPanel() {
   };
 
   return (
-    <>
-      <button
-        className={`hh-btn hh-btn--secondary hh-chat__toggle`}
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        💬 {isOpen ? 'Close' : 'Chat'}
-        {!isOpen && unread > 0 && (
-          <span className="hh-chat__badge">{unread}</span>
+    <div className="hh-chat">
+      <div className="hh-chat__header">
+        <span className="hh-chat__title">Chat</span>
+        {onClose && (
+          <button
+            className="hh-chat__collapse"
+            onClick={onClose}
+            aria-label="Collapse chat"
+            title="Collapse chat"
+          >
+            ›
+          </button>
         )}
-      </button>
-
-      {isOpen && (
-        <div className="hh-chat">
-          <div className="hh-chat__messages">
-            {messages.length === 0 && (
-              <div className="hh-chat__empty">No messages yet</div>
-            )}
-            {messages.map((msg) => (
-              <ChatBubble key={msg.id} identity={msg.identity} text={msg.text} />
-            ))}
-            <div ref={bottomRef} />
-          </div>
-          <form className="hh-chat__input-row" onSubmit={handleSend}>
-            <input
-              className="hh-chat__input"
-              type="text"
-              placeholder="Say something..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              autoFocus
-            />
-            <button className="hh-btn hh-btn--primary hh-btn--small" type="submit" disabled={!input.trim()}>
-              Send
-            </button>
-          </form>
+      </div>
+      <div className="hh-chat__messages">
+        {messages.length === 0 && (
+          <div className="hh-chat__empty">No messages yet</div>
+        )}
+        {messages.map((msg) => (
+          <ChatBubble key={msg.id} identity={msg.identity} text={msg.text} />
+        ))}
+        <div ref={bottomRef} />
+      </div>
+      {isGuest ? (
+        // Listen-only guests: replace the input with a sign-in prompt
+        // so they understand chat is gated behind Hive auth (and so
+        // the server doesn't reject their data publish silently).
+        <div className="hh-chat__guest-prompt">
+          🔒 Sign in with Hive Keychain to chat.
         </div>
+      ) : (
+        <form className="hh-chat__input-row" onSubmit={handleSend}>
+          <input
+            className="hh-chat__input"
+            type="text"
+            placeholder="Say something..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+          />
+          <button className="hh-btn hh-btn--primary hh-btn--small" type="submit" disabled={!input.trim()}>
+            Send
+          </button>
+        </form>
       )}
-    </>
+    </div>
   );
 }

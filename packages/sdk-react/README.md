@@ -32,11 +32,15 @@ function App() {
 ## Features
 
 - **Hive Keychain login** — challenge-response auth with posting key
+- **Guest listener mode** — `<HangoutsRoom guestFallback>` lets unauthenticated viewers drop in as listen-only `guest-*` participants. Chat, mic, camera, hand-raise are all hidden for them.
+- **Room visibility** — Create-room dialog dropdown for `public` / `hive-internal` / `unlisted`. Server filters `unlisted` from the lobby and rejects guests for `hive-internal`.
 - **Audio rooms** — real-time voice via LiveKit WebRTC
-- **Chat** — text messaging via data channels
+- **Chat** — text messaging via data channels (read-only with sign-in prompt for guests)
 - **Hand raising** — listeners request to speak
-- **Speaker management** — host promotes/demotes participants
-- **Recording** — capture to MP3, upload to IPFS, with timer and indicators
+- **Speaker management** — host promotes/demotes participants. Promoted speakers start with mic and camera **off**.
+- **Live host transfer** — `useLiveHost` derives host status reactively from room metadata, so transferring host flips every consumer's UI without reconnecting.
+- **Recording** — audio or video; on stop, integrator-driven 3-button dialog (Upload · Download · Dismiss). Upload hands the raw blob to a callback you supply — the SDK doesn't ship a default publish destination.
+- **Share button** — built-in copy/Web-Share button in the room header, gated on a `getShareUrl(roomName, origin)` callback so links land back on the surface that created the room.
 - **Theming** — light/dark via CSS custom properties (`--hh-*`)
 - **Embedded mode** — fits in modals and panels
 - **Error boundary** — catches WebRTC crashes gracefully
@@ -60,25 +64,54 @@ function App() {
 |------|-------------|
 | `useHangoutsAuth()` | Login/logout, auth state |
 | `useRoomList()` | Active rooms (polls every 10s) |
-| `useHangoutsRoom()` | Join/create/leave rooms |
+| `useHangoutsRoom()` | Join (`join`), create (`create` accepts visibility), guest-listen (`listen`), leave; exposes `isGuest`, `roomMeta`, `transferHost`, `setLayout`, `setViewState` |
+| `useLiveHost(fallback?)` | Reactively derives the current host identity from room metadata + whether the local participant is the host. Use inside any LiveKit-context child to keep host UI in sync after a transfer. |
 | `useChat()` | Send/receive chat messages |
 | `useHandRaise()` | Hand raise state and actions |
 | `useHostControls()` | Promote, demote, kick |
-| `useRecording()` | Record, stop, upload with timer |
+| `useRecording()` | Record, stop, fetch blob, download |
 | `useHiveAvatar()` | Hive profile picture URL |
 
 ## HangoutsRoom props
 
 ```tsx
 <HangoutsRoom
-  roomName="room-name"              // required
-  onLeave={() => {}}                 // user left
-  onError={(err) => {}}              // WebRTC error
-  embedded                           // fit in modal (no min-height)
-  maxHeight="80vh"                   // explicit height
-  onRecordingUploaded={(result) => {
-    // result = { permlink, cid, playUrl }
+  roomName="room-name"               // required
+  onLeave={() => {}}                  // user left
+  onError={(err) => {}}               // WebRTC error
+  embedded                            // fit in modal (no min-height)
+  maxHeight="80vh"                    // explicit height
+  video                               // enable camera + screen share
+  guestFallback                       // unauth viewers auto-join via /listen
+  getShareUrl={(roomName, origin) => {
+    // Build a URL that drops the recipient back into your surface.
+    // origin is the hostname captured server-side at room creation.
+    return origin === '3speak.tv'
+      ? `https://3speak.tv/openpods/${roomName}`
+      : `https://hangout.3speak.tv/room/${roomName}`;
   }}
+  onAudioHandoff={(file) => {
+    // file = { blob, filename, duration, size }
+    // Route into your podcast / audio publish flow.
+    // Omit to hide the audio Upload button.
+  }}
+  onVideoHandoff={(file) => {
+    // file = { blob, filename, duration, size }
+    // Route into your studio / video publish flow.
+    // Omit to hide the video Upload button.
+  }}
+/>
+```
+
+### RoomLobby props
+
+```tsx
+<RoomLobby
+  onJoinRoom={(roomName) => setRoom(roomName)}
+  onRoomCreated={(room, opts) => {/* opts.notifyOnHive */}}
+  allowGuestBrowse                  // unauth visitors see the room list
+                                    // and can join as guests; Create / host
+                                    // actions stay hidden until they sign in
 />
 ```
 

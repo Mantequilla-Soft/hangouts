@@ -1,8 +1,15 @@
 export { HangoutsApiClient, type HangoutsApiClientOptions } from './api-client.js';
-export { loginWithKeychain, loginWithSignFn, isKeychainAvailable } from './keychain-auth.js';
+export {
+  loginWithKeychain,
+  loginWithSignFn,
+  loginWithAioha,
+  isKeychainAvailable,
+  type AiohaLike,
+} from './keychain-auth.js';
 export { HangoutsApiError } from './errors.js';
 export type {
   Room,
+  RoomVisibility,
   CreateRoomResponse,
   JoinRoomResponse,
   AuthSession,
@@ -10,10 +17,14 @@ export type {
   ParticipantRole,
   HandRaiseEvent,
   DataMessage,
+  RecordingMode,
+  RecordingLayout,
   RecordingStartResponse,
   RecordingStopResponse,
   RecordingStatusResponse,
+  RecordingLayoutResponse,
   RecordingUploadResponse,
+  RecordingFileResult,
   StreamPlatform,
   StreamStartResponse,
   StreamStopResponse,

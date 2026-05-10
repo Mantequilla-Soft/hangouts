@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
-import type { Room } from '@snapie/hangouts-core';
+import type { Room, RoomVisibility } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 
 export interface CreateRoomDialogProps {
-  onCreated: (room: Room) => void;
+  /** Fired after the room is created. The second argument carries
+   *  UI-only options the integrator can act on — e.g. whether to post
+   *  an announcement on Hive. The host stays responsible for the
+   *  announcement; the SDK only collects the user's preference. */
+  onCreated: (room: Room, options: { notifyOnHive: boolean }) => void;
   onCancel?: () => void;
 }
 
@@ -31,6 +35,8 @@ export function CreateRoomDialog({ onCreated, onCancel }: CreateRoomDialogProps)
   const [backgroundImageUrl, setBackgroundImageUrl] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [notifyOnHive, setNotifyOnHive] = useState(true);
+  const [visibility, setVisibility] = useState<RoomVisibility>('public');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { create, isLoading } = useHangoutsRoom();
   const { username, imageServerApiKey } = useHangoutsContext();
@@ -70,8 +76,11 @@ export function CreateRoomDialog({ onCreated, onCancel }: CreateRoomDialogProps)
     e.preventDefault();
     if (!title.trim()) return;
     const bg = imageServerApiKey ? (backgroundImageUrl || undefined) : undefined;
-    const room = await create(title.trim(), description.trim() || undefined, bg);
-    if (room) onCreated(room);
+    const room = await create(title.trim(), description.trim() || undefined, bg, visibility);
+    // Unlisted rooms shouldn't trigger a Hive announcement — defeats the
+    // purpose. Force the integrator's notify flag off for that tier.
+    const shouldNotify = visibility === 'unlisted' ? false : notifyOnHive;
+    if (room) onCreated(room, { notifyOnHive: shouldNotify });
   };
 
   return (
@@ -125,6 +134,9 @@ export function CreateRoomDialog({ onCreated, onCancel }: CreateRoomDialogProps)
                   >
                     Remove
                   </button>
+                  <span className="hh-bg-picker__hint hh-bg-picker__hint--inline">
+                    16:9 recommended: background renders at this aspect ratio
+                  </span>
                 </div>
               </div>
             ) : (
@@ -144,8 +156,41 @@ export function CreateRoomDialog({ onCreated, onCancel }: CreateRoomDialogProps)
               style={{ display: 'none' }}
               onChange={handleImageChange}
             />
+            {!backgroundImageUrl && (
+              <p className="hh-bg-picker__hint">
+                16:9 recommended: background renders at this aspect ratio
+              </p>
+            )}
             {uploadError && <p className="hh-bg-picker__error">{uploadError}</p>}
           </div>
+        </div>
+      )}
+
+      <div className="hh-create-dialog__row">
+        <label className="hh-create-dialog__field">
+          <span className="hh-create-dialog__field-label">Visibility</span>
+          <select
+            className="hh-create-dialog__select"
+            value={visibility}
+            onChange={(e) => setVisibility(e.target.value as RoomVisibility)}
+          >
+            <option value="public">Public — anyone can listen as a guest</option>
+            <option value="hive-internal">Hive-internal — Hive sign-in required</option>
+            <option value="unlisted">Unlisted — link only, hidden from lobby</option>
+          </select>
+        </label>
+      </div>
+
+      {visibility !== 'unlisted' && (
+        <div className="hh-create-dialog__row">
+          <label className="hh-create-dialog__check">
+            <input
+              type="checkbox"
+              checked={notifyOnHive}
+              onChange={(e) => setNotifyOnHive(e.target.checked)}
+            />
+            <span>Announce this OpenPod on Hive</span>
+          </label>
         </div>
       )}
 

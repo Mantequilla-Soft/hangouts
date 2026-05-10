@@ -7,20 +7,31 @@ import { CreateRoomDialog } from './CreateRoomDialog.js';
 
 export interface RoomLobbyProps {
   onJoinRoom: (roomName: string) => void;
-  onRoomCreated?: (room: Room) => void;
+  /** Fired when the user creates a room. The second argument carries
+   *  UI-only options the user picked in the create dialog (e.g.
+   *  whether to announce the room on Hive). Optional second arg
+   *  preserves backwards compatibility with older integrators. */
+  onRoomCreated?: (room: Room, options?: { notifyOnHive: boolean }) => void;
+  /** When true, unauthenticated visitors see the room list and can
+   *  join as listen-only guests instead of being shown the sign-in
+   *  form. Create / host actions stay hidden for guests. Default
+   *  false to preserve the original auth-gated behaviour. */
+  allowGuestBrowse?: boolean;
 }
 
-export function RoomLobby({ onJoinRoom, onRoomCreated }: RoomLobbyProps) {
+export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false }: RoomLobbyProps) {
   const auth = useHangoutsAuth();
   const { rooms, isLoading, error } = useRoomList();
   const [showCreate, setShowCreate] = useState(false);
   const [loginUsername, setLoginUsername] = useState('');
 
-  // Login screen
-  if (!auth.isAuthenticated) {
+  // Login screen — skipped when the integrator opted in to guest
+  // browsing, in which case unauth visitors fall straight through to
+  // the rooms list (Create button stays hidden until they sign in).
+  if (!auth.isAuthenticated && !allowGuestBrowse) {
     return (
       <div className="hh-lobby">
-        <h1 className="hh-lobby__title">Hive Hangouts</h1>
+        <h1 className="hh-lobby__title">OpenPods Rooms</h1>
         <div className="hh-lobby__auth">
           <p>Sign in with your Hive account to join or create audio rooms.</p>
           {!auth.isKeychainAvailable && (
@@ -51,28 +62,34 @@ export function RoomLobby({ onJoinRoom, onRoomCreated }: RoomLobbyProps) {
     );
   }
 
-  const handleCreated = (room: Room) => {
+  const handleCreated = (room: Room, options: { notifyOnHive: boolean }) => {
     setShowCreate(false);
-    onRoomCreated?.(room);
+    onRoomCreated?.(room, options);
     onJoinRoom(room.name);
   };
 
   return (
     <div className="hh-lobby">
       <div className="hh-lobby__header">
-        <h1 className="hh-lobby__title">Hangouts</h1>
+        <h1 className="hh-lobby__title">OpenPods Rooms</h1>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.85rem', color: '#666' }}>@{auth.username}</span>
-          <button className="hh-btn hh-btn--primary hh-btn--small" onClick={() => setShowCreate(!showCreate)}>
-            {showCreate ? 'Cancel' : '+ New room'}
-          </button>
-          <button className="hh-btn hh-btn--secondary hh-btn--small" onClick={auth.logout}>
-            Logout
-          </button>
+          {auth.isAuthenticated ? (
+            <>
+              <span style={{ fontSize: '0.85rem', color: '#666' }}>@{auth.username}</span>
+              <button className="hh-btn hh-btn--primary hh-btn--small" onClick={() => setShowCreate(!showCreate)}>
+                {showCreate ? 'Cancel' : '+ New room'}
+              </button>
+              <button className="hh-btn hh-btn--secondary hh-btn--small" onClick={auth.logout}>
+                Logout
+              </button>
+            </>
+          ) : (
+            <span style={{ fontSize: '0.85rem', color: '#666' }}>Browsing as guest</span>
+          )}
         </div>
       </div>
 
-      {showCreate && (
+      {auth.isAuthenticated && showCreate && (
         <CreateRoomDialog
           onCreated={handleCreated}
           onCancel={() => setShowCreate(false)}

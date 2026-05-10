@@ -72,3 +72,57 @@ export async function loginWithSignFn(
   apiClient.setSessionToken(session.token);
   return session;
 }
+
+/**
+ * Minimal subset of `@aioha/aioha`'s `Aioha` interface that we actually need.
+ * We deliberately don't import the real type so the SDK doesn't need
+ * `@aioha/aioha` as a hard dependency — consumers who already have an Aioha
+ * instance can pass it directly, anyone else can wrap whatever signing flow
+ * they prefer in `loginWithSignFn` instead.
+ */
+export interface AiohaLike {
+  /** Sign a message with the currently-logged-in user's posting key. */
+  signMessage(
+    message: string,
+    keyType: string,
+  ): Promise<{ success: boolean; result?: string; error?: string }>;
+  /** Optional — return the username Aioha is currently authenticated as. */
+  getCurrentUser?(): string | undefined | null;
+  /** Optional — true when the user has an active Aioha session. */
+  isLoggedIn?(): boolean;
+}
+
+/**
+ * Sign in to the hangouts server using a logged-in Aioha session.
+ *
+ * The consumer is responsible for completing Aioha's own login flow first
+ * (e.g. by mounting `@aioha/react-ui`'s modal). This helper just:
+ *   1. Resolves the username (passed in or via `aioha.getCurrentUser()`)
+ *   2. Asks the server for a challenge
+ *   3. Has Aioha sign it with the posting key (any registered provider —
+ *      Keychain, HiveAuth, PeakVault, MetaMask Snap, Ledger, etc.)
+ *   4. Posts the signature back for verification
+ *
+ * HiveSigner is intentionally not coupled here — it's just one of the
+ * providers a consumer may or may not register on their Aioha instance,
+ * and we don't drive that registration from inside the SDK.
+ */
+export async function loginWithAioha(
+  apiClient: HangoutsApiClient,
+  aioha: AiohaLike,
+  username?: string,
+): Promise<AuthSession> {
+  const resolvedUsername = username ?? aioha.getCurrentUser?.() ?? null;
+  if (!resolvedUsername) {
+    throw new Error(
+      'No Hive username available — pass one explicitly or log in via Aioha first.',
+    );
+  }
+  return loginWithSignFn(apiClient, resolvedUsername, async (message) => {
+    const res = await aioha.signMessage(message, 'posting');
+    if (!res.success || !res.result) {
+      throw new Error(res.error || 'Aioha signMessage failed');
+    }
+    return res.result;
+  });
+}
