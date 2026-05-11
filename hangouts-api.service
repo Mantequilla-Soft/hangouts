@@ -1,0 +1,18 @@
+[Unit]
+Description=Hive Hangouts API Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/dockeruser/hangouts/server
+ExecStart=/root/.nvm/versions/node/v22.19.0/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+
+# Recordings live under /tmp/livekit-recordings/ — created on demand at /record/start
+# Keep StandardOutput=journal so logs are captured; tail with `journalctl -fu hangouts-api`
+
+[Install]
+WantedBy=multi-user.target

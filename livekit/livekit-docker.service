@@ -1,0 +1,20 @@
+[Unit]
+Description=LiveKit Server (Docker Compose)
+Documentation=https://docs.livekit.io
+After=docker.service network.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/livekit
+# /tmp gets cleared on reboot — ensure recordings dir exists and is writable
+# by the non-root `egress` user inside the container.
+ExecStartPre=/bin/mkdir -p /tmp/livekit-recordings
+ExecStartPre=/bin/chmod 777 /tmp/livekit-recordings
+ExecStart=/usr/bin/docker compose up
+ExecStop=/usr/bin/docker compose down
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

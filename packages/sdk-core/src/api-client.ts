@@ -1,4 +1,4 @@
-import type { Room, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingUploadResponse, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse } from './types.js';
+import type { Room, RoomVisibility, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse } from './types.js';
 import { HangoutsApiError } from './errors.js';
 
 export interface HangoutsApiClientOptions {
@@ -81,16 +81,58 @@ export class HangoutsApiClient {
     }
   }
 
-  async createRoom(title: string, description?: string, backgroundImage?: string): Promise<CreateRoomResponse> {
-    return this.request('POST', '/rooms', { title, description, backgroundImage });
+  async createRoom(
+    title: string,
+    description?: string,
+    backgroundImage?: string,
+    visibility?: RoomVisibility,
+  ): Promise<CreateRoomResponse> {
+    return this.request('POST', '/rooms', { title, description, backgroundImage, visibility });
   }
 
   async joinRoom(roomName: string): Promise<JoinRoomResponse> {
     return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/join`);
   }
 
+  /**
+   * Join as an unauthenticated listener-only guest. Does NOT require a
+   * session token — anyone with the room URL can call this. The server
+   * issues a `guest-*` identity with publish disabled and rate-limits
+   * the endpoint per IP. Use this when the user hasn't (or can't)
+   * sign in with Hive but wants to listen in.
+   */
+  async listenAsGuest(roomName: string): Promise<JoinRoomResponse> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/listen`);
+  }
+
   async deleteRoom(roomName: string): Promise<void> {
     return this.request('DELETE', `/rooms/${encodeURIComponent(roomName)}`);
+  }
+
+  /** Transfer host role to another participant. Host-only. */
+  async transferHost(roomName: string, newHost: string): Promise<{ host: string }> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/host`, { newHost });
+  }
+
+  /**
+   * Update the room's display/recording layout. Host-only. Persists to
+   * metadata.recordLayout, which both the live SpeakerStage and the
+   * egress template read — one setting drives both views WYSIWYG.
+   */
+  async setRoomLayout(roomName: string, layout: 'speaker' | 'grid' | 'single'): Promise<{ layout: string }> {
+    return this.request('PATCH', `/rooms/${encodeURIComponent(roomName)}/layout`, { layout });
+  }
+
+  /**
+   * Update the host's transient view-state (focused speaker / grid
+   * override / chat-open state). Stored in room metadata so the egress
+   * template can mirror the host's live view in real time.
+   */
+  async setRoomViewState(
+    roomName: string,
+    state: { focusedIdentity?: string | null; suppressScreenAutoFocus?: boolean; chatOpen?: boolean },
+  ): Promise<{ focusedIdentity: string | null; suppressScreenAutoFocus: boolean; chatOpen: boolean }> {
+    return this.request('PATCH', `/rooms/${encodeURIComponent(roomName)}/layout`, state);
   }
 
   // Participants
@@ -112,8 +154,8 @@ export class HangoutsApiClient {
 
   // Recording
 
-  async startRecording(roomName: string): Promise<RecordingStartResponse> {
-    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/record/start`);
+  async startRecording(roomName: string, opts?: { mode?: RecordingMode; layout?: RecordingLayout }): Promise<RecordingStartResponse> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/record/start`, opts ?? {});
   }
 
   async stopRecording(roomName: string): Promise<RecordingStopResponse> {
@@ -124,6 +166,11 @@ export class HangoutsApiClient {
     return this.request('GET', `/rooms/${encodeURIComponent(roomName)}/record/status`);
   }
 
+  /** Switch the active video recording's layout (host only, video mode only). */
+  async setRecordingLayout(roomName: string, layout: RecordingLayout): Promise<RecordingLayoutResponse> {
+    return this.request('PATCH', `/rooms/${encodeURIComponent(roomName)}/record/layout`, { layout });
+  }
+
   async uploadRecording(roomName: string, filePath: string, duration?: number, title?: string, tags?: string[]): Promise<RecordingUploadResponse> {
     return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/record/upload`, {
       filePath,
@@ -131,6 +178,33 @@ export class HangoutsApiClient {
       title,
       tags,
     });
+  }
+
+  /**
+   * Stream the recorded MP4 from the server back to the host's browser.
+   * The host then re-uploads it through the user's normal /studio flow
+   * (using their own auth — no shared service token shared with the SDK).
+   */
+  async fetchRecordingFile(roomName: string, downloadToken: string): Promise<RecordingFileResult> {
+    const headers: Record<string, string> = {};
+    if (this.sessionToken) headers['Authorization'] = `Bearer ${this.sessionToken}`;
+    const response = await fetch(
+      `${this.baseUrl}/rooms/${encodeURIComponent(roomName)}/record/file/${encodeURIComponent(downloadToken)}`,
+      { method: 'GET', headers },
+    );
+    if (!response.ok) {
+      let errorBody: unknown;
+      try { errorBody = await response.json(); } catch { /* ignore */ }
+      throw new HangoutsApiError(
+        response.status,
+        (errorBody as { message?: string })?.message || response.statusText,
+        errorBody,
+      );
+    }
+    const blob = await response.blob();
+    const filename = response.headers.get('X-Recording-Filename') ?? `${roomName}.mp4`;
+    const duration = Number(response.headers.get('X-Recording-Duration') ?? '0');
+    return { blob, filename, duration, size: blob.size };
   }
 
   // Streaming

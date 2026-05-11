@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LiveKitRoom, RoomAudioRenderer } from '@livekit/components-react';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
@@ -17,21 +17,78 @@ export interface HangoutsRoomProps {
   embedded?: boolean;
   /** Optional max height for the room container (e.g., "80vh", "600px"). */
   maxHeight?: string;
-  /** Called when the host uploads a recording to IPFS. */
-  onRecordingUploaded?: (result: { permlink: string; cid: string; playUrl: string }) => void;
+  /**
+   * Hands a finished VIDEO recording to the integrator. The Upload
+   * button in the post-stop dialog only renders when this is set —
+   * without it, the host can still Download or Dismiss the recording
+   * but has no built-in publish path. The integrator chooses the
+   * destination (3Speak Studio, S3, etc.).
+   */
+  onVideoHandoff?: (file: { blob: Blob; filename: string; duration: number; size: number }) => void;
+  /**
+   * Hands a finished AUDIO recording to the integrator. Same gating
+   * and ownership story as `onVideoHandoff`.
+   */
+  onAudioHandoff?: (file: { blob: Blob; filename: string; duration: number; size: number }) => void;
   /** Enable video and screen sharing for speakers. Default: false (audio-only). */
   video?: boolean;
+  /**
+   * When true, an unauthenticated viewer auto-joins as a listen-only
+   * guest (server `/listen` endpoint). Authenticated users still
+   * follow the normal `join` flow. Default: false (the integrator
+   * gates the room behind their own sign-in screen).
+   */
+  guestFallback?: boolean;
+  /**
+   * Returns the URL the Share button should copy. Receives the room
+   * name and the origin hostname stored in metadata (the site that
+   * created the room) so the integrator can route shares back to a
+   * surface where the recipient still has session/auth. Return null
+   * to hide the button.
+   */
+  getShareUrl?: (roomName: string, origin: string | undefined) => string | null;
 }
 
-export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onRecordingUploaded, video = false }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
-
+  const [chatOpen, setChatOpen] = useState(true);
+  // Mirror the host's chat-open state into room metadata so the egress
+  // template knows whether to render the chat panel in the recording.
+  // Non-hosts toggling their own chat does NOT propagate — recording
+  // follows the host's view.
+  const lastChatPushRef = useRef<boolean | null>(null);
   useEffect(() => {
-    if (!room.livekitToken && isAuthenticated) {
+    if (!room.isHost || !room.roomName) return;
+    if (lastChatPushRef.current === chatOpen) return;
+    lastChatPushRef.current = chatOpen;
+    room.setViewState?.({ chatOpen }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn('[Hangouts] Failed to push chatOpen:', err);
+    });
+  }, [chatOpen, room.isHost, room.roomName, room.setViewState, room]);
+
+  // Module-level dedup so React 18 StrictMode (which mounts effects twice in
+  // dev) doesn't fire a second `room.join()` while the first is still in
+  // flight. Without this, the API issues two LiveKit tokens, the second
+  // WebSocket connection knocks out the first as a duplicate identity, and
+  // the room appears to open and close immediately.
+  const joinedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (room.livekitToken) return;
+    if (joinedForRef.current === roomName) return;
+    if (isAuthenticated) {
+      joinedForRef.current = roomName;
       room.join(roomName);
+    } else if (guestFallback) {
+      // Unauthenticated visitor — drop straight into listen-only mode.
+      // The SDK calls POST /rooms/:name/listen, which doesn't need a
+      // session token, and renders the room with the participation
+      // surface (mic, chat input, hand-raise) hidden via `isGuest`.
+      joinedForRef.current = roomName;
+      room.listen(roomName);
     }
-  }, [roomName, isAuthenticated]);
+  }, [roomName, isAuthenticated, guestFallback, room]);
 
   if (room.isLoading || !room.livekitToken) {
     return <div className="hh-room">Connecting...</div>;
@@ -43,18 +100,46 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
   };
 
   const handleEndRoom = async () => {
-    await room.endRoom();
-    onLeave?.();
+    try {
+      await room.endRoom();
+      onLeave?.();
+    } catch (err) {
+      // Surface failures so the host gets feedback instead of staring at
+      // a button that "does nothing" — e.g., expired session or the
+      // server thinking someone else owns the room.
+      console.error('[Hangouts] End room failed:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Couldn't end the room: ${msg}`);
+    }
+  };
+
+  const handleTransferHost = async (newHost: string) => {
+    if (!room.roomName) return;
+    try {
+      await room.transferHost(newHost);
+    } catch (err) {
+      console.error('[Hangouts] Transfer host failed:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Couldn't transfer host: ${msg}`);
+      return;
+    }
+    // Once metadata.host points elsewhere, the server treats us as a
+    // regular speaker — leave to drop the LiveKit connection. The new
+    // host's client picks up the metadata change via Room events.
+    handleLeave();
   };
 
   // Use room metadata title if available, otherwise the room name
   const title = room.roomMeta?.title ?? roomName;
   const host = room.roomMeta?.host ?? '';
+  const description = room.roomMeta?.description;
   const backgroundImage = room.roomMeta?.backgroundImage;
 
-  // All users can view video; only premium users can publish camera or screen share
+  // Any speaker (host or promoted listener) can publish camera/screen share when
+  // the room is in video mode. Premium status is enforced server-side on
+  // recording only — publishing has no marginal cost beyond LiveKit's relay.
   const videoEnabled = video;
-  const canPublishVideo = video && room.isPremium;
+  const canPublishVideo = video;
 
   return (
     <HangoutsErrorBoundary onError={onError}>
@@ -62,42 +147,82 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
         token={room.livekitToken}
         serverUrl={room.livekitServerUrl}
         connect={true}
-        audio={true}
-        video={canPublishVideo}
+        // Guests are listen-only — never request mic/camera access.
+        audio={!room.isGuest}
+        video={!room.isGuest && canPublishVideo}
         onDisconnected={handleLeave}
       >
         <RoomAudioRenderer />
         <div
           className={`hh-room ${embedded ? 'hh-room--embedded' : ''}`}
-          style={{
-            ...(maxHeight ? { maxHeight } : {}),
-            ...(backgroundImage ? { backgroundImage: `url("${backgroundImage}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
-          }}
+          style={maxHeight ? { maxHeight } : undefined}
         >
-          <RoomHeader title={title} host={host} roomName={roomName} />
-          <div className="hh-room__content">
-            <SpeakerStage
-              hostIdentity={host}
-              isCurrentUserHost={room.isHost}
-              roomName={roomName}
-              videoEnabled={videoEnabled}
+          {backgroundImage && (
+            // Absolute-positioned bg layer so the room thumbnail always
+            // covers the full modal regardless of internal flex shrinking
+            // or padding. Children stack above it via z-index.
+            <div
+              className="hh-room__bg"
+              style={{ backgroundImage: `url("${backgroundImage}")` }}
+              aria-hidden="true"
             />
-            <AudienceSection
-              hostIdentity={host}
-              isCurrentUserHost={room.isHost}
-              roomName={roomName}
-            />
-            <ChatPanel />
-          </div>
-          <RoomControls
-            isHost={room.isHost}
+          )}
+          <RoomHeader
+            title={title}
+            description={description}
             roomName={roomName}
-            onLeave={handleLeave}
-            onEndRoom={room.isHost ? handleEndRoom : undefined}
-            onRecordingUploaded={onRecordingUploaded}
-            videoEnabled={canPublishVideo}
-            roomVideoEnabled={video}
+            isGuest={room.isGuest}
+            shareUrl={getShareUrl ? getShareUrl(roomName, room.roomMeta?.origin) : null}
           />
+          <div className="hh-room__content">
+            <aside className="hh-room__listeners">
+              <AudienceSection
+                hostIdentity={host}
+                isCurrentUserHost={room.isHost}
+                roomName={roomName}
+              />
+            </aside>
+            <div className="hh-room__main">
+              <div className="hh-room__stage">
+                <SpeakerStage
+                  hostIdentity={host}
+                  isCurrentUserHost={room.isHost}
+                  roomName={roomName}
+                  videoEnabled={videoEnabled}
+                  chatOpen={chatOpen}
+                />
+              </div>
+              <RoomControls
+                isHost={room.isHost}
+                isGuest={room.isGuest}
+                roomName={roomName}
+                onLeave={handleLeave}
+                // Pass host handlers unconditionally — RoomControls reads
+                // live host status from room metadata via useRoomInfo, so
+                // a participant promoted via host transfer flips into the
+                // host UI mid-session. Gating these on the stale join-time
+                // `room.isHost` froze the new host on the Leave button.
+                onEndRoom={handleEndRoom}
+                onTransferHost={handleTransferHost}
+                onSetLayout={room.setLayout}
+                hostIdentity={host}
+                onVideoHandoff={onVideoHandoff}
+                onAudioHandoff={onAudioHandoff}
+                videoEnabled={canPublishVideo}
+                roomVideoEnabled={video}
+                chatOpen={chatOpen}
+                onToggleChat={() => setChatOpen((v) => !v)}
+              />
+            </div>
+            {chatOpen && (
+              <aside className="hh-room__sidebar">
+                <ChatPanel
+                  onClose={() => setChatOpen(false)}
+                  isGuest={room.isGuest}
+                />
+              </aside>
+            )}
+          </div>
         </div>
       </LiveKitRoom>
     </HangoutsErrorBoundary>

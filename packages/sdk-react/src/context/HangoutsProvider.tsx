@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
-import { HangoutsApiClient } from '@snapie/hangouts-core';
+import { HangoutsApiClient, type AiohaLike } from '@snapie/hangouts-core';
 import { HangoutsContext } from './HangoutsContext.js';
 
 export interface HangoutsProviderProps {
@@ -8,6 +8,13 @@ export interface HangoutsProviderProps {
   sessionToken?: string;
   username?: string;
   imageServerApiKey?: string;
+  /**
+   * Optional Aioha instance. When provided, `useHangoutsAuth` signs the
+   * server challenge through Aioha (so any provider the consumer registered
+   * works: Keychain, HiveAuth, PeakVault, MetaMask Snap, Ledger). When
+   * omitted, the hook falls back to direct Hive Keychain.
+   */
+  aioha?: AiohaLike;
   children: ReactNode;
 }
 
@@ -17,6 +24,7 @@ export function HangoutsProvider({
   sessionToken,
   username: externalUsername,
   imageServerApiKey,
+  aioha,
   children,
 }: HangoutsProviderProps) {
   const apiClient = useMemo(() => {
@@ -60,7 +68,8 @@ export function HangoutsProvider({
     isAuthenticated: !!username && !!activeToken,
     setAuth,
     imageServerApiKey,
-  }), [apiClient, livekitServerUrl, username, activeToken, imageServerApiKey]);
+    aioha,
+  }), [apiClient, livekitServerUrl, username, activeToken, imageServerApiKey, aioha]);
 
   return (
     <HangoutsContext.Provider value={value}>

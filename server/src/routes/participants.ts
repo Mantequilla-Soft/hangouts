@@ -44,6 +44,15 @@ export const participantRoutes: FastifyPluginAsync = async (fastify) => {
     if (check.error === 'not_found') return reply.notFound('Room not found');
     if (check.error === 'forbidden') return reply.forbidden('Only the host can change permissions');
 
+    // Guest listeners are deliberately unauthenticated and listen-only.
+    // The JWT we issue them already has canPublish:false, but
+    // updateParticipant can override the JWT — block it as policy so a
+    // host can't accidentally hand mic permission to a random URL
+    // visitor.
+    if (identity.startsWith('guest-')) {
+      return reply.badRequest('Cannot promote guest listeners; they must sign in with Hive');
+    }
+
     const updated = await roomService.updateParticipant(name, identity, undefined, {
       canPublish,
       canSubscribe: true,

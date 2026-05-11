@@ -10,9 +10,9 @@ npm install @snapie/hangouts-core
 
 ## What's included
 
-- **HangoutsApiClient** — typed HTTP client for the Hangouts API (auth, rooms, participants, recording)
-- **loginWithKeychain()** — Hive Keychain browser auth helper
-- **TypeScript types** — Room, AuthSession, JoinRoomResponse, HandRaiseEvent, etc.
+- **HangoutsApiClient** — typed HTTP client for the Hangouts API (auth, rooms, participants, recording, host transfer, layout/view-state, guest listen)
+- **loginWithKeychain()** / **loginWithAioha()** — browser auth helpers
+- **TypeScript types** — `Room`, `RoomVisibility`, `AuthSession`, `JoinRoomResponse` (`isHost`, `isGuest`, `isPremium`), `HandRaiseEvent`, recording / streaming response shapes, etc.
 
 ## Quick start
 
@@ -21,18 +21,35 @@ import { HangoutsApiClient } from '@snapie/hangouts-core';
 
 const client = new HangoutsApiClient({ baseUrl: 'https://hangout-api.3speak.tv' });
 
-// List active rooms
+// List active rooms (server filters out `unlisted` rooms)
 const rooms = await client.listRooms();
+// rooms[i].visibility — 'public' | 'hive-internal' | 'unlisted' | undefined
+// rooms[i].origin     — hostname of the site that created the room
 
 // Auth with Hive Keychain (web)
 import { loginWithKeychain } from '@snapie/hangouts-core';
 const session = await loginWithKeychain(client, 'your-hive-username');
 
-// Create a room
-const { room, token } = await client.createRoom('My Hangout');
+// Create a room (visibility optional, defaults to 'public')
+const { room, token } = await client.createRoom(
+  'My Hangout',
+  'Optional description',
+  undefined,             // background image URL
+  'hive-internal',       // RoomVisibility — restrict to Hive accounts
+);
 
-// Join a room
-const { token, isHost } = await client.joinRoom('room-name');
+// Join a room (auth required)
+const join = await client.joinRoom('room-name');
+// join.isHost, join.isGuest, join.isPremium
+
+// Listen as an unauthenticated guest (no Hive account)
+// Server stamps a `guest-{random}` identity, listen-only token.
+// Rejected for `hive-internal` rooms.
+const guest = await client.listenAsGuest('room-name');
+// guest.isGuest === true; the LiveKit token has canPublish=false
+
+// Transfer host to another speaker (host only)
+await client.transferHost('room-name', 'newhost-username');
 ```
 
 ## When to use this package
