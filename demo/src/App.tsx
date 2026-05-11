@@ -94,13 +94,17 @@ function MainApp() {
           </div>
         )}
         {activeRoom ? (
-          <HangoutsRoom
-            roomName={activeRoom}
-            onLeave={() => setActiveRoom(null)}
-            embedded
-            video
-            guestFallback
-          />
+          <div className="hh-demo-overlay">
+            <div className="hh-demo-modal" data-hh-theme={theme}>
+              <HangoutsRoom
+                roomName={activeRoom}
+                onLeave={() => setActiveRoom(null)}
+                embedded
+                video
+                guestFallback
+              />
+            </div>
+          </div>
         ) : (
           <RoomLobby
             onJoinRoom={(roomName) => setActiveRoom(roomName)}

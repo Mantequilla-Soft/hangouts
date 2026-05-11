@@ -22,3 +22,70 @@ body {
   right: 1rem;
   z-index: 50;
 }
+
+/* Modal frame around <HangoutsRoom>. The SDK is designed to be embedded
+ * inside a host-provided container — without bounds it stretches to the
+ * full viewport width and looks unfinished. We replicate the same
+ * containment 3speak.tv uses on /openpods: a centered 16:9 card capped
+ * at 1280px with a dimmed backdrop. */
+.hh-demo-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: hh-demo-fade-in 0.15s ease;
+}
+
+@keyframes hh-demo-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.hh-demo-modal {
+  position: relative;
+  background: var(--hh-bg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  width: min(96vw, 1280px);
+  aspect-ratio: 16 / 9;
+  max-height: 92vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  animation: hh-demo-slide-up 0.2s ease;
+}
+
+@keyframes hh-demo-slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+/* Force flex propagation through every wrapper between the modal and
+ * .hh-room. LiveKit's <LiveKitRoom> renders a plain wrapper <div> that
+ * would otherwise collapse to its content height, leaving a tall empty
+ * gap below the room (the bug we saw in horrible.png). With this rule
+ * the SDK's `.hh-room--embedded { flex: 1 }` actually stretches. */
+.hh-demo-modal > * {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Phones: full-screen the modal (no aspect ratio, no border radius). */
+@media (max-width: 768px) {
+  .hh-demo-modal {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+}
