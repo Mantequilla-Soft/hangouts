@@ -26,20 +26,26 @@ function getInitialTheme(): 'light' | 'dark' {
 // Tiny Keychain sign-in button used on the lobby. The SDK's RoomLobby
 // shows its own `@username + Logout` cluster once authenticated, so we
 // only render this when the user isn't signed in yet.
+//
+// We deliberately don't gate the button on isKeychainAvailable. The
+// Keychain extension injects `window.hive_keychain` asynchronously and
+// there's no event we can subscribe to, so checking once at render
+// risks a false negative when the page beats the extension. If
+// Keychain genuinely isn't installed by the time the user clicks, the
+// SDK throws a clear "Hive Keychain extension is not installed" error
+// which surfaces in the alert below.
 function SignInButton() {
-  const { isAuthenticated, login, isLoading, isKeychainAvailable } = useHangoutsAuth();
+  const { isAuthenticated, login, isLoading } = useHangoutsAuth();
   if (isAuthenticated) return null;
-  if (!isKeychainAvailable) {
-    return (
-      <span style={{ fontSize: '0.75rem', color: '#e31337' }} title="Install Hive Keychain to sign in">
-        Keychain not detected
-      </span>
-    );
-  }
   const onClick = async () => {
     const name = window.prompt('Hive username:');
     if (!name) return;
-    try { await login(name.trim()); } catch { /* surfaced via auth.error inside the lobby */ }
+    try {
+      await login(name.trim());
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      window.alert(msg);
+    }
   };
   return (
     <button className="hh-btn hh-btn--primary hh-btn--small" disabled={isLoading} onClick={onClick}>
@@ -93,6 +99,7 @@ function MainApp() {
             onLeave={() => setActiveRoom(null)}
             embedded
             video
+            guestFallback
           />
         ) : (
           <RoomLobby
