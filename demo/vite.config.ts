@@ -2,11 +2,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
-  // Served behind nginx at https://hangouts.okinoko.io/egress-template/ —
-  // Vite must emit asset URLs prefixed with this so the egress browser can
-  // load them. Without this, /assets/* 404s and the template never renders,
-  // which surfaces as "Start signal not received" in the egress logs.
-  base: '/egress-template/',
+  // The same build serves both the main demo at `/` and the egress headless
+  // page at `/egress-template/*` — routing is done client-side in App.tsx,
+  // so assets stay at the root and load from either path.
   plugins: [react()],
   resolve: {
     // The SDK (file:../packages/sdk-react) has its own nested node_modules
