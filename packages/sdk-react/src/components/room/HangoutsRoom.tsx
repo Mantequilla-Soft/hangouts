@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { LiveKitRoom, RoomAudioRenderer } from '@livekit/components-react';
+import { LiveKitRoom, RoomAudioRenderer, StartAudio } from '@livekit/components-react';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { RoomHeader } from './RoomHeader.js';
@@ -153,6 +153,13 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
         onDisconnected={handleLeave}
       >
         <RoomAudioRenderer />
+        {/* Browser autoplay policies block <audio>.play() until the page has a
+            fresh user gesture *and* room.startAudio() has been called. Hosts
+            get that gesture from their mic-publish prompt, but guests who
+            land in via /listen have nothing to unlock playback — they'd see
+            speakers' tiles and hear silence. StartAudio renders a button
+            only when LiveKit reports audio playback is blocked. */}
+        <StartAudio label="Click to enable audio" className="hh-start-audio" />
         <div
           className={`hh-room ${embedded ? 'hh-room--embedded' : ''}`}
           style={maxHeight ? { maxHeight } : undefined}
