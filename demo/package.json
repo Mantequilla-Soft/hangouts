@@ -8,6 +8,8 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@aioha/aioha": "^1.8.5",
+    "@aioha/react-ui": "^1.8.2",
     "@livekit/components-react": "^2.0.0",
     "@livekit/egress-sdk": "^0.2.1",
     "@snapie/hangouts-react": "file:../packages/sdk-react",
