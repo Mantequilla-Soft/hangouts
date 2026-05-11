@@ -8,7 +8,12 @@ import {
 import '@snapie/hangouts-react/src/styles/hangouts.css';
 import { Aioha, KeyTypes } from '@aioha/aioha';
 import { AiohaProvider, AiohaModal, useAioha } from '@aioha/react-ui';
-import '@aioha/react-ui/dist/build.css';
+// NB: do NOT import the Aioha stylesheet at module scope. It ships
+// Tailwind v4 with a global preflight (`* { border: 0 solid; ... }`)
+// that strips browser default borders/sizes from every element and
+// clobbers the SDK's room UI. Instead, we inject it as a <link> only
+// while <AiohaModal> is on screen — see useAiohaStylesheet below.
+import aiohaCssUrl from '@aioha/react-ui/dist/build.css?url';
 import { EgressTemplate } from './EgressTemplate.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
@@ -37,6 +42,21 @@ function getInitialTheme(): 'light' | 'dark' {
   const saved = localStorage.getItem('hh-theme');
   if (saved === 'light' || saved === 'dark') return saved;
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+// Inject the Aioha (Tailwind preflight) stylesheet only while the modal
+// is open, then remove it on close so the SDK's UI isn't living under a
+// `* { border: 0 }` reset for the rest of the session.
+function useAiohaStylesheet(enabled: boolean) {
+  useEffect(() => {
+    if (!enabled) return;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = aiohaCssUrl;
+    link.dataset.scope = 'aioha';
+    document.head.appendChild(link);
+    return () => { link.remove(); };
+  }, [enabled]);
 }
 
 // Once the user finishes Aioha's login flow (any provider), exchange
@@ -82,6 +102,7 @@ function MainApp() {
   const [activeRoom, setActiveRoom] = useState<string | null>(getRoomFromUrl);
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
   const [modalOpen, setModalOpen] = useState(false);
+  useAiohaStylesheet(modalOpen);
 
   const toggleTheme = () => {
     const next = theme === 'light' ? 'dark' : 'light';
@@ -105,12 +126,14 @@ function MainApp() {
 
   return (
     <div data-hh-theme={theme} className="hh-app">
-      <div className="hh-app__theme-toggle" style={{ display: 'flex', gap: '0.5rem' }}>
-        <ConnectButton onOpen={() => setModalOpen(true)} />
-        <button onClick={toggleTheme} className="hh-btn hh-btn--secondary hh-btn--small">
-          {theme === 'light' ? '🌙' : '☀️'}
-        </button>
-      </div>
+      {!activeRoom && (
+        <div className="hh-app__theme-toggle" style={{ display: 'flex', gap: '0.5rem' }}>
+          <ConnectButton onOpen={() => setModalOpen(true)} />
+          <button onClick={toggleTheme} className="hh-btn hh-btn--secondary hh-btn--small">
+            {theme === 'light' ? '🌙' : '☀️'}
+          </button>
+        </div>
+      )}
       <HangoutsProvider
         apiBaseUrl={API_BASE_URL}
         livekitServerUrl={LIVEKIT_URL}
