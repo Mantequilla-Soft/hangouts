@@ -246,7 +246,7 @@ function RecordingStartErrorModal({ message, onClose }: { message: string; onClo
           {isPremiumGate && (
             <>
               <br /><br />
-              Audio recordings are still available on the free tier — switch the recording mode to <strong>🎙️ Audio</strong> to capture this room.
+              Both audio and video recordings require an active <strong>3Speak Pro</strong> subscription. Hosts can still go live and chat for free — only the recording capture is gated.
             </>
           )}
         </div>

@@ -4,7 +4,7 @@ import { roomService } from '../lib/livekit.js';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
-import { canRecordVideo } from '../lib/permissions.js';
+import { canRecordVideo, canRecordAudio } from '../lib/permissions.js';
 import { readFile, unlink, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 
@@ -102,10 +102,19 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.conflict('Room is already being recorded');
     }
 
+    // Premium gate for both recording modes. Audio + video both consume
+    // egress runtime + downstream storage, so both are reserved for Pro
+    // subscribers. The gate is mode-specific so each can be relaxed
+    // independently later (e.g. a cheaper audio-only tier).
     if (mode === 'video') {
       const perm = await canRecordVideo(request.username);
       if (!perm.ok) {
         return reply.forbidden(perm.reason ?? 'Video recording is not permitted for this account');
+      }
+    } else {
+      const perm = await canRecordAudio(request.username);
+      if (!perm.ok) {
+        return reply.forbidden(perm.reason ?? 'Audio recording is not permitted for this account');
       }
     }
 
