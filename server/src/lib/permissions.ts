@@ -20,3 +20,16 @@ export async function canRecordVideo(username: string): Promise<PermissionResult
   }
   return { ok: true };
 }
+
+/**
+ * "Is this user allowed to record audio?" — same premium gate as video.
+ * Kept as its own function so we can diverge later (e.g. give audio a
+ * cheaper tier) without re-wiring callers.
+ */
+export async function canRecordAudio(username: string): Promise<PermissionResult> {
+  const { premium } = await getUserStatus(username);
+  if (!premium) {
+    return { ok: false, reason: 'Audio recording requires a 3Speak Pro subscription' };
+  }
+  return { ok: true };
+}
