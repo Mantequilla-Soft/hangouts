@@ -68,6 +68,21 @@ body {
   font-weight: 500;
 }
 
+.docs__nav-group {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6e7681;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  padding-left: 0.75rem;
+}
+
+.docs__nav-group:first-of-type {
+  margin-top: 0;
+}
+
 .docs__nav-footer {
   margin-top: auto;
   padding-top: 1rem;
