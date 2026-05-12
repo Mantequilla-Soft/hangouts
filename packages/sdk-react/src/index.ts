@@ -24,6 +24,7 @@ export { useRoomList } from './hooks/useRoomList.js';
 export { useHangoutsRoom } from './hooks/useHangoutsRoom.js';
 export { getParticipantRole } from './hooks/useParticipantRole.js';
 export { useHandRaise } from './hooks/useHandRaise.js';
+export { useHandRaiseChime } from './hooks/useHandRaiseChime.js';
 export { useHostControls } from './hooks/useHostControls.js';
 export { useHiveAvatar } from './hooks/useHiveAvatar.js';
 

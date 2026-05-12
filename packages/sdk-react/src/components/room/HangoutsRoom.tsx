@@ -2,12 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { LiveKitRoom, RoomAudioRenderer, StartAudio } from '@livekit/components-react';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
+import { useHandRaiseChime } from '../../hooks/useHandRaiseChime.js';
 import { RoomHeader } from './RoomHeader.js';
 import { SpeakerStage } from './SpeakerStage.js';
 import { AudienceSection } from './AudienceSection.js';
 import { RoomControls } from './RoomControls.js';
 import { ChatPanel } from './ChatPanel.js';
 import { HangoutsErrorBoundary } from './HangoutsErrorBoundary.js';
+
+/** Mounts the hand-raise chime listener inside the LiveKit room. The
+ *  hook must be a descendant of <LiveKitRoom> for useDataChannel to
+ *  resolve its context; a tiny render-null component keeps that
+ *  positioning explicit. */
+function HandRaiseChimeListener({ enabled }: { enabled: boolean }) {
+  useHandRaiseChime(enabled);
+  return null;
+}
 
 export interface HangoutsRoomProps {
   roomName: string;
@@ -47,9 +57,18 @@ export interface HangoutsRoomProps {
    * to hide the button.
    */
   getShareUrl?: (roomName: string, origin: string | undefined) => string | null;
+  /**
+   * Play a subtle local chime when another participant raises their
+   * hand. The sound is local-only (Web Audio synth, not pushed into
+   * the LiveKit publish path) and the egress recording browser does
+   * not mount this component, so recordings stay clean. The hook
+   * skips the local user's own raises and throttles to one chime per
+   * two seconds to handle bursts. Default: true.
+   */
+  notificationSounds?: boolean;
 }
 
-export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
   const [chatOpen, setChatOpen] = useState(true);
@@ -160,6 +179,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
             speakers' tiles and hear silence. StartAudio renders a button
             only when LiveKit reports audio playback is blocked. */}
         <StartAudio label="Click to enable audio" className="hh-start-audio" />
+        <HandRaiseChimeListener enabled={notificationSounds} />
         <div
           className={`hh-room ${embedded ? 'hh-room--embedded' : ''}`}
           style={maxHeight ? { maxHeight } : undefined}
