@@ -55,5 +55,6 @@ export { useStreaming } from './hooks/useStreaming.js';
 export { RoomLobby, type RoomLobbyProps } from './components/lobby/RoomLobby.js';
 export { RoomCard, type RoomCardProps } from './components/lobby/RoomCard.js';
 export { CreateRoomDialog, type CreateRoomDialogProps } from './components/lobby/CreateRoomDialog.js';
+export { GuestNameModal, type GuestNameModalProps } from './components/lobby/GuestNameModal.js';
 
 // Styles — import this in your app: import '@hive-hangouts/react/styles'

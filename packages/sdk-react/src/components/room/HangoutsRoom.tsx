@@ -9,6 +9,7 @@ import { AudienceSection } from './AudienceSection.js';
 import { RoomControls } from './RoomControls.js';
 import { ChatPanel } from './ChatPanel.js';
 import { HangoutsErrorBoundary } from './HangoutsErrorBoundary.js';
+import { GuestNameModal } from '../lobby/GuestNameModal.js';
 
 /** Mounts the hand-raise chime listener inside the LiveKit room. The
  *  hook must be a descendant of <LiveKitRoom> for useDataChannel to
@@ -72,6 +73,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
   const [chatOpen, setChatOpen] = useState(true);
+  const [showGuestModal, setShowGuestModal] = useState(false);
   // Mirror the host's chat-open state into room metadata so the egress
   // template knows whether to render the chat panel in the recording.
   // Non-hosts toggling their own chat does NOT propagate — recording
@@ -100,14 +102,35 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
       joinedForRef.current = roomName;
       room.join(roomName);
     } else if (guestFallback) {
-      // Unauthenticated visitor — drop straight into listen-only mode.
-      // The SDK calls POST /rooms/:name/listen, which doesn't need a
-      // session token, and renders the room with the participation
-      // surface (mic, chat input, hand-raise) hidden via `isGuest`.
+      // Unauthenticated visitor — show the name modal before joining.
+      // Set the ref now so StrictMode double-mount doesn't show it twice.
       joinedForRef.current = roomName;
-      room.listen(roomName);
+      setShowGuestModal(true);
     }
   }, [roomName, isAuthenticated, guestFallback, room]);
+
+  if (showGuestModal) {
+    return (
+      <GuestNameModal
+        roomTitle={room.roomMeta?.title}
+        onJoin={async (displayName) => {
+          setShowGuestModal(false);
+          await room.listen(roomName, displayName);
+        }}
+        onSignIn={() => {
+          // Navigate back to the lobby where the user can sign in with Hive.
+          setShowGuestModal(false);
+          joinedForRef.current = null;
+          onLeave?.();
+        }}
+        onCancel={onLeave ? () => {
+          setShowGuestModal(false);
+          joinedForRef.current = null;
+          onLeave();
+        } : undefined}
+      />
+    );
+  }
 
   if (room.isLoading || !room.livekitToken) {
     return <div className="hh-room">Connecting...</div>;

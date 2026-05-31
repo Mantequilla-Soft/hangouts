@@ -33,10 +33,15 @@ export function useHostControls(roomName: string | null) {
     await withPending(identity, () => apiClient.kickParticipant(roomName, identity));
   }, [apiClient, roomName, withPending]);
 
+  const ban = useCallback(async (identity: string) => {
+    if (!roomName) return;
+    await withPending(identity, () => apiClient.banGuest(roomName, identity));
+  }, [apiClient, roomName, withPending]);
+
   const endRoom = useCallback(async () => {
     if (!roomName) return;
     await apiClient.deleteRoom(roomName);
   }, [apiClient, roomName]);
 
-  return { promote, demote, kick, endRoom, pending };
+  return { promote, demote, kick, ban, endRoom, pending };
 }

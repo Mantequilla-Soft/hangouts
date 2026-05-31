@@ -36,7 +36,7 @@ export function ParticipantTile({
   // dedicated listener icon and a generic "Guest" label below.
   const isGuest = participant.identity.startsWith('guest-');
   const avatarUrl = useHiveAvatar(participant.identity);
-  const displayName = isGuest ? 'Guest' : participant.identity;
+  const displayName = participant.name || (isGuest ? 'Guest' : participant.identity);
   const isMuted = role !== 'listener' && !participant.isMicrophoneEnabled;
   const cameraPublication = participant.getTrackPublication(Track.Source.Camera);
   const hasVideo = videoEnabled && cameraPublication?.track && !cameraPublication.isMuted;
@@ -48,9 +48,8 @@ export function ParticipantTile({
   const [menuOpen, setMenuOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const isLocal = participant.isLocal;
-  // Guests can't be promoted, muted differently, or DM'd — the host
-  // panel would only offer dead-end actions, so suppress it entirely.
-  const showMenuButton = isCurrentUserHost && !isLocal && !isGuest;
+  // Host can act on all non-local participants — guests get ban instead of kick.
+  const showMenuButton = isCurrentUserHost && !isLocal;
 
   // Volume control is broadcast on the room's data channel so the host's
   // changes also apply to every other listener and to the headless
@@ -177,8 +176,9 @@ export function ParticipantTile({
 
       <div className="hh-tile__overlay">
         {isMuted && <span className="hh-tile__mute" title="Muted">🔇</span>}
-        <span className="hh-tile__name">{participant.identity}</span>
+        <span className="hh-tile__name">{displayName}</span>
         {role === 'host' && <span className="hh-tile__role">Host</span>}
+        {isGuest && <span className="hh-tile__guest-badge">Guest</span>}
       </div>
 
       {menuOpen && roomName && isCurrentUserHost && (

@@ -95,14 +95,28 @@ export class HangoutsApiClient {
   }
 
   /**
-   * Join as an unauthenticated listener-only guest. Does NOT require a
-   * session token — anyone with the room URL can call this. The server
-   * issues a `guest-*` identity with publish disabled and rate-limits
-   * the endpoint per IP. Use this when the user hasn't (or can't)
-   * sign in with Hive but wants to listen in.
+   * Join as an unauthenticated guest. Does NOT require a session token.
+   * The server issues a `guest-*` identity that can listen, raise hand,
+   * and chat. Guests can be promoted to speaker by the host, or banned
+   * (IP-scoped to this room) if disruptive.
+   *
+   * @param displayName - Optional name shown to other participants. 2–32 chars.
    */
-  async listenAsGuest(roomName: string): Promise<JoinRoomResponse> {
-    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/listen`);
+  async listenAsGuest(roomName: string, displayName?: string): Promise<JoinRoomResponse> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/listen`,
+      displayName ? { displayName } : undefined);
+  }
+
+  /**
+   * Ban a guest from the room. Host-only. Records the guest's IP so they
+   * cannot rejoin, then kicks them immediately. Only works for `guest-*`
+   * identities — use the platform's user management for Hive accounts.
+   */
+  async banGuest(roomName: string, identity: string): Promise<void> {
+    return this.request(
+      'POST',
+      `/rooms/${encodeURIComponent(roomName)}/participants/${encodeURIComponent(identity)}/ban`,
+    );
   }
 
   async deleteRoom(roomName: string): Promise<void> {

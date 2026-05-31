@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { getUserStatus } from '../lib/users.js';
+import { recordGuestIp, isGuestBanned, clearRoomBans } from '../lib/guestBans.js';
 
 type RoomVisibility = 'public' | 'hive-internal' | 'unlisted';
 const ROOM_VISIBILITIES: readonly RoomVisibility[] = ['public', 'hive-internal', 'unlisted'];
@@ -66,10 +67,11 @@ function generateRoomName(username: string, title: string): string {
 async function createLivekitToken(
   room: string,
   identity: string,
-  options: { canPublish: boolean; canPublishData: boolean; premium?: boolean; ttl?: string },
+  options: { canPublish: boolean; canPublishData: boolean; premium?: boolean; ttl?: string; name?: string },
 ): Promise<string> {
   const at = new AccessToken(config.LIVEKIT_API_KEY, config.LIVEKIT_API_SECRET, {
     identity,
+    name: options.name,
     ttl: options.ttl ?? '6h',
   });
 
@@ -265,15 +267,11 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ token, roomName: name, identity, isHost, isPremium: premium });
   });
 
-  // Listen-only guest token (NO auth). Anyone with the room URL can drop
-  // in to hear the conversation; they cannot publish audio, can't send
-  // chat data, and can't be promoted. Designed for "share a link, drop
-  // in" UX — see docs at /home/dockeruser/listenermode.md.
+  // Guest token (NO auth). Anyone with the room URL can drop in to listen
+  // and raise their hand to request speaking. Guests can be promoted to
+  // speaker by the host, and banned (IP-scoped, per-room) if disruptive.
   fastify.post('/rooms/:name/listen', {
     config: {
-      // Tighter rate limit than the global default; per-IP, generous
-      // enough to absorb a refresh / network glitch but tight enough to
-      // make scripted abuse pointless.
       rateLimit: { max: 10, timeWindow: '5 minutes' },
     },
     schema: {
@@ -282,9 +280,17 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         required: ['name'],
         properties: { name: { type: 'string' } },
       },
+      body: {
+        type: 'object',
+        properties: {
+          displayName: { type: 'string', minLength: 2, maxLength: 32 },
+        },
+      },
     },
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
+    const { displayName: rawDisplayName } = (request.body ?? {}) as { displayName?: string };
+    const displayName = rawDisplayName?.trim() || undefined;
 
     const rooms = await roomService.listRooms([name]);
     if (rooms.length === 0) return reply.notFound('Room not found');
@@ -292,15 +298,16 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     let meta: Partial<RoomMetadata> = {};
     try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
 
-    // Two ways to forbid guests: explicit `allowGuests:false` on legacy
-    // rooms, or the newer `visibility:'hive-internal'` tier. Either one
-    // requires Hive sign-in to enter.
     if (meta.allowGuests === false || meta.visibility === 'hive-internal') {
       return reply.forbidden('This room is Hive-only — please sign in with your Hive account to join');
     }
 
-    // Per-room guest cap. Counted by identity prefix, since LiveKit
-    // doesn't track our notion of "authenticated vs guest" on its side.
+    // Reject IPs that the host has already banned from this room.
+    if (isGuestBanned(name, request.ip)) {
+      return reply.forbidden('You have been removed from this room');
+    }
+
+    // Per-room guest cap.
     try {
       const participants = await roomService.listParticipants(name);
       const guestCount = participants.filter((p) => p.identity.startsWith(GUEST_PREFIX)).length;
@@ -310,20 +317,20 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
     } catch (err) {
-      // listParticipants can transiently fail right after a room is
-      // created (LiveKit room not yet warm). Don't block the listener
-      // over that — the LiveKit connect will reject if the room really
-      // is missing.
       request.log?.warn?.({ err }, 'guest listen: listParticipants failed, allowing through');
     }
 
     const identity = generateGuestIdentity();
     const token = await createLivekitToken(name, identity, {
       canPublish: false,
-      canPublishData: false,
+      canPublishData: true, // enables hand-raise and chat data channel
       premium: false,
       ttl: '2h',
+      name: displayName,
     });
+
+    // Record IP so the host can ban this guest later by identity.
+    recordGuestIp(name, identity, request.ip);
 
     return reply.send({
       token,
@@ -473,6 +480,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     await roomService.deleteRoom(name);
+    clearRoomBans(name);
     return reply.code(204).send();
   });
 };

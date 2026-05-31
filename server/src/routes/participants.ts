@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { roomService } from '../lib/livekit.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
+import { banGuestByIdentity } from '../lib/guestBans.js';
 
 /** Parse room metadata and verify the caller is the host. */
 async function verifyHost(roomName: string, username: string) {
@@ -44,15 +45,6 @@ export const participantRoutes: FastifyPluginAsync = async (fastify) => {
     if (check.error === 'not_found') return reply.notFound('Room not found');
     if (check.error === 'forbidden') return reply.forbidden('Only the host can change permissions');
 
-    // Guest listeners are deliberately unauthenticated and listen-only.
-    // The JWT we issue them already has canPublish:false, but
-    // updateParticipant can override the JWT — block it as policy so a
-    // host can't accidentally hand mic permission to a random URL
-    // visitor.
-    if (identity.startsWith('guest-')) {
-      return reply.badRequest('Cannot promote guest listeners; they must sign in with Hive');
-    }
-
     const updated = await roomService.updateParticipant(name, identity, undefined, {
       canPublish,
       canSubscribe: true,
@@ -86,6 +78,42 @@ export const participantRoutes: FastifyPluginAsync = async (fastify) => {
     if (check.error === 'forbidden') return reply.forbidden('Only the host can kick participants');
 
     await roomService.removeParticipant(name, identity);
+    return reply.code(204).send();
+  });
+
+  // Ban a guest from this room (host only). Records their IP so they
+  // can't rejoin, then kicks them immediately. Guest-only — Hive users
+  // are banned through the platform's user management system.
+  fastify.post('/rooms/:name/participants/:identity/ban', {
+    preHandler: [requireAuth, checkBan],
+    schema: {
+      params: {
+        type: 'object',
+        required: ['name', 'identity'],
+        properties: {
+          name:     { type: 'string' },
+          identity: { type: 'string' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { name, identity } = request.params as { name: string; identity: string };
+
+    if (!identity.startsWith('guest-')) {
+      return reply.badRequest('Ban is only for guest participants; use the platform system to ban Hive accounts');
+    }
+
+    const check = await verifyHost(name, request.username);
+    if (check.error === 'not_found') return reply.notFound('Room not found');
+    if (check.error === 'forbidden') return reply.forbidden('Only the host can ban participants');
+
+    banGuestByIdentity(name, identity);
+    try {
+      await roomService.removeParticipant(name, identity);
+    } catch {
+      // Guest may have already left — ban is still recorded.
+    }
+
     return reply.code(204).send();
   });
 };

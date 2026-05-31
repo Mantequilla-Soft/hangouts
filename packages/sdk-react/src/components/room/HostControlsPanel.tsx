@@ -39,8 +39,9 @@ export function HostControlsPanel({
   volume,
   onVolumeChange,
 }: HostControlsPanelProps) {
-  const { promote, demote, kick, pending } = useHostControls(roomName);
+  const { promote, demote, kick, ban, pending } = useHostControls(roomName);
   const isPending = pending.has(identity);
+  const isGuest = identity.startsWith('guest-');
 
   // Surface failures (e.g. participant already left → 404) instead of
   // silently doing nothing — without feedback the host can't tell if a
@@ -115,13 +116,23 @@ export function HostControlsPanel({
         </label>
       )}
 
-      <button
-        className="hh-host-panel__btn hh-host-panel__btn--danger"
-        disabled={isPending}
-        onClick={() => handleAction(() => kick(identity))}
-      >
-        Kick
-      </button>
+      {isGuest ? (
+        <button
+          className="hh-host-panel__btn hh-host-panel__btn--danger"
+          disabled={isPending}
+          onClick={() => handleAction(() => ban(identity))}
+        >
+          Ban from room
+        </button>
+      ) : (
+        <button
+          className="hh-host-panel__btn hh-host-panel__btn--danger"
+          disabled={isPending}
+          onClick={() => handleAction(() => kick(identity))}
+        >
+          Kick
+        </button>
+      )}
     </div>
   );
 

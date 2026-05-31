@@ -71,17 +71,16 @@ export function useHangoutsRoom() {
   }, [apiClient]);
 
   /**
-   * Listener-only entry: anyone with the room URL, signed in or not,
-   * can drop in to listen. Server stamps a `guest-*` identity that
-   * cannot publish, send chat data, or be promoted to speaker. The
-   * UI components (RoomControls, ChatPanel, ...) read `isGuest` and
-   * disable the participation surface.
+   * Guest entry: anyone with the room URL can join to listen, raise hand,
+   * and chat. Guests can be promoted to speaker by the host.
+   *
+   * @param displayName - Name shown to other participants. 2–32 chars.
    */
-  const listen = useCallback(async (roomName: string) => {
+  const listen = useCallback(async (roomName: string, displayName?: string) => {
     setIsLoading(true);
     try {
       const [result, rooms] = await Promise.all([
-        apiClient.listenAsGuest(roomName),
+        apiClient.listenAsGuest(roomName, displayName),
         apiClient.listRooms(),
       ]);
       const meta = rooms.find((r) => r.name === roomName) ?? null;
