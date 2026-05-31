@@ -1182,6 +1182,16 @@
     padding-top: 0.5rem;
     border-top: 1px solid rgba(255, 255, 255, 0.12);
   }
+
+  /* OBS overlay is a desktop-only workflow — hide the button on phones */
+  .hh-controls__obs-btn {
+    display: none;
+  }
+
+  /* Screen share is rarely usable on mobile */
+  .hh-btn--screenshare {
+    display: none;
+  }
 }
 
 /* End-room dropdown */
@@ -1582,6 +1592,11 @@
   margin-top: 2px;
 }
 
+.hh-chat__msg-body {
+  min-width: 0;   /* critical: allows flex child to shrink below content size */
+  flex: 1;
+}
+
 .hh-chat__msg-name {
   font-size: 0.8rem;
   font-weight: 600;
@@ -1594,6 +1609,8 @@
 .hh-chat__msg-text {
   font-size: 0.85rem;
   color: rgba(255, 255, 255, 0.92);
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .hh-chat__input {

@@ -261,7 +261,7 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           <>
             <button
               ref={obsBtnRef}
-              className={`hh-btn ${showObsPanel ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+              className={`hh-btn hh-controls__obs-btn ${showObsPanel ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
               onClick={() => {
                 const rect = obsBtnRef.current?.getBoundingClientRect() ?? null;
                 setObsAnchorRect(rect);

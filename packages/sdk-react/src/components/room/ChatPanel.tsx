@@ -32,7 +32,7 @@ function ChatBubble({ identity, name, text, localName }: { identity: string; nam
   return (
     <div className={`hh-chat__msg${isMentioned ? ' hh-chat__msg--mentioned' : ''}`}>
       <img className="hh-chat__msg-avatar" src={avatar} alt={name} />
-      <div>
+      <div className="hh-chat__msg-body">
         <span className="hh-chat__msg-name">{name}</span>
         <span className="hh-chat__msg-text">
           {segments.map((seg, i) =>
