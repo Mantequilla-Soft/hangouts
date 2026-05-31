@@ -1745,6 +1745,52 @@
   transform: scale(1.15);
 }
 
+/* @mention chip inside a message bubble */
+.hh-chat__mention {
+  display: inline;
+  color: var(--hh-primary);
+  font-weight: 600;
+  background: rgba(227, 19, 55, 0.08);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* Highlighted bubble when you're the one mentioned */
+.hh-chat__msg--mentioned {
+  background: rgba(227, 19, 55, 0.06);
+  border-left: 2px solid var(--hh-primary);
+  border-radius: 0 6px 6px 0;
+  margin-left: -2px;
+  padding-left: 6px;
+}
+
+/* @mention autocomplete tray */
+.hh-chat__mention-tray {
+  display: flex;
+  flex-direction: column;
+  background: var(--hh-bg-secondary);
+  border-bottom: 1px solid var(--hh-border-light);
+  padding: 4px 0;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.hh-chat__mention-candidate {
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 5px 12px;
+  font-size: 0.85rem;
+  color: var(--hh-text);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.hh-chat__mention-candidate:hover {
+  background: var(--hh-bg-hover);
+  color: var(--hh-primary);
+}
+
 /* === Recording === */
 
 .hh-recording-indicator {
