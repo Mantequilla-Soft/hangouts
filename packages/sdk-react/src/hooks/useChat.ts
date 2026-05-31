@@ -4,6 +4,9 @@ import { useDataChannel, useLocalParticipant } from '@livekit/components-react';
 export interface ChatMessage {
   id: string;
   identity: string;
+  /** Display name — participant.name when set (e.g. a guest's chosen name),
+   *  otherwise falls back to identity. */
+  name: string;
   text: string;
   timestamp: number;
 }
@@ -23,6 +26,7 @@ export function useChat() {
       const chatMsg: ChatMessage = {
         id: `${parsed.identity}-${parsed.timestamp}`,
         identity: parsed.identity,
+        name: parsed.name || parsed.identity,
         text: parsed.text,
         timestamp: parsed.timestamp,
       };
@@ -39,6 +43,7 @@ export function useChat() {
     const event = {
       type: 'chat',
       identity: localParticipant.identity,
+      name: localParticipant.name || localParticipant.identity,
       text: text.trim(),
       timestamp: Date.now(),
     };
@@ -50,6 +55,7 @@ export function useChat() {
     setMessages((prev) => [...prev, {
       id: `${event.identity}-${event.timestamp}`,
       identity: event.identity,
+      name: event.name,
       text: event.text,
       timestamp: event.timestamp,
     }]);

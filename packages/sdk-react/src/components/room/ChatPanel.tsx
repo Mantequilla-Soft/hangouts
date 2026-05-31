@@ -12,14 +12,14 @@ export interface ChatPanelProps {
   isGuest?: boolean;
 }
 
-function ChatBubble({ identity, text }: { identity: string; text: string }) {
+function ChatBubble({ identity, name, text }: { identity: string; name: string; text: string }) {
   const avatar = useHiveAvatar(identity, 'small');
 
   return (
     <div className="hh-chat__msg">
-      <img className="hh-chat__msg-avatar" src={avatar} alt={identity} />
+      <img className="hh-chat__msg-avatar" src={avatar} alt={name} />
       <div>
-        <span className="hh-chat__msg-name">{identity}</span>
+        <span className="hh-chat__msg-name">{name}</span>
         <span className="hh-chat__msg-text">{text}</span>
       </div>
     </div>
@@ -70,7 +70,7 @@ export function ChatPanel({ onClose, isGuest = false }: ChatPanelProps = {}) {
           <div className="hh-chat__empty">No messages yet</div>
         )}
         {messages.map((msg) => (
-          <ChatBubble key={msg.id} identity={msg.identity} text={msg.text} />
+          <ChatBubble key={msg.id} identity={msg.identity} name={msg.name} text={msg.text} />
         ))}
         <div ref={bottomRef} />
       </div>
