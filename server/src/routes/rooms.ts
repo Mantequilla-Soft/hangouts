@@ -281,7 +281,9 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         properties: { name: { type: 'string' } },
       },
       body: {
-        type: 'object',
+        // Allow null/missing body for clients that don't send displayName
+        // (old SDK versions, or integrators calling without a name).
+        type: ['object', 'null'],
         properties: {
           displayName: { type: 'string', minLength: 2, maxLength: 32 },
         },

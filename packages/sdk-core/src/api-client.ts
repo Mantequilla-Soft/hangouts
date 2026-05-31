@@ -103,8 +103,10 @@ export class HangoutsApiClient {
    * @param displayName - Optional name shown to other participants. 2–32 chars.
    */
   async listenAsGuest(roomName: string, displayName?: string): Promise<JoinRoomResponse> {
+    // Always send a JSON body so Fastify's type:'object' schema doesn't
+    // reject the request when displayName is omitted (null body fails AJV).
     return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/listen`,
-      displayName ? { displayName } : undefined);
+      displayName ? { displayName } : {});
   }
 
   /**
