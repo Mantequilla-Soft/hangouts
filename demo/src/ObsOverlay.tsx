@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useState } from 'react';
+import { useMemo, useEffect, useRef, useState } from 'react';
 import {
   LiveKitRoom,
   useRoomInfo,
@@ -22,23 +22,35 @@ function parseShow(raw: string | null): Set<string> {
 
 // ─── Read-only chat feed (no input) ────────────────────────────────────────
 
+const OBS_MAX_MESSAGES = 8; // only show recent messages — no scrolling needed
+
 function ObsChatFeed() {
   const { messages } = useChat();
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Always scroll to newest message
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length]);
+
+  // Only show the most recent N messages so the overlay stays current without scrolling
+  const recent = messages.slice(-OBS_MAX_MESSAGES);
 
   return (
     <div className="hh-chat" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div className="hh-chat__messages" style={{ flex: 1, overflowY: 'auto' }}>
-        {messages.length === 0 && (
+      <div className="hh-chat__messages" style={{ flex: 1, overflowY: 'hidden' }}>
+        {recent.length === 0 && (
           <div className="hh-chat__empty">No messages yet</div>
         )}
-        {messages.map((msg) => (
+        {recent.map((msg) => (
           <div key={msg.id} className="hh-chat__msg">
-            <div>
+            <div className="hh-chat__msg-body">
               <span className="hh-chat__msg-name">{msg.name}</span>
               <span className="hh-chat__msg-text">{msg.text}</span>
             </div>
           </div>
         ))}
+        <div ref={bottomRef} />
       </div>
     </div>
   );
