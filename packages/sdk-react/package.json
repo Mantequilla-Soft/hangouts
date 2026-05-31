@@ -22,7 +22,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@snapie/hangouts-core": "^0.4.0"
+    "@snapie/hangouts-core": "^0.5.0"
   },
   "peerDependencies": {
     "@livekit/components-react": "^2.0.0",
