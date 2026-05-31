@@ -82,7 +82,7 @@ function ObsRoomContent({ roomName, show }: { roomName: string; show: Set<string
           <SpeakerStage
             hostIdentity={host}
             roomName={roomName}
-            videoEnabled={false}
+            videoEnabled={true}
           />
         </div>
       )}
