@@ -78,7 +78,10 @@ export interface HangoutsRoomProps {
 export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
-  const [chatOpen, setChatOpen] = useState(true);
+  // Default chat closed on mobile — the stage needs the space more than the sidebar does.
+  const [chatOpen, setChatOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth > 768 : true,
+  );
   const [showGuestModal, setShowGuestModal] = useState(false);
   // Mirror the host's chat-open state into room metadata so the egress
   // template knows whether to render the chat panel in the recording.

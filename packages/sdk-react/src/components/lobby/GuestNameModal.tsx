@@ -59,10 +59,10 @@ const css = `
 
   .hh-gm-close {
     position: absolute;
-    top: 14px;
-    right: 14px;
-    width: 30px;
-    height: 30px;
+    top: 12px;
+    right: 12px;
+    width: 40px;
+    height: 40px;
     border-radius: 8px;
     border: none;
     background: rgba(255, 255, 255, 0.06);
