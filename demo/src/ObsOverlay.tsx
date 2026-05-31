@@ -4,6 +4,7 @@ import {
   useRoomInfo,
 } from '@livekit/components-react';
 import {
+  HangoutsProvider,
   HangoutsApiClient,
   SpeakerStage,
   AudienceSection,
@@ -125,15 +126,17 @@ export function ObsOverlay() {
   }
 
   return (
-    <LiveKitRoom
-      token={token}
-      serverUrl={LIVEKIT_URL}
-      connect
-      audio={false}
-      video={false}
-    >
-      {/* No RoomAudioRenderer — OBS captures audio from desktop output, not the browser embed */}
-      <ObsRoomContent roomName={roomName} show={show} />
-    </LiveKitRoom>
+    <HangoutsProvider apiBaseUrl={API_BASE_URL} livekitServerUrl={LIVEKIT_URL}>
+      <LiveKitRoom
+        token={token}
+        serverUrl={LIVEKIT_URL}
+        connect
+        audio={false}
+        video={false}
+      >
+        {/* No RoomAudioRenderer — OBS captures audio from desktop output, not the browser embed */}
+        <ObsRoomContent roomName={roomName} show={show} />
+      </LiveKitRoom>
+    </HangoutsProvider>
   );
 }
