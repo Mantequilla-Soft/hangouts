@@ -1,7 +1,6 @@
 import { useMemo, useEffect, useState } from 'react';
 import {
   LiveKitRoom,
-  RoomAudioRenderer,
   useRoomInfo,
 } from '@livekit/components-react';
 import {
@@ -100,7 +99,7 @@ export function ObsOverlay() {
   useEffect(() => {
     if (!roomName) { setError('No room specified'); return; }
     const client = new HangoutsApiClient({ baseUrl: API_BASE_URL });
-    client.listenAsGuest(roomName)
+    client.joinAsObserver(roomName)
       .then(res => setToken(res.token))
       .catch(() => setError('Room not found or unavailable'));
   }, [roomName]);
@@ -133,7 +132,7 @@ export function ObsOverlay() {
       audio={false}
       video={false}
     >
-      <RoomAudioRenderer />
+      {/* No RoomAudioRenderer — OBS captures audio from desktop output, not the browser embed */}
       <ObsRoomContent roomName={roomName} show={show} />
     </LiveKitRoom>
   );

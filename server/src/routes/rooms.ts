@@ -42,16 +42,22 @@ interface RoomMetadata {
 
 /** Identity prefix used for unauthenticated guest listeners. */
 const GUEST_PREFIX = 'guest-';
+/** Identity prefix used for silent OBS overlay observers. */
+const OBS_PREFIX = 'obs-';
 const MAX_GUESTS_PER_ROOM = Number(process.env.MAX_GUESTS_PER_ROOM ?? 100);
 
 function generateGuestIdentity(): string {
-  // 12 chars from a URL-safe alphabet — enough entropy that a single room
-  // would have to host ~10M concurrent guests before collisions become
-  // likely. Server has guest cap below that anyway.
   const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let id = '';
   for (let i = 0; i < 12; i++) id += alphabet[Math.floor(Math.random() * alphabet.length)];
   return `${GUEST_PREFIX}${id}`;
+}
+
+function generateObsIdentity(): string {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let id = '';
+  for (let i = 0; i < 8; i++) id += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return `${OBS_PREFIX}${id}`;
 }
 
 function generateRoomName(username: string, title: string): string {
@@ -281,17 +287,19 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         properties: { name: { type: 'string' } },
       },
       body: {
-        // Allow null/missing body for clients that don't send displayName
-        // (old SDK versions, or integrators calling without a name).
         type: ['object', 'null'],
         properties: {
           displayName: { type: 'string', minLength: 2, maxLength: 32 },
+          /** When true, issues an obs- identity: read-only, no data channel,
+           *  invisible in participant lists. Used by the OBS browser source overlay. */
+          silent: { type: 'boolean' },
         },
       },
     },
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
-    const { displayName: rawDisplayName } = (request.body ?? {}) as { displayName?: string };
+    const { displayName: rawDisplayName, silent = false } =
+      (request.body ?? {}) as { displayName?: string; silent?: boolean };
     const displayName = rawDisplayName?.trim() || undefined;
 
     const rooms = await roomService.listRooms([name]);
@@ -304,42 +312,45 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.forbidden('This room is Hive-only — please sign in with your Hive account to join');
     }
 
-    // Reject IPs that the host has already banned from this room.
-    if (isGuestBanned(name, request.ip)) {
-      return reply.forbidden('You have been removed from this room');
-    }
-
-    // Per-room guest cap.
-    try {
-      const participants = await roomService.listParticipants(name);
-      const guestCount = participants.filter((p) => p.identity.startsWith(GUEST_PREFIX)).length;
-      if (guestCount >= MAX_GUESTS_PER_ROOM) {
-        return reply.code(409).send({
-          message: `Guest listener limit reached (${MAX_GUESTS_PER_ROOM}). Try again later.`,
-        });
+    // OBS observers skip ban check and guest cap — they're invisible tooling,
+    // not real participants, and are never addressable by the host's moderation UI.
+    if (!silent) {
+      if (isGuestBanned(name, request.ip)) {
+        return reply.forbidden('You have been removed from this room');
       }
-    } catch (err) {
-      request.log?.warn?.({ err }, 'guest listen: listParticipants failed, allowing through');
+
+      try {
+        const participants = await roomService.listParticipants(name);
+        const guestCount = participants.filter((p) => p.identity.startsWith(GUEST_PREFIX)).length;
+        if (guestCount >= MAX_GUESTS_PER_ROOM) {
+          return reply.code(409).send({
+            message: `Guest listener limit reached (${MAX_GUESTS_PER_ROOM}). Try again later.`,
+          });
+        }
+      } catch (err) {
+        request.log?.warn?.({ err }, 'guest listen: listParticipants failed, allowing through');
+      }
     }
 
-    const identity = generateGuestIdentity();
+    const identity = silent ? generateObsIdentity() : generateGuestIdentity();
     const token = await createLivekitToken(name, identity, {
       canPublish: false,
-      canPublishData: true, // enables hand-raise and chat data channel
+      canPublishData: !silent, // obs observers are purely read-only
       premium: false,
-      ttl: '2h',
+      ttl: silent ? '12h' : '2h',
       name: displayName,
     });
 
-    // Record IP so the host can ban this guest later by identity.
-    recordGuestIp(name, identity, request.ip);
+    if (!silent) {
+      recordGuestIp(name, identity, request.ip);
+    }
 
     return reply.send({
       token,
       roomName: name,
       identity,
       isHost: false,
-      isGuest: true,
+      isGuest: !silent,
       isPremium: false,
     });
   });

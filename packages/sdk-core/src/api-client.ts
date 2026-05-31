@@ -121,6 +121,17 @@ export class HangoutsApiClient {
     );
   }
 
+  /**
+   * Join as a silent OBS overlay observer. Issues an `obs-*` identity
+   * that is invisible in participant lists, cannot chat or raise hand,
+   * and is excluded from the guest cap and ban system. Use this for
+   * Browser Source overlays — the overlay is read-only and produces
+   * no audio output.
+   */
+  async joinAsObserver(roomName: string): Promise<JoinRoomResponse> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/listen`, { silent: true });
+  }
+
   async deleteRoom(roomName: string): Promise<void> {
     return this.request('DELETE', `/rooms/${encodeURIComponent(roomName)}`);
   }

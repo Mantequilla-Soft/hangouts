@@ -26,7 +26,7 @@ export function AudienceSection({ hostIdentity: fallbackHost, roomName }: Audien
   const { hostIdentity, isCurrentUserHost } = useLiveHost(fallbackHost);
 
   const listeners = participants.filter(
-    (p) => !p.permissions?.canPublish,
+    (p) => !p.permissions?.canPublish && !p.identity.startsWith('obs-'),
   );
 
   if (listeners.length === 0) return null;
