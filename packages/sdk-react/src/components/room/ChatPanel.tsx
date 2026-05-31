@@ -1,7 +1,9 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { useLocalParticipantPermissions } from '@livekit/components-react';
 import { useChat } from '../../hooks/useChat.js';
 import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
+
+const QUICK_EMOJIS = ['👍','❤️','😂','🔥','👏','😮','🙌','💯','🎉','🤔','😎','✋'];
 
 export interface ChatPanelProps {
   /** Called when the user clicks the collapse button in the chat header. */
@@ -34,7 +36,15 @@ export function ChatPanel({ onClose, isGuest = false }: ChatPanelProps = {}) {
   // enables chat for them without needing a Hive account.
   const canChat = permissions ? (permissions.canPublishData ?? false) : !isGuest;
   const [input, setInput] = useState('');
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const insertEmoji = useCallback((emoji: string) => {
+    setInput(prev => prev + emoji);
+    setEmojiOpen(false);
+    inputRef.current?.focus();
+  }, []);
 
   // Mounted only when the chat is visible — the parent (HangoutsRoom)
   // unmounts us when the user collapses the panel via the toggle in the
@@ -79,18 +89,45 @@ export function ChatPanel({ onClose, isGuest = false }: ChatPanelProps = {}) {
           🔒 Sign in with Hive to chat.
         </div>
       ) : (
-        <form className="hh-chat__input-row" onSubmit={handleSend}>
-          <input
-            className="hh-chat__input"
-            type="text"
-            placeholder="Say something..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-          />
-          <button className="hh-btn hh-btn--primary hh-btn--small" type="submit" disabled={!input.trim()}>
-            Send
-          </button>
-        </form>
+        <div className="hh-chat__compose">
+          {emojiOpen && (
+            <div className="hh-chat__emoji-tray">
+              {QUICK_EMOJIS.map(e => (
+                <button
+                  key={e}
+                  className="hh-chat__emoji-btn"
+                  onClick={() => insertEmoji(e)}
+                  type="button"
+                  aria-label={e}
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          )}
+          <form className="hh-chat__input-row" onSubmit={handleSend}>
+            <button
+              type="button"
+              className="hh-chat__emoji-toggle"
+              onClick={() => setEmojiOpen(v => !v)}
+              aria-label="Emoji"
+              title="Emoji"
+            >
+              😊
+            </button>
+            <input
+              ref={inputRef}
+              className="hh-chat__input"
+              type="text"
+              placeholder="Say something..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+            />
+            <button className="hh-btn hh-btn--primary hh-btn--small" type="submit" disabled={!input.trim()}>
+              Send
+            </button>
+          </form>
+        </div>
       )}
     </div>
   );
