@@ -1986,8 +1986,9 @@
 .hh-obs .hh-chat {
   background: rgba(0, 0, 0, 0.5);
   border-radius: 12px;
-  max-height: 280px;
+  flex: 1;
   overflow: hidden;
+  min-height: 0;
 }
 
 .hh-obs .hh-audience {
