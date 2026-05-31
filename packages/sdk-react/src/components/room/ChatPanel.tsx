@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from 'react';
+import { useLocalParticipantPermissions } from '@livekit/components-react';
 import { useChat } from '../../hooks/useChat.js';
 import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
 
@@ -27,6 +28,11 @@ function ChatBubble({ identity, text }: { identity: string; text: string }) {
 
 export function ChatPanel({ onClose, isGuest = false }: ChatPanelProps = {}) {
   const { messages, sendMessage } = useChat();
+  const permissions = useLocalParticipantPermissions();
+  // Use actual LiveKit canPublishData when available; fall back to isGuest prop.
+  // Guests now have canPublishData:true from the server, so this correctly
+  // enables chat for them without needing a Hive account.
+  const canChat = permissions ? (permissions.canPublishData ?? false) : !isGuest;
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -68,12 +74,9 @@ export function ChatPanel({ onClose, isGuest = false }: ChatPanelProps = {}) {
         ))}
         <div ref={bottomRef} />
       </div>
-      {isGuest ? (
-        // Listen-only guests: replace the input with a sign-in prompt
-        // so they understand chat is gated behind Hive auth (and so
-        // the server doesn't reject their data publish silently).
+      {!canChat ? (
         <div className="hh-chat__guest-prompt">
-          🔒 Sign in with Hive Keychain to chat.
+          🔒 Sign in with Hive to chat.
         </div>
       ) : (
         <form className="hh-chat__input-row" onSubmit={handleSend}>

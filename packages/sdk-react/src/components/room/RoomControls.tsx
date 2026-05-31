@@ -156,7 +156,7 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
       {/* Left: share/self actions — hidden entirely for listen-only
           guests since they can't publish, chat, or raise their hand. */}
       <div className="hh-controls__group hh-controls__group--left">
-        {!isGuest && canPublish && (
+        {canPublish && (
           <button
             className={`hh-btn hh-btn--icon ${isMuted ? 'hh-btn--danger' : 'hh-btn--secondary'}`}
             onClick={toggleMute}
@@ -166,7 +166,7 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           </button>
         )}
 
-        {!isGuest && videoEnabled && canPublish && (
+        {videoEnabled && canPublish && (
           <button
             className={`hh-btn hh-btn--icon ${isCameraOn ? 'hh-btn--secondary' : 'hh-btn--danger'}`}
             onClick={() => localParticipant?.setCameraEnabled(!isCameraOn)}
@@ -176,10 +176,7 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           </button>
         )}
 
-        {!isGuest && videoEnabled && canPublish && (
-          // Tagged with hh-btn--screenshare so a CSS @media rule can hide
-          // it on phones — getDisplayMedia is rarely supported and the
-          // result is unusable on small screens anyway.
+        {videoEnabled && canPublish && (
           <button
             className={`hh-btn hh-btn--icon hh-btn--screenshare ${isScreenSharing ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
             onClick={() => localParticipant?.setScreenShareEnabled(!isScreenSharing)}
@@ -189,7 +186,7 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           </button>
         )}
 
-        {!isGuest && (!canPublish || isRaised) && (
+        {(!canPublish || isRaised) && (
           <button
             className={`hh-btn ${isRaised ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
             onClick={isRaised ? lowerHand : raiseHand}
