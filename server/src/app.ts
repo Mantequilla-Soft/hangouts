@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
+import { mkdir } from 'node:fs/promises';
 import { authRoutes } from './routes/auth.js';
 import { roomRoutes } from './routes/rooms.js';
 import { participantRoutes } from './routes/participants.js';
@@ -9,7 +10,11 @@ import { recordingRoutes } from './routes/recording.js';
 import { streamingRoutes } from './routes/streaming.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
-  const server = Fastify({ logger: false });
+  // Ensure the recording output directory exists — it lives in /tmp which is
+  // cleared on reboot, so we recreate it on every server start.
+  await mkdir('/tmp/livekit-recordings', { recursive: true });
+
+  const server = Fastify({ logger: true });
 
   await server.register(cors, { origin: true });
   await server.register(sensible);

@@ -32,6 +32,10 @@ cd /opt/hangouts/docs-site
 npm install --silent
 npx vite build
 
+echo "=== Ensuring recording directory exists ==="
+mkdir -p /tmp/livekit-recordings
+chmod 777 /tmp/livekit-recordings
+
 echo "=== Restarting API server ==="
 cd /opt/hangouts/server
 npm install --silent
