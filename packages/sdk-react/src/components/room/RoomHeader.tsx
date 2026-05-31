@@ -24,11 +24,11 @@ export function RoomHeader({ title, description, roomName, isGuest, shareUrl }: 
   const recording = useRecording(roomName ?? null);
   const [copied, setCopied] = useState(false);
 
-  // Split the participant count into "speaking" vs "listening" so the
-  // host (and the listeners themselves) see how many people each side
-  // has. Guest identities are stamped `guest-*` by the server.
-  const guestCount = participants.filter((p) => p.identity.startsWith('guest-')).length;
-  const speakerCount = participants.length - guestCount;
+  // Split the participant count into "speaking" vs "listening".
+  // Exclude obs- observer identities — they're OBS overlay connections, not real people.
+  const realParticipants = participants.filter((p) => !p.identity.startsWith('obs-'));
+  const guestCount = realParticipants.filter((p) => p.identity.startsWith('guest-')).length;
+  const speakerCount = realParticipants.length - guestCount;
 
   const handleShare = async () => {
     if (!shareUrl) return;
@@ -70,7 +70,7 @@ export function RoomHeader({ title, description, roomName, isGuest, shareUrl }: 
         <div className="hh-room__count">
           {guestCount > 0
             ? `${speakerCount} in conversation · ${guestCount} listening`
-            : `${participants.length} in room`}
+            : `${realParticipants.length} in room`}
         </div>
         {shareUrl && (
           <button

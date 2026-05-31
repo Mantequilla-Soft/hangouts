@@ -103,25 +103,37 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/rooms', async (_request, reply) => {
     const rooms = await roomService.listRooms();
 
-    const result = rooms
+    const visible = rooms
       .map((r) => {
         let meta: Partial<RoomMetadata> = {};
         try { meta = JSON.parse(r.metadata || '{}'); } catch { /* ignore */ }
         return { r, meta };
       })
-      .filter(({ meta }) => meta.visibility !== 'unlisted')
-      .map(({ r, meta }) => ({
+      .filter(({ meta }) => meta.visibility !== 'unlisted');
+
+    // Subtract obs- observer connections from participant counts so the
+    // lobby doesn't count OBS Browser Sources as real listeners.
+    const result = await Promise.all(visible.map(async ({ r, meta }) => {
+      let numParticipants = r.numParticipants;
+      if (numParticipants > 0) {
+        try {
+          const parts = await roomService.listParticipants(r.name);
+          numParticipants = parts.filter((p) => !p.identity.startsWith(OBS_PREFIX)).length;
+        } catch { /* use raw count if listParticipants fails */ }
+      }
+      return {
         name: r.name,
         title: meta.title || r.name,
         host: meta.host || 'unknown',
         description: meta.description,
         backgroundImage: meta.backgroundImage,
-        numParticipants: r.numParticipants,
+        numParticipants,
         maxParticipants: r.maxParticipants,
         createdAt: meta.createdAt || new Date(Number(r.creationTime) * 1000).toISOString(),
         origin: meta.origin,
         visibility: meta.visibility,
-      }));
+      };
+    }));
 
     return reply.send(result);
   });
