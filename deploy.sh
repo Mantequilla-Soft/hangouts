@@ -32,12 +32,12 @@ cd /opt/hangouts/docs-site
 npm install --silent
 npx vite build
 
-echo "=== Ensuring recording directory exists ==="
-mkdir -p /tmp/livekit-recordings
-chmod 777 /tmp/livekit-recordings
-# Restart the Egress container so its bind mount picks up the (re)created directory.
-# /tmp is cleaned periodically by systemd-tmpfiles, which leaves the container with
-# a stale mount pointing to a deleted inode. A restart re-establishes it cleanly.
+echo "=== Ensuring recording directory is persistent ==="
+# Register with systemd-tmpfiles so the directory is never cleaned and is
+# recreated automatically on every boot (before Docker starts).
+echo 'd /tmp/livekit-recordings 0777 root root -' > /etc/tmpfiles.d/livekit-recordings.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/livekit-recordings.conf
+# Restart the Egress container so its bind mount picks up the directory.
 docker restart livekit-egress-1 2>/dev/null || true
 
 echo "=== Restarting API server ==="
