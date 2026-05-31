@@ -68,14 +68,14 @@ export interface HangoutsRoomProps {
    */
   notificationSounds?: boolean;
   /**
-   * Base URL of the OBS overlay page (e.g. "https://hangout.3speak.tv").
-   * When set, a host-only "📺 OBS" button appears in the controls bar
-   * that lets the host copy a Browser Source URL for OBS Studio.
+   * Base URL where the OBS overlay page is hosted. Defaults to
+   * "https://hangout.3speak.tv" — the canonical hosted overlay.
+   * Override to point at your own deployment, or pass "" to hide the button.
    */
   obsBaseUrl?: string;
 }
 
-export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl = 'https://hangout.3speak.tv' }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
   // Default chat closed on mobile — the stage needs the space more than the sidebar does.
