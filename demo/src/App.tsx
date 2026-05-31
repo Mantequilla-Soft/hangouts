@@ -7,6 +7,7 @@ import {
 } from '@snapie/hangouts-react';
 import '@snapie/hangouts-react/src/styles/hangouts.css';
 import { EgressTemplate } from './EgressTemplate.js';
+import { ObsOverlay } from './ObsOverlay.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'wss://livekit.3speak.tv';
@@ -102,6 +103,7 @@ function MainApp() {
                 embedded
                 video
                 guestFallback
+                obsBaseUrl={window.location.origin}
               />
             </div>
           </div>
@@ -119,6 +121,9 @@ function MainApp() {
 export default function App() {
   if (window.location.pathname.startsWith('/egress-template')) {
     return <EgressTemplate />;
+  }
+  if (window.location.pathname === '/obs') {
+    return <ObsOverlay />;
   }
   return <MainApp />;
 }

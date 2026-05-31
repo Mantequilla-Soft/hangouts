@@ -67,9 +67,15 @@ export interface HangoutsRoomProps {
    * two seconds to handle bursts. Default: true.
    */
   notificationSounds?: boolean;
+  /**
+   * Base URL of the OBS overlay page (e.g. "https://hangout.3speak.tv").
+   * When set, a host-only "📺 OBS" button appears in the controls bar
+   * that lets the host copy a Browser Source URL for OBS Studio.
+   */
+  obsBaseUrl?: string;
 }
 
-export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
   const [chatOpen, setChatOpen] = useState(true);
@@ -260,6 +266,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
                 onAudioHandoff={onAudioHandoff}
                 videoEnabled={canPublishVideo}
                 roomVideoEnabled={video}
+                obsBaseUrl={obsBaseUrl}
                 chatOpen={chatOpen}
                 onToggleChat={() => setChatOpen((v) => !v)}
               />

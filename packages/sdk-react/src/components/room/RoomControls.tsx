@@ -6,6 +6,7 @@ import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
 import { RecordingControls } from './RecordingControls.js';
 import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
+import { ObsPanel } from './ObsPanel.js';
 
 export interface RoomControlsProps {
   isHost: boolean;
@@ -29,13 +30,16 @@ export interface RoomControlsProps {
   videoEnabled?: boolean;
   /** Whether the room was created with video mode on — used to determine streaming layout */
   roomVideoEnabled?: boolean;
+  /** Base URL where the OBS overlay page is hosted (e.g. "https://hangout.3speak.tv").
+   *  When provided, a host-only "📺 OBS" button appears in the controls bar. */
+  obsBaseUrl?: string;
   /** Whether the chat sidebar is currently open. */
   chatOpen?: boolean;
   /** Toggle the chat sidebar. When provided, a chat button appears in the controls. */
   onToggleChat?: () => void;
 }
 
-export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEndRoom, onTransferHost, onSetLayout, hostIdentity, onVideoHandoff, onAudioHandoff, videoEnabled = false, roomVideoEnabled = false, chatOpen, onToggleChat }: RoomControlsProps) {
+export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEndRoom, onTransferHost, onSetLayout, hostIdentity, onVideoHandoff, onAudioHandoff, videoEnabled = false, roomVideoEnabled = false, chatOpen, onToggleChat, obsBaseUrl }: RoomControlsProps) {
   // After a host transfer, the LiveKit metadata is the source of truth —
   // useRoomInfo re-renders on metadata changes, so the UI flips correctly
   // for both the old and new host without anyone having to reconnect.
@@ -65,6 +69,9 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
   const { isRaised, raiseHand, lowerHand } = useHandRaise();
   const prevCanPublish = useRef(canPublish);
   const [showStreaming, setShowStreaming] = useState(false);
+  const [showObsPanel, setShowObsPanel] = useState(false);
+  const obsBtnRef = useRef<HTMLButtonElement>(null);
+  const [obsAnchorRect, setObsAnchorRect] = useState<DOMRect | null>(null);
   const [viewerUrl, setViewerUrl] = useState('');
   const { isStreaming, platform, isLoading, error, startStream, stopStream } = useStreaming(roomName);
 
@@ -248,6 +255,31 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           >
             🔴 {isStreaming ? 'Live' : 'Go Live'}
           </button>
+        )}
+
+        {effectiveIsHost && obsBaseUrl && (
+          <>
+            <button
+              ref={obsBtnRef}
+              className={`hh-btn ${showObsPanel ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+              onClick={() => {
+                const rect = obsBtnRef.current?.getBoundingClientRect() ?? null;
+                setObsAnchorRect(rect);
+                setShowObsPanel(v => !v);
+              }}
+              title="OBS Browser Source link"
+            >
+              📺 OBS
+            </button>
+            {showObsPanel && (
+              <ObsPanel
+                roomName={roomName}
+                obsBaseUrl={obsBaseUrl}
+                anchorRect={obsAnchorRect}
+                onClose={() => setShowObsPanel(false)}
+              />
+            )}
+          </>
         )}
 
         {effectiveIsHost && onEndRoom ? (

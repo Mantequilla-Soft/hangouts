@@ -1956,3 +1956,66 @@
   font-size: 0.8rem;
   color: var(--hh-danger);
 }
+
+/* ─── OBS Browser Source Overlay ─────────────────────────────────────────── */
+
+/* Transparent root — OBS Browser Source composites this over the scene.
+   Enable "Allow transparency" in OBS Browser Source settings. */
+.hh-obs {
+  background: transparent !important;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+/* Panel containers inside the overlay — semi-transparent dark backdrop
+   so text is readable over any OBS scene behind it. */
+.hh-obs .hh-room__stage {
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 12px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.hh-obs .hh-chat {
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 12px;
+  max-height: 280px;
+  overflow: hidden;
+}
+
+.hh-obs .hh-audience {
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 12px;
+  padding: 8px;
+}
+
+/* Hide chat header border and input in OBS read-only mode */
+.hh-obs .hh-chat__header {
+  background: transparent;
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.hh-obs .hh-chat__input-row,
+.hh-obs .hh-chat__guest-prompt {
+  display: none;
+}
+
+/* Connecting state */
+.hh-obs__connecting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.9rem;
+  font-family: system-ui, sans-serif;
+  letter-spacing: 0.05em;
+}
