@@ -35,6 +35,10 @@ npx vite build
 echo "=== Ensuring recording directory exists ==="
 mkdir -p /tmp/livekit-recordings
 chmod 777 /tmp/livekit-recordings
+# Restart the Egress container so its bind mount picks up the (re)created directory.
+# /tmp is cleaned periodically by systemd-tmpfiles, which leaves the container with
+# a stale mount pointing to a deleted inode. A restart re-establishes it cleanly.
+docker restart livekit-egress-1 2>/dev/null || true
 
 echo "=== Restarting API server ==="
 cd /opt/hangouts/server
