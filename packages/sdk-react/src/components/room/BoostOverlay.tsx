@@ -57,7 +57,9 @@ export function BoostOverlay() {
     setDismissed((prev) => new Set([...prev, id]));
   }, []);
 
-  const visible = boosts.filter((b) => !dismissed.has(b.id)).slice(-5);
+  const visible = boosts
+    .filter((b) => !b.belowMinimum && !dismissed.has(b.id))
+    .slice(-5);
 
   if (visible.length === 0) return null;
 

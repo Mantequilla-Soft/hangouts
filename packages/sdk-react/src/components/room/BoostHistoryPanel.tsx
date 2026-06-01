@@ -8,7 +8,7 @@ function formatTime(timestamp: number): string {
 
 function BoostHistoryItem({ boost }: { boost: BoostEvent }) {
   return (
-    <div className="hh-boost-history__item">
+    <div className={`hh-boost-history__item${boost.belowMinimum ? ' hh-boost-history__item--below-min' : ''}`}>
       <div className="hh-boost-history__item-header">
         <span className="hh-boost-history__sender">
           @{boost.displayName || boost.sender}
@@ -19,7 +19,12 @@ function BoostHistoryItem({ boost }: { boost: BoostEvent }) {
         </span>
       </div>
       <p className="hh-boost-history__message">{boost.message}</p>
-      <div className="hh-boost-history__time">{formatTime(boost.timestamp)}</div>
+      <div className="hh-boost-history__item-footer">
+        <span className="hh-boost-history__time">{formatTime(boost.timestamp)}</span>
+        {boost.belowMinimum && (
+          <span className="hh-boost-history__badge">below minimum</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -33,7 +38,6 @@ export function BoostHistoryPanel({ onClose }: Props) {
   const reversed = [...boosts].reverse();
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Close on outside click — same pattern as the end-room menu
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
       if (panelRef.current && !e.composedPath().includes(panelRef.current)) {
