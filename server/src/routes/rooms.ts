@@ -240,13 +240,20 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     const language = typeof rawLanguage === 'string' && LANGUAGE_RE.test(rawLanguage.trim())
       ? rawLanguage.trim()
       : undefined;
-    const boost: BoostConfig | undefined = rawBoost
+    // Always write a boost field so the host can update it later via
+    // PATCH /rooms/:name/boost without needing to recreate the room.
+    // Old clients that don't send boost are given sensible defaults.
+    const boost: BoostConfig = rawBoost
       ? {
           enabled: rawBoost.enabled !== false,
           minBoostUsd: Number.isFinite(rawBoost.minBoostUsd) ? Math.max(0, Number(rawBoost.minBoostUsd ?? 0)) : 0,
           creatorPayoutAccount: rawBoost.creatorPayoutAccount?.trim().toLowerCase() || host,
         }
-      : undefined;
+      : {
+          enabled: true,
+          minBoostUsd: 0,
+          creatorPayoutAccount: host,
+        };
 
     const roomName = generateRoomName(host, title);
     const metadata: RoomMetadata = {

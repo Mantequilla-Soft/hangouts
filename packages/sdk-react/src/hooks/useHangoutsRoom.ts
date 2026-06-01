@@ -20,7 +20,7 @@ interface BoostConfigInput {
 }
 
 export function useHangoutsRoom() {
-  const { apiClient, livekitServerUrl } = useHangoutsContext();
+  const { apiClient, apiBaseUrl, livekitServerUrl } = useHangoutsContext();
   const [state, setState] = useState<RoomState>({
     livekitToken: null,
     roomName: null,
@@ -41,16 +41,25 @@ export function useHangoutsRoom() {
   ) => {
     setIsLoading(true);
     try {
-      const response = await (apiClient as unknown as {
-        createRoom: (
-          title: string,
-          description?: string,
-          backgroundImage?: string,
-          visibility?: RoomVisibility,
-          language?: string,
-          boost?: BoostConfigInput,
-        ) => Promise<{ token: string; room: Room; isPremium?: boolean }>;
-      }).createRoom(title, description, backgroundImage, visibility, language, boost);
+      // Use fetch() directly so the full request body (including boost and
+      // language) reaches the server regardless of which version of
+      // HangoutsApiClient the consuming app has bundled. Routing through the
+      // class method risks silently dropping params added after the bundle
+      // was compiled — the same issue that caused boost config to disappear.
+      const token = apiClient.getSessionToken();
+      const res = await fetch(`${apiBaseUrl}/rooms`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ title, description, backgroundImage, visibility, language, boost }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(err.message || `Create room failed (${res.status})`);
+      }
+      const response = await res.json() as { token: string; room: Room; isPremium?: boolean };
       setState({
         livekitToken: response.token,
         roomName: response.room.name,
@@ -63,7 +72,7 @@ export function useHangoutsRoom() {
     } finally {
       setIsLoading(false);
     }
-  }, [apiClient]);
+  }, [apiClient, apiBaseUrl]);
 
   const join = useCallback(async (roomName: string) => {
     setIsLoading(true);
