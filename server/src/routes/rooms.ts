@@ -477,6 +477,56 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     });
   });
 
+  // Update boost/superchat config for an existing room (host only).
+  fastify.patch('/rooms/:name/boost', {
+    preHandler: [requireAuth],
+    schema: {
+      params: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
+      body: {
+        type: 'object',
+        properties: {
+          enabled: { type: 'boolean' },
+          minBoostUsd: { type: 'number', minimum: 0 },
+          creatorPayoutAccount: { type: 'string', maxLength: 16 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { name } = request.params as { name: string };
+    const body = request.body as {
+      enabled?: boolean;
+      minBoostUsd?: number;
+      creatorPayoutAccount?: string;
+    };
+
+    const rooms = await roomService.listRooms([name]);
+    if (rooms.length === 0) return reply.notFound('Room not found');
+
+    let meta: Record<string, unknown> = {};
+    try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
+
+    if (meta.host !== request.username) {
+      return reply.forbidden('Only the host can update boost settings');
+    }
+
+    const existing = (meta.boost && typeof meta.boost === 'object' && !Array.isArray(meta.boost))
+      ? meta.boost as Record<string, unknown>
+      : {};
+
+    const next = {
+      ...meta,
+      boost: {
+        ...existing,
+        ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+        ...(body.minBoostUsd !== undefined ? { minBoostUsd: body.minBoostUsd } : {}),
+        ...(body.creatorPayoutAccount !== undefined ? { creatorPayoutAccount: body.creatorPayoutAccount || undefined } : {}),
+      },
+    };
+
+    await roomService.updateRoomMetadata(name, JSON.stringify(next));
+    return reply.send({ boost: next.boost });
+  });
+
   // Transfer host role to another participant (host only). Updates the
   // room metadata so subsequent host-only checks (verifyHost in
   // participants.ts, etc.) accept the new host. Also promotes the new

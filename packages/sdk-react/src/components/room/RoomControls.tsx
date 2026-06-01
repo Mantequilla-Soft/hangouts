@@ -8,6 +8,7 @@ import { useStreaming } from '../../hooks/useStreaming.js';
 import { RecordingControls } from './RecordingControls.js';
 import { SendBoostDialog } from './SendBoostDialog.js';
 import { BoostHistoryPanel } from './BoostHistoryPanel.js';
+import { BoostSettingsPanel } from './BoostSettingsPanel.js';
 import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
 import { ObsPanel } from './ObsPanel.js';
 
@@ -48,6 +49,8 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
   const { username, isAuthenticated } = useHangoutsContext();
   const [boostDialogOpen, setBoostDialogOpen] = useState(false);
   const [boostHistoryOpen, setBoostHistoryOpen] = useState(false);
+  const [boostSettingsOpen, setBoostSettingsOpen] = useState(false);
+  const [liveBoostConfig, setLiveBoostConfig] = useState(boostConfig);
 
   // After a host transfer, the LiveKit metadata is the source of truth —
   // useRoomInfo re-renders on metadata changes, so the UI flips correctly
@@ -257,6 +260,17 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           </button>
         )}
 
+        {effectiveIsHost && (
+          <button
+            className={`hh-btn hh-btn--icon ${boostSettingsOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+            onClick={() => setBoostSettingsOpen((v) => !v)}
+            title="Boost settings"
+            aria-label="Boost settings"
+          >
+            ⚙️
+          </button>
+        )}
+
         {effectiveIsHost && onSetLayout && (
           // The native <select> overlays the entire label as a fully
           // transparent layer so clicking ANYWHERE on the button opens
@@ -412,13 +426,22 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
       {boostDialogOpen && username && (
         <SendBoostDialog
           roomName={roomName}
-          boostConfig={boostConfig ?? { enabled: true, minBoostUsd: 0 }}
+          boostConfig={liveBoostConfig ?? { enabled: true, minBoostUsd: 0 }}
           onClose={() => setBoostDialogOpen(false)}
         />
       )}
 
       {boostHistoryOpen && (
         <BoostHistoryPanel onClose={() => setBoostHistoryOpen(false)} />
+      )}
+
+      {boostSettingsOpen && (
+        <BoostSettingsPanel
+          roomName={roomName}
+          currentConfig={liveBoostConfig}
+          onClose={() => setBoostSettingsOpen(false)}
+          onSaved={(cfg) => setLiveBoostConfig(cfg)}
+        />
       )}
     </div>
   );

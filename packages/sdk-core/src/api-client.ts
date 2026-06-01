@@ -258,4 +258,11 @@ export class HangoutsApiClient {
   async getBoostConfig(): Promise<{ enabled: boolean; platformAccount: string; feePercent: number }> {
     return this.request('GET', '/boosts/config');
   }
+
+  async updateBoostConfig(
+    roomName: string,
+    config: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string },
+  ): Promise<{ boost: { enabled: boolean; minBoostUsd: number; creatorPayoutAccount?: string } }> {
+    return this.request('PATCH', `/rooms/${encodeURIComponent(roomName)}/boost`, config);
+  }
 }
