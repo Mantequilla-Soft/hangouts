@@ -37,7 +37,7 @@ function keychainTransfer(
 }
 
 export function SendBoostDialog({ roomName, boostConfig, onClose }: Props) {
-  const { apiClient, username, aioha } = useHangoutsContext();
+  const { apiBaseUrl, username, aioha } = useHangoutsContext();
   const [platformAccount, setPlatformAccount] = useState<string | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -50,38 +50,26 @@ export function SendBoostDialog({ roomName, boostConfig, onClose }: Props) {
   useEffect(() => {
     setConfigLoading(true);
     setConfigError(null);
-    try {
-      const maybeConfig = (apiClient as typeof apiClient & { getBoostConfig?: () => Promise<{ enabled: boolean; platformAccount: string }> }).getBoostConfig?.();
-      if (!maybeConfig) {
-        setPlatformAccount(null);
-        setConfigError('Boost config unavailable (update @snapie/hangouts-core)');
-        setConfigLoading(false);
-        return;
-      }
-      maybeConfig
-        .then((cfg) => {
-          if (!cfg.enabled) {
-            setConfigError('Boosts are not enabled on this server');
-            setPlatformAccount(null);
-          } else if (!cfg.platformAccount) {
-            setConfigError('Platform wallet not configured');
-            setPlatformAccount(null);
-          } else {
-            setPlatformAccount(cfg.platformAccount);
-          }
-          setConfigLoading(false);
-        })
-        .catch((err: unknown) => {
+    fetch(`${apiBaseUrl}/boosts/config`)
+      .then((r) => r.json() as Promise<{ enabled: boolean; platformAccount: string }>)
+      .then((cfg) => {
+        if (!cfg.enabled) {
+          setConfigError('Boosts are not enabled on this server');
           setPlatformAccount(null);
-          setConfigError(`Could not reach boost config: ${err instanceof Error ? err.message : String(err)}`);
-          setConfigLoading(false);
-        });
-    } catch (err) {
-      setPlatformAccount(null);
-      setConfigError(`Config error: ${err instanceof Error ? err.message : String(err)}`);
-      setConfigLoading(false);
-    }
-  }, [apiClient]);
+        } else if (!cfg.platformAccount) {
+          setConfigError('Platform wallet not configured');
+          setPlatformAccount(null);
+        } else {
+          setPlatformAccount(cfg.platformAccount);
+        }
+        setConfigLoading(false);
+      })
+      .catch((err: unknown) => {
+        setPlatformAccount(null);
+        setConfigError(`Could not reach boost config: ${err instanceof Error ? err.message : String(err)}`);
+        setConfigLoading(false);
+      });
+  }, [apiBaseUrl]);
 
   const send = useCallback(async () => {
     if (!username || !platformAccount) return;

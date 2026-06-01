@@ -63,13 +63,14 @@ export function HangoutsProvider({
 
   const value = useMemo(() => ({
     apiClient,
+    apiBaseUrl,
     livekitServerUrl,
     username,
     isAuthenticated: !!username && !!activeToken,
     setAuth,
     imageServerApiKey,
     aioha,
-  }), [apiClient, livekitServerUrl, username, activeToken, imageServerApiKey, aioha]);
+  }), [apiClient, apiBaseUrl, livekitServerUrl, username, activeToken, imageServerApiKey, aioha]);
 
   return (
     <HangoutsContext.Provider value={value}>

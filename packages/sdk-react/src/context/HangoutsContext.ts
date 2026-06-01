@@ -3,6 +3,7 @@ import type { HangoutsApiClient, AiohaLike } from '@snapie/hangouts-core';
 
 export interface HangoutsContextValue {
   apiClient: HangoutsApiClient;
+  apiBaseUrl: string;
   livekitServerUrl: string;
   username: string | null;
   isAuthenticated: boolean;
