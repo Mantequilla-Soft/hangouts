@@ -35,8 +35,15 @@ interface Props {
 
 export function BoostHistoryPanel({ onClose }: Props) {
   const boosts = useBoostStore();
-  const reversed = [...boosts].reverse();
   const panelRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to bottom when new boosts arrive — newest at bottom, same as chat
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [boosts.length]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -56,20 +63,20 @@ export function BoostHistoryPanel({ onClose }: Props) {
   return createPortal(
     <div className="hh-boost-history" ref={panelRef}>
       <div className="hh-boost-history__header">
-        <span>💰 Superchat History</span>
+        <span>💰 Boost History</span>
         <button
           className="hh-boost-history__close"
           onClick={onClose}
-          aria-label="Close superchat history"
+          aria-label="Close boost history"
         >
           ✕
         </button>
       </div>
-      <div className="hh-boost-history__list">
-        {reversed.length === 0 ? (
-          <p className="hh-boost-history__empty">No superchats yet this session</p>
+      <div className="hh-boost-history__list" ref={listRef}>
+        {boosts.length === 0 ? (
+          <p className="hh-boost-history__empty">No boosts yet this session</p>
         ) : (
-          reversed.map((boost) => (
+          boosts.map((boost) => (
             <BoostHistoryItem key={boost.id} boost={boost} />
           ))
         )}

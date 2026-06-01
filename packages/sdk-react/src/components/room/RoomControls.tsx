@@ -41,7 +41,7 @@ export interface RoomControlsProps {
   chatOpen?: boolean;
   /** Toggle the chat sidebar. When provided, a chat button appears in the controls. */
   onToggleChat?: () => void;
-  /** Boost/superchat config from room metadata. When present and enabled, shows a Boost button for authenticated non-guests. */
+  /** Boost config from room metadata. When present and enabled, shows a Boost button for authenticated non-guests. */
   boostConfig?: BoostConfig;
 }
 
@@ -253,8 +253,8 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           <button
             className={`hh-btn hh-btn--icon ${boostHistoryOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
             onClick={() => setBoostHistoryOpen((v) => !v)}
-            title="Superchat history"
-            aria-label="Superchat history"
+            title="Boost history"
+            aria-label="Boost history"
           >
             💰
           </button>

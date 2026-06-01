@@ -2145,6 +2145,7 @@
   border-radius: 12px;
   flex: 1;
   overflow: hidden;
+  position: relative;
 }
 
 .hh-obs .hh-chat {
@@ -2155,10 +2156,6 @@
   min-height: 0;
 }
 
-.hh-obs .hh-boost-overlay {
-  position: static;
-  max-width: none;
-}
 
 .hh-boost-overlay {
   position: absolute;

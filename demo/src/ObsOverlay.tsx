@@ -8,8 +8,8 @@ import {
   HangoutsApiClient,
   SpeakerStage,
   AudienceSection,
+  BoostOverlay,
   BoostStoreProvider,
-  useBoostStore,
 } from '@snapie/hangouts-react';
 import { useChat } from '@snapie/hangouts-react';
 import '@snapie/hangouts-react/src/styles/hangouts.css';
@@ -52,30 +52,6 @@ function ObsChatFeed() {
   );
 }
 
-function ObsBoostFeed() {
-  const boosts = useBoostStore();
-  const recent = boosts.slice(-12);
-
-  return (
-    <div className="hh-chat" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', flex: 1, overflow: 'hidden', padding: '0.75rem', gap: '0.5rem' }}>
-        {recent.map((boost) => (
-          <div key={boost.id} className="hh-chat__msg" style={{ flexShrink: 0 }}>
-            <div className="hh-chat__msg-body">
-              <span className="hh-chat__msg-name">
-                Boost @{boost.displayName || boost.sender}
-              </span>
-              <span className="hh-chat__msg-text">
-                {boost.message} - {boost.amount} {boost.asset}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ─── Inside-LiveKit wrapper ─────────────────────────────────────────────────
 
 interface RoomMeta {
@@ -104,13 +80,11 @@ function ObsRoomContent({ roomName, show }: { roomName: string; show: Set<string
             roomName={roomName}
             videoEnabled={true}
           />
+          {show.has('boost') && <BoostOverlay />}
         </div>
       )}
       {show.has('chat') && (
         <ObsChatFeed />
-      )}
-      {show.has('boost') && (
-        <ObsBoostFeed />
       )}
       {show.has('audience') && (
         <AudienceSection

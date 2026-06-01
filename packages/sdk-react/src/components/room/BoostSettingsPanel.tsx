@@ -88,7 +88,7 @@ export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved }
       </div>
       <div className="hh-boost-settings__body">
         <label className="hh-boost-settings__row">
-          <span>Enable superchats</span>
+          <span>Enable boosts</span>
           <input
             type="checkbox"
             checked={enabled}
