@@ -20,6 +20,9 @@ npm run build
 echo "=== Building sdk-react ==="
 cd /opt/hangouts/packages/sdk-react
 npm install --silent
+# Overwrite the npm-installed sdk-core with the locally built version so
+# TypeScript sees the latest types and exports, not the stale published release.
+rsync -a --delete /opt/hangouts/packages/sdk-core/dist/ ./node_modules/@snapie/hangouts-core/dist/
 npm run build
 
 echo "=== Building demo ==="
