@@ -17,58 +17,82 @@ export interface BoostEvent {
   txId: string;
   blockNum: number;
   timestamp: number;
-  /**
-   * Client-side enrichment flag. True when the boost was ≥ $0.01 but
-   * below the host's configured minBoostUsd floor. These are recorded in
-   * history but suppressed from the live overlay.
-   */
+  /** Server-stamped: amount was below the host's minBoostUsd floor.
+   *  Overlay is suppressed; history panel shows a badge. */
   belowMinimum?: boolean;
 }
 
 const TOPIC = 'boost';
 const SUB_PENNY = 0.01;
 
+// sessionStorage key — versioned so old cached data is ignored on schema changes
+const sessionKey = (roomName: string) => `hh-boosts-v1-${roomName}`;
+
+function loadSession(roomName: string): BoostEvent[] {
+  try {
+    const raw = sessionStorage.getItem(sessionKey(roomName));
+    return raw ? (JSON.parse(raw) as BoostEvent[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSession(roomName: string, boosts: BoostEvent[]): void {
+  try {
+    sessionStorage.setItem(sessionKey(roomName), JSON.stringify(boosts));
+  } catch {
+    // sessionStorage unavailable (SSR, private mode quota) — fail silently
+  }
+}
+
 const BoostStoreContext = createContext<BoostEvent[]>([]);
 
 interface ProviderProps {
   children: ReactNode;
-  /**
-   * Host's configured minimum USD floor (from room metadata).
-   * Boosts below this threshold (but ≥ $0.01) are stored with
-   * belowMinimum: true and suppressed from the overlay.
-   */
+  roomName?: string;
   minBoostUsd?: number;
 }
 
 /**
- * Mount once inside <LiveKitRoom>. All useBoostStore() calls anywhere in
- * the tree read the same accumulated list.
+ * Mount once inside <LiveKitRoom>. Subscribes to boost data channel events,
+ * persists the list to sessionStorage so history survives reconnects, and
+ * shares the accumulated list via context.
  */
-export function BoostStoreProvider({ children, minBoostUsd = 0 }: ProviderProps) {
-  const [boosts, setBoosts] = useState<BoostEvent[]>([]);
+export function BoostStoreProvider({ children, roomName, minBoostUsd = 0 }: ProviderProps) {
+  const [boosts, setBoosts] = useState<BoostEvent[]>(() =>
+    roomName ? loadSession(roomName) : [],
+  );
 
-  // Ref so the stable onMessage callback always sees the latest floor
-  // without needing to re-subscribe to the data channel on every render.
+  // Keep the floor ref fresh without re-subscribing to the data channel
   const minUsdRef = useRef(minBoostUsd);
   useEffect(() => { minUsdRef.current = minBoostUsd; }, [minBoostUsd]);
+
+  // Persist to sessionStorage whenever the list changes
+  useEffect(() => {
+    if (roomName) saveSession(roomName, boosts);
+  }, [boosts, roomName]);
 
   const onMessage = useCallback((msg: { payload: Uint8Array }) => {
     try {
       const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as BoostEvent;
       if (parsed.type !== 'boost') return;
 
-      // Hard discard: sub-penny boosts are spam, store nothing.
+      // Hard discard: sub-penny boosts are spam
       if (parsed.usdAmount < SUB_PENNY) return;
 
-      // Below-minimum: legitimate payment but below the host's floor.
-      // Record in history but flag for suppression in the overlay.
+      // belowMinimum is now stamped by the server; keep client check as
+      // defense-in-depth for any deployment running an older server.
       const minUsd = minUsdRef.current;
       const enriched: BoostEvent =
-        minUsd > 0 && parsed.usdAmount < minUsd
+        !parsed.belowMinimum && minUsd > 0 && parsed.usdAmount < minUsd
           ? { ...parsed, belowMinimum: true }
           : parsed;
 
-      setBoosts((prev) => [...prev, enriched].slice(-100));
+      setBoosts((prev) => {
+        // Deduplicate by id in case the event is delivered more than once
+        if (prev.some((b) => b.id === enriched.id)) return prev;
+        return [...prev, enriched].slice(-100);
+      });
     } catch {
       // ignore malformed payloads
     }
@@ -85,9 +109,8 @@ export function useBoostStore(): BoostEvent[] {
 }
 
 /**
- * Standalone hook for contexts without a BoostStoreProvider (e.g. a custom
- * room UI or the OBS overlay). Creates its own local subscription.
- * Applies the same sub-penny hard-discard as BoostStoreProvider.
+ * Standalone hook for custom room UIs (e.g. OBS overlay).
+ * Creates its own local subscription. Applies sub-penny hard-discard.
  */
 export function useBoosts() {
   const [boosts, setBoosts] = useState<BoostEvent[]>([]);
@@ -97,7 +120,10 @@ export function useBoosts() {
       const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as BoostEvent;
       if (parsed.type !== 'boost') return;
       if (parsed.usdAmount < SUB_PENNY) return;
-      setBoosts((prev) => [...prev, parsed].slice(-100));
+      setBoosts((prev) => {
+        if (prev.some((b) => b.id === parsed.id)) return prev;
+        return [...prev, parsed].slice(-100);
+      });
     } catch {
       // ignore malformed payloads
     }

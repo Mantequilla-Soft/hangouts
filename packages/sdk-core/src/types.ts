@@ -33,6 +33,9 @@ export interface BoostEvent {
   txId: string;
   blockNum: number;
   timestamp: number;
+  /** Set by the server when the amount was below the host's minBoostUsd floor.
+   *  Clients suppress the overlay card but show a badged entry in history. */
+  belowMinimum?: boolean;
 }
 
 export interface Room {

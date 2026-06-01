@@ -111,14 +111,18 @@ describe('processBoostTransfer', () => {
     expect(payout).not.toHaveBeenCalled();
   });
 
-  it('below_minimum: still pays the host but does not broadcast to the room', async () => {
+  it('below_minimum: broadcasts with belowMinimum flag, pays host, ledger shows payout_sent', async () => {
     const lk = makeMockLk(makeRoomMeta({
       boost: { enabled: true, minBoostUsd: 100, creatorPayoutAccount: 'alice' },
     }));
     await processBoostTransfer(baseInput('tx-belowmin-001', { amount: '0.100 HBD' }), noop, lk);
     const entry = listBoostLedger().find((e) => e.txId === 'tx-belowmin-001');
     expect(entry?.status).toBe('payout_sent');
-    expect(lk.sendData).not.toHaveBeenCalled();
+    // Event is always broadcast now — client filters belowMinimum from the overlay
+    expect(lk.sendData).toHaveBeenCalledOnce();
+    // Verify the broadcast payload contains belowMinimum: true
+    const payload = JSON.parse(new TextDecoder().decode(lk.sendData.mock.calls[0][1]));
+    expect(payload.belowMinimum).toBe(true);
     expect(payout).toHaveBeenCalledOnce();
     expect(payout).toHaveBeenCalledWith(expect.objectContaining({ to: 'alice' }));
   });

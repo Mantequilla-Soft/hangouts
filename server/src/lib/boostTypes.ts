@@ -35,6 +35,10 @@ export interface BoostEvent {
   txId: string;
   blockNum: number;
   timestamp: number;
+  /** True when the amount was below the host's minBoostUsd floor.
+   *  The host is still paid; clients suppress the overlay but show
+   *  it in the history panel with a badge. */
+  belowMinimum?: boolean;
 }
 
 const ROOM_RE = /^[a-z0-9][a-z0-9-]{2,127}$/;

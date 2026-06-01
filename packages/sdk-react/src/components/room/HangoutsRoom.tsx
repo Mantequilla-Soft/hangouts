@@ -214,7 +214,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
             only when LiveKit reports audio playback is blocked. */}
         <StartAudio label="Click to enable audio" className="hh-start-audio" />
         <HandRaiseChimeListener enabled={notificationSounds} />
-        <BoostStoreProvider minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
+        <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
         <div
           className={`hh-room ${embedded ? 'hh-room--embedded' : ''}`}
           style={maxHeight ? { maxHeight } : undefined}

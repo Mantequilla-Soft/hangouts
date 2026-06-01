@@ -158,9 +158,6 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
     return;
   }
 
-  // Below-minimum boosts still pay the host — the minimum only gates screen visibility.
-  const silent = usdAmount < minUsd;
-
   const recipient = payoutAccount(meta);
   if (!recipient) {
     await handleRejected(id, 'internal_error', log, 'missing payout recipient');
@@ -168,6 +165,10 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
   }
 
   const { feeAmount, payoutAmount } = splitBoostAmounts(amount, config.BOOST_PLATFORM_FEE_PERCENT);
+  // Below-minimum boosts are flagged but still broadcast so the host's
+  // history panel can show them. The client overlay filters belowMinimum events.
+  const belowMinimum = minUsd > 0 && usdAmount < minUsd;
+
   markBoostAccepted(id, {
     usdAmount,
     payoutRecipient: recipient,
@@ -175,32 +176,31 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
     payoutAmount,
   });
 
-  if (!silent) {
-    const event: BoostEvent = {
-      type: 'boost',
-      id,
-      room: memo.room,
-      sender: memo.sender,
-      displayName: memo.displayName,
-      message: memo.message,
-      amount: amount.amount,
-      asset: amount.asset,
-      usdAmount,
-      feeAmount,
-      payoutAmount,
-      recipient,
-      txId: input.txId,
-      blockNum: input.blockNum,
-      timestamp: input.timestamp,
-    };
+  const event: BoostEvent = {
+    type: 'boost',
+    id,
+    room: memo.room,
+    sender: memo.sender,
+    displayName: memo.displayName,
+    message: memo.message,
+    amount: amount.amount,
+    asset: amount.asset,
+    usdAmount,
+    feeAmount,
+    payoutAmount,
+    recipient,
+    txId: input.txId,
+    blockNum: input.blockNum,
+    timestamp: input.timestamp,
+    ...(belowMinimum ? { belowMinimum: true } : {}),
+  };
 
-    try {
-      await publishBoost(memo.room, event, lk);
-      markBoostBroadcasted(id);
-    } catch (err) {
-      await handleRejected(id, 'internal_error', log, err);
-      return;
-    }
+  try {
+    await publishBoost(memo.room, event, lk);
+    markBoostBroadcasted(id);
+  } catch (err) {
+    await handleRejected(id, 'internal_error', log, err);
+    return;
   }
 
   try {
