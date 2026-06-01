@@ -257,6 +257,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
                 isHost={room.isHost}
                 isGuest={room.isGuest}
                 roomName={roomName}
+                boostConfig={room.roomMeta?.boost}
                 onLeave={handleLeave}
                 // Pass host handlers unconditionally — RoomControls reads
                 // live host status from room metadata via useRoomInfo, so

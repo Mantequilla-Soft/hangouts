@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalParticipant, useLocalParticipantPermissions, useParticipants, useRoomInfo } from '@livekit/components-react';
-import type { StreamPlatform } from '@snapie/hangouts-core';
+import type { BoostConfig, StreamPlatform } from '@snapie/hangouts-core';
+import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { useChat } from '../../hooks/useChat.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
 import { RecordingControls } from './RecordingControls.js';
+import { SendBoostDialog } from './SendBoostDialog.js';
 import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
 import { ObsPanel } from './ObsPanel.js';
 
@@ -37,9 +39,15 @@ export interface RoomControlsProps {
   chatOpen?: boolean;
   /** Toggle the chat sidebar. When provided, a chat button appears in the controls. */
   onToggleChat?: () => void;
+  /** Boost/superchat config from room metadata. When present and enabled, shows a Boost button for authenticated non-guests. */
+  boostConfig?: BoostConfig;
 }
 
-export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEndRoom, onTransferHost, onSetLayout, hostIdentity, onVideoHandoff, onAudioHandoff, videoEnabled = false, roomVideoEnabled = false, chatOpen, onToggleChat, obsBaseUrl }: RoomControlsProps) {
+export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEndRoom, onTransferHost, onSetLayout, hostIdentity, onVideoHandoff, onAudioHandoff, videoEnabled = false, roomVideoEnabled = false, chatOpen, onToggleChat, obsBaseUrl, boostConfig }: RoomControlsProps) {
+  const { username, isAuthenticated } = useHangoutsContext();
+  const [boostDialogOpen, setBoostDialogOpen] = useState(false);
+  const showBoostButton = !isGuest && isAuthenticated && boostConfig?.enabled;
+
   // After a host transfer, the LiveKit metadata is the source of truth —
   // useRoomInfo re-renders on metadata changes, so the UI flips correctly
   // for both the old and new host without anyone having to reconnect.
@@ -199,6 +207,16 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
             onClick={isRaised ? lowerHand : raiseHand}
           >
             ✋ {isRaised ? 'Lower hand' : 'Raise hand'}
+          </button>
+        )}
+
+        {showBoostButton && (
+          <button
+            className="hh-btn hh-btn--boost"
+            onClick={() => setBoostDialogOpen(true)}
+            title="Send a Boost"
+          >
+            💸 Boost
           </button>
         )}
 
@@ -374,6 +392,14 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           error={error}
           onStop={handleStop}
           onClose={() => setShowStreaming(false)}
+        />
+      )}
+
+      {boostDialogOpen && boostConfig && username && (
+        <SendBoostDialog
+          roomName={roomName}
+          boostConfig={boostConfig}
+          onClose={() => setBoostDialogOpen(false)}
         />
       )}
     </div>

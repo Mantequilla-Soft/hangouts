@@ -90,6 +90,13 @@ export interface AiohaLike {
   getCurrentUser?(): string | undefined | null;
   /** Optional — true when the user has an active Aioha session. */
   isLoggedIn?(): boolean;
+  /** Optional — broadcast a Hive transfer with the active key. */
+  transfer?(
+    to: string,
+    amount: number,
+    currency: string,
+    memo: string,
+  ): Promise<{ success: boolean; result?: unknown; error?: string }>;
 }
 
 /**

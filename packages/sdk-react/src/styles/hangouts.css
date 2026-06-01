@@ -2243,3 +2243,156 @@
   font-family: system-ui, sans-serif;
   letter-spacing: 0.05em;
 }
+
+/* ── Boost button ────────────────────────────────────────────────── */
+.hh-btn--boost {
+  background: linear-gradient(135deg, #c0392b 0%, #e74c3c 100%);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+}
+.hh-btn--boost:hover {
+  background: linear-gradient(135deg, #e74c3c 0%, #ff6b6b 100%);
+}
+
+/* ── Send Boost dialog ───────────────────────────────────────────── */
+.hh-boost-dialog__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.hh-boost-dialog {
+  background: #1a1a24;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  width: min(420px, 92vw);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.hh-boost-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-weight: 700;
+  font-size: 1rem;
+  color: #fff;
+}
+
+.hh-boost-dialog__close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+}
+.hh-boost-dialog__close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.hh-boost-dialog__body {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hh-boost-dialog__body--success {
+  align-items: center;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.hh-boost-dialog__success-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.hh-boost-dialog__amount-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.hh-boost-dialog__amount {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 1.1rem;
+  padding: 0.55rem 0.75rem;
+  outline: none;
+}
+.hh-boost-dialog__amount:focus {
+  border-color: rgba(231, 76, 60, 0.6);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.hh-boost-dialog__asset {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.95rem;
+  padding: 0.55rem 0.6rem;
+  cursor: pointer;
+  outline: none;
+}
+.hh-boost-dialog__asset:focus {
+  border-color: rgba(231, 76, 60, 0.6);
+}
+
+.hh-boost-dialog__hint {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.45);
+  margin: 0;
+}
+
+.hh-boost-dialog__message {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.95rem;
+  padding: 0.6rem 0.75rem;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+}
+.hh-boost-dialog__message:focus {
+  border-color: rgba(231, 76, 60, 0.6);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.hh-boost-dialog__char-count {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: right;
+  margin-top: -0.25rem;
+}
+
+.hh-boost-dialog__error {
+  font-size: 0.82rem;
+  color: #ff6b6b;
+  margin: 0;
+}
+
+.hh-boost-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}

@@ -254,4 +254,8 @@ export class HangoutsApiClient {
   async getStreamStatus(roomName: string): Promise<StreamStatusResponse> {
     return this.request('GET', `/rooms/${encodeURIComponent(roomName)}/stream/status`);
   }
+
+  async getBoostConfig(): Promise<{ enabled: boolean; platformAccount: string; feePercent: number }> {
+    return this.request('GET', '/boosts/config');
+  }
 }

@@ -42,6 +42,14 @@ export const boostRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.code(202).send({ accepted: true });
   });
 
+  fastify.get('/boosts/config', async (_request, reply) => {
+    return reply.send({
+      enabled: config.BOOSTS_ENABLED,
+      platformAccount: config.BOOST_PLATFORM_ACCOUNT,
+      feePercent: config.BOOST_PLATFORM_FEE_PERCENT,
+    });
+  });
+
   fastify.get('/boosts/ledger', {
     schema: {
       querystring: {

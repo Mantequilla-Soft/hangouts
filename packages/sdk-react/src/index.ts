@@ -39,6 +39,7 @@ export { HostControlsPanel, type HostControlsPanelProps } from './components/roo
 export { RoomHeader, type RoomHeaderProps } from './components/room/RoomHeader.js';
 export { ChatPanel } from './components/room/ChatPanel.js';
 export { BoostOverlay } from './components/room/BoostOverlay.js';
+export { SendBoostDialog } from './components/room/SendBoostDialog.js';
 export { RecordingControls, RecordingIndicator } from './components/room/RecordingControls.js';
 export { StreamingPanel, StopStreamingPanel, type StreamingPanelProps, type StopStreamingPanelProps } from './components/room/StreamingPanel.js';
 export { HangoutsErrorBoundary } from './components/room/HangoutsErrorBoundary.js';
