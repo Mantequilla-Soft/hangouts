@@ -46,7 +46,10 @@ export interface RoomControlsProps {
 export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEndRoom, onTransferHost, onSetLayout, hostIdentity, onVideoHandoff, onAudioHandoff, videoEnabled = false, roomVideoEnabled = false, chatOpen, onToggleChat, obsBaseUrl, boostConfig }: RoomControlsProps) {
   const { username, isAuthenticated } = useHangoutsContext();
   const [boostDialogOpen, setBoostDialogOpen] = useState(false);
-  const showBoostButton = !isGuest && isAuthenticated && boostConfig?.enabled;
+  // Show for any authenticated non-guest. The server accepts boosts on all rooms
+  // by default; boostConfig.enabled only gates the minimum and payout account.
+  // The dialog itself disables Send when the platform has no account configured.
+  const showBoostButton = !isGuest && isAuthenticated;
 
   // After a host transfer, the LiveKit metadata is the source of truth —
   // useRoomInfo re-renders on metadata changes, so the UI flips correctly
@@ -395,10 +398,10 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
         />
       )}
 
-      {boostDialogOpen && boostConfig && username && (
+      {boostDialogOpen && username && (
         <SendBoostDialog
           roomName={roomName}
-          boostConfig={boostConfig}
+          boostConfig={boostConfig ?? { enabled: true, minBoostUsd: 0 }}
           onClose={() => setBoostDialogOpen(false)}
         />
       )}
