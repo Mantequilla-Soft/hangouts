@@ -2249,13 +2249,6 @@
 }
 
 /* ── Boost History Panel ─────────────────────────────────────────── */
-.hh-boost-history__overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 950;
-  background: transparent;
-}
-
 .hh-boost-history {
   position: fixed;
   top: 50%;
@@ -2268,7 +2261,7 @@
   border-radius: 14px;
   display: flex;
   flex-direction: column;
-  z-index: 951;
+  z-index: 10000;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
 
