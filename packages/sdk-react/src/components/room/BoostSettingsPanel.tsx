@@ -3,6 +3,28 @@ import { createPortal } from 'react-dom';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import type { BoostConfig } from '@snapie/hangouts-core';
 
+async function patchBoostConfig(
+  apiBaseUrl: string,
+  sessionToken: string | null,
+  roomName: string,
+  config: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string },
+): Promise<BoostConfig> {
+  const res = await fetch(`${apiBaseUrl}/rooms/${encodeURIComponent(roomName)}/boost`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+    },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { message?: string };
+    throw new Error(err.message || `Save failed (${res.status})`);
+  }
+  const data = await res.json() as { boost: BoostConfig };
+  return data.boost;
+}
+
 interface Props {
   roomName: string;
   currentConfig: BoostConfig | undefined;
@@ -11,7 +33,7 @@ interface Props {
 }
 
 export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved }: Props) {
-  const { apiClient } = useHangoutsContext();
+  const { apiClient, apiBaseUrl } = useHangoutsContext();
   const panelRef = useRef<HTMLDivElement>(null);
 
   const [enabled, setEnabled] = useState(currentConfig?.enabled ?? true);
@@ -42,27 +64,21 @@ export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved }
     setSaving(true);
     setError(null);
     try {
-      const result = await (apiClient as typeof apiClient & {
-        updateBoostConfig?: (
-          room: string,
-          cfg: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string },
-        ) => Promise<{ boost: BoostConfig }>;
-      }).updateBoostConfig?.(roomName, {
-        enabled,
-        minBoostUsd: parsed,
-        creatorPayoutAccount: payoutAccount.trim() || undefined,
-      });
-      if (result) {
-        onSaved(result.boost);
-        setSaved(true);
-        setTimeout(onClose, 1200);
-      }
+      const boost = await patchBoostConfig(
+        apiBaseUrl,
+        apiClient.getSessionToken(),
+        roomName,
+        { enabled, minBoostUsd: parsed, creatorPayoutAccount: payoutAccount.trim() || undefined },
+      );
+      onSaved(boost);
+      setSaved(true);
+      setTimeout(onClose, 1200);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setSaving(false);
     }
-  }, [apiClient, roomName, enabled, minUsd, payoutAccount, onSaved, onClose]);
+  }, [apiBaseUrl, apiClient, roomName, enabled, minUsd, payoutAccount, onSaved, onClose]);
 
   return createPortal(
     <div className="hh-boost-settings" ref={panelRef} role="dialog" aria-label="Boost settings">
