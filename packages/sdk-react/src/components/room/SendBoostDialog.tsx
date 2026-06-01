@@ -45,9 +45,16 @@ export function SendBoostDialog({ roomName, boostConfig, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiClient.getBoostConfig()
-      .then((cfg) => setPlatformAccount(cfg.platformAccount || null))
-      .catch(() => setPlatformAccount(null));
+    // Guard against older sdk-core versions where getBoostConfig doesn't exist yet.
+    try {
+      const maybeConfig = (apiClient as typeof apiClient & { getBoostConfig?: () => Promise<{ platformAccount: string }> }).getBoostConfig?.();
+      if (!maybeConfig) { setPlatformAccount(null); return; }
+      maybeConfig
+        .then((cfg) => setPlatformAccount(cfg.platformAccount || null))
+        .catch(() => setPlatformAccount(null));
+    } catch {
+      setPlatformAccount(null);
+    }
   }, [apiClient]);
 
   const send = useCallback(async () => {
