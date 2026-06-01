@@ -42,6 +42,7 @@ Three components:
 - **Moderation** — host can mute, kick, or end the room
 - **Recording** — start audio or video; on stop the host gets a 3-button dialog (Upload · Download · Dismiss). Upload is callback-driven: the SDK hands the integrator the raw blob and the integrator chooses where to publish (3Speak Studio, podcast uploader, IPFS, etc.). The Upload button is hidden when no callback is wired for that mode.
 - **Live streaming** — stream to YouTube or Twitch directly from the room
+- **Boost messages (superchat)** — validated HIVE/HBD transfer memos trigger highlighted room + OBS overlay messages with immediate payout split.
 - **Hive avatars** — profile pictures pulled from on-chain metadata
 
 ## Project Structure
@@ -95,7 +96,7 @@ import '@snapie/hangouts-react/src/styles/hangouts.css';
 | `POST /auth/verify` | No | Verify signature → session JWT |
 | `GET /rooms` | No | List active rooms (filters out `unlisted`) |
 | `GET /rooms/:name` | No | Get a single room |
-| `POST /rooms` | Yes | Create a room (caller becomes host). Body accepts `visibility: 'public' \| 'hive-internal' \| 'unlisted'`. Origin hostname is captured from the request and stored on the room. |
+| `POST /rooms` | Yes | Create a room (caller becomes host). Body accepts `visibility`, optional `language`, and optional `boost` config (`enabled`, `minBoostUsd`, `creatorPayoutAccount`). |
 | `POST /rooms/:name/join` | Yes | Join a room as listener |
 | `POST /rooms/:name/listen` | No | Issue a listen-only `guest-*` token. Rate-limited per IP (10 / 5 min). Rejected for `hive-internal` rooms. |
 | `POST /rooms/:name/host` | Host | Transfer host to another speaker (updates room metadata; everyone's UI flips live) |
@@ -112,6 +113,8 @@ import '@snapie/hangouts-react/src/styles/hangouts.css';
 | `POST /rooms/:name/stream/start` | Host | Start streaming to YouTube/Twitch |
 | `POST /rooms/:name/stream/stop` | Host | Stop streaming |
 | `GET /rooms/:name/stream/status` | Host | Stream status |
+| `POST /boosts/ingest` | No (dev spike) | Manual boost ingest endpoint for validated transfer payloads (feature-flagged). |
+| `GET /boosts/ledger` | No | List current boost ledger entries (optional `?room=` filter). |
 
 ## Setup
 
@@ -147,6 +150,17 @@ npm run dev
 | `VITE_API_URL` | Your Fastify server URL |
 | `VITE_LIVEKIT_URL` | LiveKit websocket URL |
 | `VITE_IMAGE_SERVER_API_KEY` | Bearer token for `images.3speak.tv` background uploads |
+
+### Environment variables (server - Boost)
+
+| Variable | Description |
+|----------|-------------|
+| `BOOSTS_ENABLED` | Enable boost listener + endpoints (`true` / `false`) |
+| `BOOST_PLATFORM_ACCOUNT` | Receiving wallet account for inbound boost transfers |
+| `BOOST_PLATFORM_ACTIVE_KEY` | Active key for payout transfers (server-only secret) |
+| `BOOST_PLATFORM_FEE_PERCENT` | Platform fee percent (default `5`) |
+| `BOOST_HIVE_USD_FALLBACK` | Fallback HIVE/USD rate if CoinGecko is unavailable |
+| `BOOST_HIVE_USD_CACHE_MS` | Cache TTL (ms) for CoinGecko HIVE/USD fetches |
 
 ## Tech Stack
 

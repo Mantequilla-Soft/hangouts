@@ -17,6 +17,12 @@ const envSchema = z.object({
   VIDEO_UPLOAD_TOKEN: z.string().default(''),
   STUDIO_FRONTEND_URL: z.string().url().default('https://3speak.tv'),
   MONGODB_URI: z.string().default(''),
+  BOOSTS_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  BOOST_PLATFORM_ACCOUNT: z.string().default(''),
+  BOOST_PLATFORM_ACTIVE_KEY: z.string().default(''),
+  BOOST_PLATFORM_FEE_PERCENT: z.coerce.number().min(0).max(100).default(5),
+  BOOST_HIVE_USD_FALLBACK: z.coerce.number().positive().default(0.25),
+  BOOST_HIVE_USD_CACHE_MS: z.coerce.number().int().positive().default(120000),
   PORT: z.coerce.number().default(3002),
 });
 

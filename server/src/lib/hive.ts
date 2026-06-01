@@ -1,7 +1,7 @@
 import { Client, cryptoUtils, Signature } from '@hiveio/dhive';
 import { config } from '../config.js';
 
-const hiveClient = new Client(config.HIVE_API_NODE);
+export const hiveClient = new Client(config.HIVE_API_NODE);
 
 /**
  * Fetch the posting public keys for a Hive account.

@@ -10,6 +10,9 @@ export { HangoutsApiError } from './errors.js';
 export type {
   Room,
   RoomVisibility,
+  BoostConfig,
+  BoostEvent,
+  BoostRejectReason,
   CreateRoomResponse,
   JoinRoomResponse,
   AuthSession,

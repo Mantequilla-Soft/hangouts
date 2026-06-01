@@ -1,4 +1,4 @@
-import type { Room, RoomVisibility, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse } from './types.js';
+import type { Room, RoomVisibility, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse } from './types.js';
 import { HangoutsApiError } from './errors.js';
 
 export interface HangoutsApiClientOptions {
@@ -86,8 +86,10 @@ export class HangoutsApiClient {
     description?: string,
     backgroundImage?: string,
     visibility?: RoomVisibility,
+    language?: string,
+    boost?: BoostConfig,
   ): Promise<CreateRoomResponse> {
-    return this.request('POST', '/rooms', { title, description, backgroundImage, visibility });
+    return this.request('POST', '/rooms', { title, description, backgroundImage, visibility, language, boost });
   }
 
   async joinRoom(roomName: string): Promise<JoinRoomResponse> {

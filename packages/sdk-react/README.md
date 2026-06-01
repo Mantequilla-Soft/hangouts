@@ -36,6 +36,7 @@ function App() {
 - **Room visibility** — Create-room dialog dropdown for `public` / `hive-internal` / `unlisted`. Server filters `unlisted` from the lobby and rejects guests for `hive-internal`.
 - **Audio rooms** — real-time voice via LiveKit WebRTC
 - **Chat** — text messaging via data channels (read-only with sign-in prompt for guests)
+- **Boost messages** — paid highlighted messages delivered via the `boost` LiveKit data topic and rendered in-room + OBS overlays.
 - **Hand raising** — listeners request to speak
 - **Speaker management** — host promotes/demotes participants. Promoted speakers start with mic and camera **off**.
 - **Live host transfer** — `useLiveHost` derives host status reactively from room metadata, so transferring host flips every consumer's UI without reconnecting.
@@ -67,6 +68,7 @@ function App() {
 | `useHangoutsRoom()` | Join (`join`), create (`create` accepts visibility), guest-listen (`listen`), leave; exposes `isGuest`, `roomMeta`, `transferHost`, `setLayout`, `setViewState` |
 | `useLiveHost(fallback?)` | Reactively derives the current host identity from room metadata + whether the local participant is the host. Use inside any LiveKit-context child to keep host UI in sync after a transfer. |
 | `useChat()` | Send/receive chat messages |
+| `useBoosts()` | Receive boost/superchat events from topic `boost` |
 | `useHandRaise()` | Hand raise state and actions |
 | `useHostControls()` | Promote, demote, kick |
 | `useRecording()` | Record, stop, fetch blob, download |
@@ -130,6 +132,26 @@ Or set CSS variables: `--hh-bg`, `--hh-text`, `--hh-primary`, etc.
 ## Docs
 
 Full documentation: [hangout.3speak.tv/docs](https://hangout.3speak.tv/docs)
+
+## Boost message contract (memo JSON)
+
+Incoming Hive/HBD transfers for Boost must use strict JSON memo payload:
+
+```json
+{
+  "version": 1,
+  "room": "alice-my-openpod-abc123",
+  "message": "Great show!",
+  "sender": "bob",
+  "nonce": "abc123_nonce",
+  "displayName": "Bob"
+}
+```
+
+Notes:
+- `version`, `room`, `message`, `sender`, `nonce` are required.
+- Amount must be `HIVE` or `HBD` and meet room minimum (`boost.minBoostUsd`).
+- Server rejects malformed memos or below-minimum transfers (no broadcast).
 
 ## License
 

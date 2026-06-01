@@ -9,8 +9,15 @@ import { recordGuestIp, isGuestBanned, clearRoomBans } from '../lib/guestBans.js
 
 type RoomVisibility = 'public' | 'hive-internal' | 'unlisted';
 const ROOM_VISIBILITIES: readonly RoomVisibility[] = ['public', 'hive-internal', 'unlisted'];
+const LANGUAGE_RE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/;
 function isRoomVisibility(v: unknown): v is RoomVisibility {
   return typeof v === 'string' && (ROOM_VISIBILITIES as readonly string[]).includes(v);
+}
+
+interface BoostConfig {
+  enabled: boolean;
+  minBoostUsd: number;
+  creatorPayoutAccount?: string;
 }
 
 interface RoomMetadata {
@@ -38,6 +45,10 @@ interface RoomMetadata {
    *  Optional; pre-existing rooms with no value behave as `public`.
    */
   visibility?: RoomVisibility;
+  /** Optional language tag (BCP-47 style) displayed in room lists. */
+  language?: string;
+  /** Boost/superchat settings. */
+  boost?: BoostConfig;
 }
 
 /** Identity prefix used for unauthenticated guest listeners. */
@@ -132,6 +143,8 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         createdAt: meta.createdAt || new Date(Number(r.creationTime) * 1000).toISOString(),
         origin: meta.origin,
         visibility: meta.visibility,
+        language: meta.language,
+        boost: meta.boost,
       };
     }));
 
@@ -169,6 +182,8 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       createdAt: meta.createdAt || new Date(Number(r.creationTime) * 1000).toISOString(),
       origin: meta.origin,
       visibility: meta.visibility,
+      language: meta.language,
+      boost: meta.boost,
     });
   });
 
@@ -184,12 +199,28 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
           description:     { type: 'string', maxLength: 256 },
           backgroundImage: { type: 'string', maxLength: 512 },
           visibility:      { type: 'string', enum: ROOM_VISIBILITIES as unknown as string[] },
+          language:        { type: 'string', maxLength: 16 },
+          boost: {
+            type: 'object',
+            properties: {
+              enabled: { type: 'boolean' },
+              minBoostUsd: { type: 'number', minimum: 0 },
+              creatorPayoutAccount: { type: 'string', minLength: 3, maxLength: 16 },
+            },
+          },
         },
       },
     },
   }, async (request, reply) => {
-    const { title, description, backgroundImage, visibility: bodyVisibility } =
-      request.body as { title: string; description?: string; backgroundImage?: string; visibility?: string };
+    const { title, description, backgroundImage, visibility: bodyVisibility, language: rawLanguage, boost: rawBoost } =
+      request.body as {
+        title: string;
+        description?: string;
+        backgroundImage?: string;
+        visibility?: string;
+        language?: string;
+        boost?: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string };
+      };
     const host = request.username;
     const { premium } = await getUserStatus(host);
 
@@ -206,6 +237,17 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       try { origin = new URL(originHeader).hostname; } catch { /* ignore malformed */ }
     }
 
+    const language = typeof rawLanguage === 'string' && LANGUAGE_RE.test(rawLanguage.trim())
+      ? rawLanguage.trim()
+      : undefined;
+    const boost: BoostConfig | undefined = rawBoost
+      ? {
+          enabled: rawBoost.enabled !== false,
+          minBoostUsd: Number.isFinite(rawBoost.minBoostUsd) ? Math.max(0, Number(rawBoost.minBoostUsd ?? 0)) : 0,
+          creatorPayoutAccount: rawBoost.creatorPayoutAccount?.trim().toLowerCase() || host,
+        }
+      : undefined;
+
     const roomName = generateRoomName(host, title);
     const metadata: RoomMetadata = {
       title,
@@ -218,6 +260,8 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       // Mirror visibility into allowGuests so older lookup paths that
       // still consult that field stay correct.
       allowGuests: visibility !== 'hive-internal',
+      language,
+      boost,
     };
 
     const room = await roomService.createRoom({
@@ -244,6 +288,8 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         createdAt: metadata.createdAt,
         origin: metadata.origin,
         visibility: metadata.visibility,
+        language: metadata.language,
+        boost: metadata.boost,
       },
       token,
       isPremium: premium,

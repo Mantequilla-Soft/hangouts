@@ -1,8 +1,12 @@
 import type { Room } from '@snapie/hangouts-core';
 import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
 
+type RoomWithMetadata = Room & {
+  language?: string;
+};
+
 export interface RoomCardProps {
-  room: Room;
+  room: RoomWithMetadata;
   onJoin: (roomName: string) => void;
 }
 
@@ -23,6 +27,9 @@ export function RoomCard({ room, onJoin }: RoomCardProps) {
         <div className="hh-room-card__info">
           <h3 className="hh-room-card__title">{room.title}</h3>
           <div className="hh-room-card__meta">Hosted by {room.host}</div>
+          {room.language && (
+            <div className="hh-room-card__meta">Language: {room.language}</div>
+          )}
         </div>
         <div className="hh-room-card__count">
           {room.numParticipants ?? 0} listening

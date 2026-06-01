@@ -27,6 +27,7 @@ export { useHandRaise } from './hooks/useHandRaise.js';
 export { useHandRaiseChime } from './hooks/useHandRaiseChime.js';
 export { useHostControls } from './hooks/useHostControls.js';
 export { useHiveAvatar } from './hooks/useHiveAvatar.js';
+export { useBoosts } from './hooks/useBoosts.js';
 
 // Components — Room
 export { HangoutsRoom, type HangoutsRoomProps } from './components/room/HangoutsRoom.js';
@@ -37,6 +38,7 @@ export { ParticipantTile, type ParticipantTileProps } from './components/room/Pa
 export { HostControlsPanel, type HostControlsPanelProps } from './components/room/HostControlsPanel.js';
 export { RoomHeader, type RoomHeaderProps } from './components/room/RoomHeader.js';
 export { ChatPanel } from './components/room/ChatPanel.js';
+export { BoostOverlay } from './components/room/BoostOverlay.js';
 export { RecordingControls, RecordingIndicator } from './components/room/RecordingControls.js';
 export { StreamingPanel, StopStreamingPanel, type StreamingPanelProps, type StopStreamingPanelProps } from './components/room/StreamingPanel.js';
 export { HangoutsErrorBoundary } from './components/room/HangoutsErrorBoundary.js';

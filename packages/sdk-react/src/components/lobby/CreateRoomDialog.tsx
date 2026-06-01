@@ -37,6 +37,10 @@ export function CreateRoomDialog({ onCreated, onCancel }: CreateRoomDialogProps)
   const [uploadError, setUploadError] = useState('');
   const [notifyOnHive, setNotifyOnHive] = useState(true);
   const [visibility, setVisibility] = useState<RoomVisibility>('public');
+  const [language, setLanguage] = useState('en');
+  const [boostEnabled, setBoostEnabled] = useState(true);
+  const [minBoostUsd, setMinBoostUsd] = useState('1');
+  const [creatorPayoutAccount, setCreatorPayoutAccount] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { create, isLoading } = useHangoutsRoom();
   const { username, imageServerApiKey } = useHangoutsContext();
@@ -76,7 +80,19 @@ export function CreateRoomDialog({ onCreated, onCancel }: CreateRoomDialogProps)
     e.preventDefault();
     if (!title.trim()) return;
     const bg = imageServerApiKey ? (backgroundImageUrl || undefined) : undefined;
-    const room = await create(title.trim(), description.trim() || undefined, bg, visibility);
+    const minUsd = Number(minBoostUsd);
+    const room = await create(
+      title.trim(),
+      description.trim() || undefined,
+      bg,
+      visibility,
+      language.trim() || undefined,
+      {
+        enabled: boostEnabled,
+        minBoostUsd: Number.isFinite(minUsd) ? Math.max(0, minUsd) : 0,
+        creatorPayoutAccount: creatorPayoutAccount.trim() || undefined,
+      },
+    );
     // Unlisted rooms shouldn't trigger a Hive announcement — defeats the
     // purpose. Force the integrator's notify flag off for that tier.
     const shouldNotify = visibility === 'unlisted' ? false : notifyOnHive;
@@ -178,6 +194,59 @@ export function CreateRoomDialog({ onCreated, onCancel }: CreateRoomDialogProps)
             <option value="hive-internal">Hive-internal — Hive sign-in required</option>
             <option value="unlisted">Unlisted — link only, hidden from lobby</option>
           </select>
+        </label>
+      </div>
+
+      <div className="hh-create-dialog__row">
+        <label className="hh-create-dialog__field">
+          <span className="hh-create-dialog__field-label">Language</span>
+          <input
+            className="hh-create-dialog__input"
+            type="text"
+            value={language}
+            onChange={(e) => setLanguage(e.target.value)}
+            maxLength={16}
+            placeholder="en"
+          />
+        </label>
+      </div>
+
+      <div className="hh-create-dialog__row">
+        <label className="hh-create-dialog__check">
+          <input
+            type="checkbox"
+            checked={boostEnabled}
+            onChange={(e) => setBoostEnabled(e.target.checked)}
+          />
+          <span>Enable Boost messages</span>
+        </label>
+      </div>
+
+      <div className="hh-create-dialog__row">
+        <label className="hh-create-dialog__field">
+          <span className="hh-create-dialog__field-label">Minimum boost (USD)</span>
+          <input
+            className="hh-create-dialog__input"
+            type="number"
+            min="0"
+            step="0.01"
+            value={minBoostUsd}
+            onChange={(e) => setMinBoostUsd(e.target.value)}
+          />
+        </label>
+      </div>
+
+      <div className="hh-create-dialog__row">
+        <label className="hh-create-dialog__field">
+          <span className="hh-create-dialog__field-label">Payout account (optional)</span>
+          <input
+            className="hh-create-dialog__input"
+            type="text"
+            value={creatorPayoutAccount}
+            onChange={(e) => setCreatorPayoutAccount(e.target.value)}
+            maxLength={16}
+            placeholder="defaults to room host"
+          />
         </label>
       </div>
 

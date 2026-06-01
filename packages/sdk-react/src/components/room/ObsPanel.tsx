@@ -268,6 +268,7 @@ export function ObsPanel({ roomName, obsBaseUrl, onClose, anchorRect }: ObsPanel
   const [speakers, setSpeakers] = useState(true);
   const [chat, setChat]         = useState(true);
   const [audience, setAudience] = useState(true);
+  const [boost, setBoost] = useState(true);
   const [copied, setCopied]     = useState(false);
 
   useEffect(() => { injectStyles(); }, []);
@@ -282,6 +283,7 @@ export function ObsPanel({ roomName, obsBaseUrl, onClose, anchorRect }: ObsPanel
     speakers && 'speakers',
     chat     && 'chat',
     audience && 'audience',
+    boost && 'boost',
   ].filter(Boolean) as string[];
 
   const hasSelection = show.length > 0;
@@ -328,6 +330,7 @@ export function ObsPanel({ roomName, obsBaseUrl, onClose, anchorRect }: ObsPanel
           { key: 'speakers', label: 'Speakers', val: speakers, set: setSpeakers },
           { key: 'chat',     label: 'Chat',     val: chat,     set: setChat     },
           { key: 'audience', label: 'Audience', val: audience, set: setAudience },
+          { key: 'boost', label: 'Boost', val: boost, set: setBoost },
         ] as const).map(({ key, label, val, set }) => (
           <div
             key={key}

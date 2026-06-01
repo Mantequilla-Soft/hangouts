@@ -1,6 +1,40 @@
 /** Visibility / access tier the host picked when creating the room. */
 export type RoomVisibility = 'public' | 'hive-internal' | 'unlisted';
 
+export interface BoostConfig {
+  enabled: boolean;
+  minBoostUsd: number;
+  creatorPayoutAccount?: string;
+}
+
+export type BoostRejectReason =
+  | 'invalid_memo'
+  | 'invalid_asset'
+  | 'room_not_found'
+  | 'below_minimum'
+  | 'invalid_destination'
+  | 'duplicate_transfer'
+  | 'payout_failed'
+  | 'internal_error';
+
+export interface BoostEvent {
+  type: 'boost';
+  id: string;
+  room: string;
+  sender: string;
+  displayName?: string;
+  message: string;
+  amount: string;
+  asset: 'HIVE' | 'HBD';
+  usdAmount: number;
+  feeAmount: string;
+  payoutAmount: string;
+  recipient: string;
+  txId: string;
+  blockNum: number;
+  timestamp: number;
+}
+
 export interface Room {
   name: string;
   title: string;
@@ -19,6 +53,10 @@ export interface Room {
    *  from the lobby, link-only, guests still allowed. Optional; pre-
    *  existing rooms behave as `public`. */
   visibility?: RoomVisibility;
+  /** BCP-47 language tag shown in the room list. */
+  language?: string;
+  /** Boost/superchat configuration for this room. */
+  boost?: BoostConfig;
 }
 
 export interface CreateRoomResponse {

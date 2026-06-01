@@ -13,6 +13,12 @@ interface RoomState {
   isGuest: boolean;
 }
 
+interface BoostConfigInput {
+  enabled: boolean;
+  minBoostUsd: number;
+  creatorPayoutAccount?: string;
+}
+
 export function useHangoutsRoom() {
   const { apiClient, livekitServerUrl } = useHangoutsContext();
   const [state, setState] = useState<RoomState>({
@@ -30,10 +36,21 @@ export function useHangoutsRoom() {
     description?: string,
     backgroundImage?: string,
     visibility?: RoomVisibility,
+    language?: string,
+    boost?: BoostConfigInput,
   ) => {
     setIsLoading(true);
     try {
-      const response = await apiClient.createRoom(title, description, backgroundImage, visibility);
+      const response = await (apiClient as unknown as {
+        createRoom: (
+          title: string,
+          description?: string,
+          backgroundImage?: string,
+          visibility?: RoomVisibility,
+          language?: string,
+          boost?: BoostConfigInput,
+        ) => Promise<{ token: string; room: Room; isPremium?: boolean }>;
+      }).createRoom(title, description, backgroundImage, visibility, language, boost);
       setState({
         livekitToken: response.token,
         roomName: response.room.name,

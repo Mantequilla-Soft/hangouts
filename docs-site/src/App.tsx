@@ -10,6 +10,7 @@ type Section =
   | 'guest-listening'
   | 'recording'
   | 'streaming'
+  | 'boosts'
   | 'hand-raise-chimes'
   | 'theming'
   | 'premium-and-bans'
@@ -29,6 +30,7 @@ const NAV: { id: Section; label: string; group?: string }[] = [
   { id: 'guest-listening', label: 'Guest Listening', group: 'Features' },
   { id: 'recording', label: 'Recording & Egress', group: 'Features' },
   { id: 'streaming', label: 'Live Streaming', group: 'Features' },
+  { id: 'boosts', label: 'Boost Messages', group: 'Features' },
   { id: 'hand-raise-chimes', label: 'Hand-Raise Chimes', group: 'Features' },
   { id: 'theming', label: 'Theming', group: 'Customization' },
 
@@ -77,6 +79,7 @@ export default function App() {
         {active === 'guest-listening' && <GuestListening />}
         {active === 'recording' && <Recording />}
         {active === 'streaming' && <Streaming />}
+        {active === 'boosts' && <Boosts />}
         {active === 'hand-raise-chimes' && <HandRaiseChimes />}
         {active === 'theming' && <Theming />}
         {active === 'premium-and-bans' && <PremiumAndBans />}
@@ -427,7 +430,7 @@ const client = new HangoutsApiClient({
         rows={[
           ['listRooms()', 'No', 'Promise<Room[]>'],
           ['getRoom(name)', 'No', 'Promise<Room | null>'],
-          ['createRoom(title, description?, visibility?)', 'Yes', 'Promise<CreateRoomResponse>'],
+          ['createRoom(title, description?, backgroundImage?, visibility?, language?, boost?)', 'Yes', 'Promise<CreateRoomResponse>'],
           ['joinRoom(name)', 'Yes', 'Promise<JoinRoomResponse>'],
           ['listenAsGuest(name)', 'No', 'Promise<JoinRoomResponse> (identity: guest-*)'],
           ['leaveRoom(name)', 'Yes', 'Promise<void>'],
@@ -473,6 +476,12 @@ interface Room {
   host: string;
   description?: string;
   visibility?: 'public' | 'hive-internal' | 'unlisted';
+  language?: string;
+  boost?: {
+    enabled: boolean;
+    minBoostUsd: number;
+    creatorPayoutAccount?: string;
+  };
   origin?: string;
   numParticipants?: number;
   createdAt: string;
@@ -923,6 +932,68 @@ Stream ends on YouTube/Twitch
   );
 }
 
+function Boosts() {
+  return (
+    <>
+      <H1>Boost Messages (Superchat)</H1>
+      <P>
+        Boost messages are paid highlighted messages. A single platform wallet receives transfers,
+        validates strict memo JSON, enforces room minimum USD thresholds, broadcasts accepted boosts
+        to LiveKit topic <code>boost</code>, and pays out creator share immediately.
+      </P>
+
+      <H2>Strict memo JSON</H2>
+      <Code>{`
+{
+  "version": 1,
+  "room": "alice-room-abc123",
+  "message": "Great session!",
+  "sender": "bob",
+  "nonce": "abc123_nonce",
+  "displayName": "Bob"
+}
+      `}</Code>
+
+      <H2>Room configuration</H2>
+      <Table
+        headers={['Field', 'Type', 'Description']}
+        rows={[
+          ['language', 'string', 'BCP-47 language tag shown in lobby (e.g. en, es-MX)'],
+          ['boost.enabled', 'boolean', 'Enable/disable boosts for room'],
+          ['boost.minBoostUsd', 'number', 'Minimum USD-equivalent amount required'],
+          ['boost.creatorPayoutAccount', 'string', 'Hive account receiving creator payout (defaults to host)'],
+        ]}
+      />
+
+      <H2>Payout split</H2>
+      <P>
+        v1 default split is immediate <strong>95% creator / 5% platform</strong>.
+      </P>
+
+      <H2>USD conversion logic</H2>
+      <ul className="docs__list">
+        <li><strong>HBD:</strong> always treated as $1.00</li>
+        <li><strong>HIVE:</strong> fetched from CoinGecko and cached server-side</li>
+        <li><strong>Fallback:</strong> uses <code>BOOST_HIVE_USD_FALLBACK</code> if API is unavailable</li>
+      </ul>
+
+      <H2>Realtime surfaces</H2>
+      <ul className="docs__list">
+        <li><code>useBoosts()</code> subscribes to topic <code>boost</code></li>
+        <li><code>BoostOverlay</code> renders in <code>HangoutsRoom</code></li>
+        <li>OBS overlay supports <code>show=boost</code> and host toggle in OBS panel</li>
+      </ul>
+
+      <H2>Ops notes</H2>
+      <ul className="docs__list">
+        <li>Store active key only in server secret manager (never in SDK/client)</li>
+        <li>Enable with <code>BOOSTS_ENABLED=true</code></li>
+        <li>Use structured logs + ledger endpoint for reconciliation</li>
+      </ul>
+    </>
+  );
+}
+
 function HandRaiseChimes() {
   return (
     <>
@@ -1172,7 +1243,7 @@ function ApiReference() {
         rows={[
           ['GET', '/rooms', 'No', 'Returns: Room[]'],
           ['GET', '/rooms/:name', 'No', 'Returns: Room | null (404)'],
-          ['POST', '/rooms', 'Yes', 'Body: { title, description?, visibility? } Returns: { room, token, isPremium }'],
+          ['POST', '/rooms', 'Yes', 'Body: { title, description?, backgroundImage?, visibility?, language?, boost? } Returns: { room, token, isPremium }'],
           ['POST', '/rooms/:name/join', 'Yes', 'Returns: { token, roomName, identity, isHost, isPremium }'],
           ['POST', '/rooms/:name/listen', 'No', 'Returns: { token, roomName, identity, isGuest, isPremium }'],
           ['DELETE', '/rooms/:name', 'Host', 'Closes room'],
@@ -1206,6 +1277,15 @@ function ApiReference() {
           ['POST', '/rooms/:name/stream/start', 'Host', 'Body: { rtmpUrl } Returns: { streamingId, status }'],
           ['POST', '/rooms/:name/stream/stop', 'Host', 'Returns: { status }'],
           ['GET', '/rooms/:name/stream/status', 'Yes', 'Returns: { streaming, streamingId?, url? }'],
+        ]}
+      />
+
+      <H2>Boosts</H2>
+      <Table
+        headers={['Method', 'Endpoint', 'Auth', 'Body / Returns']}
+        rows={[
+          ['POST', '/boosts/ingest', 'No (feature-flagged)', 'Body: { txId, opIndex, blockNum, timestamp, to, amount, memo } Returns: { accepted: true }'],
+          ['GET', '/boosts/ledger', 'No', 'Returns: Boost ledger rows; optional query: room'],
         ]}
       />
 
@@ -1280,6 +1360,12 @@ cp .env.example .env
 #   LIVEKIT_API_SECRET=...
 #   SESSION_SECRET=... (generate 64-char random string)
 #   MONGODB_URI=... (optional, for premium/bans)
+#   BOOSTS_ENABLED=true
+#   BOOST_PLATFORM_ACCOUNT=yourboostwallet
+#   BOOST_PLATFORM_ACTIVE_KEY=5K... (active key; keep in secret manager)
+#   BOOST_PLATFORM_FEE_PERCENT=5
+#   BOOST_HIVE_USD_FALLBACK=0.25
+#   BOOST_HIVE_USD_CACHE_MS=120000
 #   PORT=3002
 
 # Run (Docker or systemd)
@@ -1334,6 +1420,7 @@ server {
         <li>☐ Hangouts API deployed with valid SSL certificate</li>
         <li>☐ SESSION_SECRET is a random 64-char string (use <code>openssl rand -hex 32</code>)</li>
         <li>☐ MONGODB_URI configured (if using premium/bans)</li>
+        <li>☐ Boost env configured: <code>BOOSTS_ENABLED</code>, <code>BOOST_PLATFORM_ACCOUNT</code>, <code>BOOST_PLATFORM_ACTIVE_KEY</code>, fee + FX rates</li>
         <li>☐ Rate limiting enabled on <code>/auth/challenge</code> and <code>/rooms/:name/listen</code></li>
         <li>☐ CORS headers configured (allow your frontend domain)</li>
         <li>☐ Egress service deployed (if recording/streaming needed)</li>

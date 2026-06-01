@@ -10,6 +10,7 @@ import { RoomControls } from './RoomControls.js';
 import { ChatPanel } from './ChatPanel.js';
 import { HangoutsErrorBoundary } from './HangoutsErrorBoundary.js';
 import { GuestNameModal } from '../lobby/GuestNameModal.js';
+import { BoostOverlay } from './BoostOverlay.js';
 
 /** Mounts the hand-raise chime listener inside the LiveKit room. The
  *  hook must be a descendant of <LiveKitRoom> for useDataChannel to
@@ -250,6 +251,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
                   videoEnabled={videoEnabled}
                   chatOpen={chatOpen}
                 />
+                <BoostOverlay />
               </div>
               <RoomControls
                 isHost={room.isHost}

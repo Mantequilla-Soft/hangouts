@@ -12,7 +12,7 @@ npm install @snapie/hangouts-core
 
 - **HangoutsApiClient** — typed HTTP client for the Hangouts API (auth, rooms, participants, recording, host transfer, layout/view-state, guest listen)
 - **loginWithKeychain()** / **loginWithAioha()** — browser auth helpers
-- **TypeScript types** — `Room`, `RoomVisibility`, `AuthSession`, `JoinRoomResponse` (`isHost`, `isGuest`, `isPremium`), `HandRaiseEvent`, recording / streaming response shapes, etc.
+- **TypeScript types** — `Room`, `RoomVisibility`, `BoostConfig`, `BoostEvent`, `AuthSession`, `JoinRoomResponse` (`isHost`, `isGuest`, `isPremium`), `HandRaiseEvent`, recording / streaming response shapes, etc.
 
 ## Quick start
 
@@ -36,6 +36,12 @@ const { room, token } = await client.createRoom(
   'Optional description',
   undefined,             // background image URL
   'hive-internal',       // RoomVisibility — restrict to Hive accounts
+  'en',                  // language (optional BCP-47)
+  {
+    enabled: true,
+    minBoostUsd: 1,
+    creatorPayoutAccount: 'alice',
+  },                     // boost config (optional)
 );
 
 // Join a room (auth required)
