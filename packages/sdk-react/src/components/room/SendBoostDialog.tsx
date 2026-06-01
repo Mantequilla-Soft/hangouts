@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import type { BoostConfig } from '@snapie/hangouts-core';
 
@@ -90,7 +91,7 @@ export function SendBoostDialog({ roomName, boostConfig, onClose }: Props) {
     }
   }, [username, platformAccount, amount, asset, message, roomName, aioha]);
 
-  return (
+  return createPortal(
     <div className="hh-boost-dialog__overlay" onClick={onClose}>
       <div className="hh-boost-dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Send a Boost">
         <div className="hh-boost-dialog__header">
@@ -164,6 +165,7 @@ export function SendBoostDialog({ roomName, boostConfig, onClose }: Props) {
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
