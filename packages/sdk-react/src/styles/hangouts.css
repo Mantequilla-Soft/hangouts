@@ -542,17 +542,104 @@
   }
   .hh-room__main {
     order: 1;
+    flex: 1;
+    min-height: 0;
+  }
+  .hh-room__stage {
+    min-height: 180px;
   }
   .hh-room__sidebar {
     order: 2;
     width: 100%;
     max-width: 100%;
-    max-height: 220px; /* compact fixed height — leaves the stage room to breathe */
+    max-height: 220px;
   }
 
   /* Allow smaller tiles so grid shows 2-up on a 360px phone */
   .hh-stage__grid {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+}
+
+/* ── Mobile full-screen embedded room ───────────────────────────── */
+/* On phones the parent modal is never tall enough — take over the
+   full viewport so the room is actually usable. */
+@media (max-width: 640px) {
+  .hh-room--embedded {
+    position: fixed;
+    inset: 0;
+    z-index: 998;
+    height: 100dvh;
+    height: 100vh; /* fallback for browsers without dvh */
+    border-radius: 0;
+    padding: 0.4rem 0.5rem;
+    overflow: hidden;
+  }
+
+  /* Stage fills all available space between header and controls */
+  .hh-room--embedded .hh-room__main {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .hh-room--embedded .hh-room__stage {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Chat becomes a full-screen overlay on mobile so it doesn't
+     squash the stage */
+  .hh-room--embedded .hh-room__sidebar {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    max-height: none;
+    width: 100%;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Compact header padding */
+  .hh-room--embedded .hh-room-header {
+    padding: 0.4rem 0.25rem;
+    margin-bottom: 0.3rem;
+  }
+
+  /* Controls: single row, centered, hide lower-priority host buttons */
+  .hh-room--embedded .hh-controls {
+    margin-top: 0.3rem;
+    padding: 0.4rem 0.5rem;
+    gap: 0.35rem;
+  }
+
+  .hh-room--embedded .hh-controls__group--right {
+    margin-left: auto;
+    padding-left: 0;
+    border-left: none;
+    width: auto;
+    justify-content: flex-end;
+  }
+
+  /* Recording, streaming, OBS, layout — host-only features rarely
+     used from a phone; hide to prevent controls overflow */
+  .hh-room--embedded .hh-recording-controls,
+  .hh-room--embedded .hh-controls__layout,
+  .hh-room--embedded .hh-controls__obs-btn,
+  .hh-room--embedded .hh-btn--screenshare,
+  .hh-room--embedded .hh-streaming-btn {
+    display: none;
+  }
+
+  /* Solo speaker takes full width */
+  .hh-room--embedded .hh-stage__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hh-room--embedded .hh-stage__grid--2,
+  .hh-room--embedded .hh-stage__grid--3,
+  .hh-room--embedded .hh-stage__grid--4 {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
