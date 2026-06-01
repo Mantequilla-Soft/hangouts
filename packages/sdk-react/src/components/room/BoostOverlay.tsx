@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useBoosts, type BoostEvent } from '../../hooks/useBoosts.js';
+import { useBoostStore, type BoostEvent } from '../../hooks/useBoosts.js';
 
 function formatBoostAmount(amount: string, asset: string, usdAmount: number): string {
   return `${amount} ${asset} ($${usdAmount.toFixed(2)})`;
@@ -50,7 +50,7 @@ function BoostCard({ boost, onDismiss }: BoostCardProps) {
 }
 
 export function BoostOverlay() {
-  const { boosts } = useBoosts();
+  const boosts = useBoostStore();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   const dismiss = useCallback((id: string) => {

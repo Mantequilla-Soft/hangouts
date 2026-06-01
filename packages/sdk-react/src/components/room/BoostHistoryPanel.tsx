@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useBoosts, type BoostEvent } from '../../hooks/useBoosts.js';
+import { useBoostStore, type BoostEvent } from '../../hooks/useBoosts.js';
 
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -29,7 +29,7 @@ interface Props {
 }
 
 export function BoostHistoryPanel({ onClose }: Props) {
-  const { boosts } = useBoosts();
+  const boosts = useBoostStore();
   const reversed = [...boosts].reverse();
   const panelRef = useRef<HTMLDivElement>(null);
 

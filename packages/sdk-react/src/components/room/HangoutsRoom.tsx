@@ -11,6 +11,7 @@ import { ChatPanel } from './ChatPanel.js';
 import { HangoutsErrorBoundary } from './HangoutsErrorBoundary.js';
 import { GuestNameModal } from '../lobby/GuestNameModal.js';
 import { BoostOverlay } from './BoostOverlay.js';
+import { BoostStoreProvider } from '../../hooks/useBoosts.js';
 
 /** Mounts the hand-raise chime listener inside the LiveKit room. The
  *  hook must be a descendant of <LiveKitRoom> for useDataChannel to
@@ -213,6 +214,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
             only when LiveKit reports audio playback is blocked. */}
         <StartAudio label="Click to enable audio" className="hh-start-audio" />
         <HandRaiseChimeListener enabled={notificationSounds} />
+        <BoostStoreProvider>
         <div
           className={`hh-room ${embedded ? 'hh-room--embedded' : ''}`}
           style={maxHeight ? { maxHeight } : undefined}
@@ -287,6 +289,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
             )}
           </div>
         </div>
+        </BoostStoreProvider>
       </LiveKitRoom>
     </HangoutsErrorBoundary>
   );

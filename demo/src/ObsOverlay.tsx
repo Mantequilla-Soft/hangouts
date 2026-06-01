@@ -8,8 +8,10 @@ import {
   HangoutsApiClient,
   SpeakerStage,
   AudienceSection,
+  BoostStoreProvider,
+  useBoostStore,
 } from '@snapie/hangouts-react';
-import { useChat, useBoosts } from '@snapie/hangouts-react';
+import { useChat } from '@snapie/hangouts-react';
 import '@snapie/hangouts-react/src/styles/hangouts.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
@@ -51,7 +53,7 @@ function ObsChatFeed() {
 }
 
 function ObsBoostFeed() {
-  const { boosts } = useBoosts();
+  const boosts = useBoostStore();
   const recent = boosts.slice(-12);
 
   return (
@@ -168,7 +170,9 @@ export function ObsOverlay() {
         video={false}
       >
         {/* No RoomAudioRenderer — OBS captures audio from desktop output, not the browser embed */}
-        <ObsRoomContent roomName={roomName} show={show} />
+        <BoostStoreProvider>
+          <ObsRoomContent roomName={roomName} show={show} />
+        </BoostStoreProvider>
       </LiveKitRoom>
     </HangoutsProvider>
   );

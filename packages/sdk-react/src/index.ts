@@ -27,7 +27,7 @@ export { useHandRaise } from './hooks/useHandRaise.js';
 export { useHandRaiseChime } from './hooks/useHandRaiseChime.js';
 export { useHostControls } from './hooks/useHostControls.js';
 export { useHiveAvatar } from './hooks/useHiveAvatar.js';
-export { useBoosts } from './hooks/useBoosts.js';
+export { useBoosts, useBoostStore, BoostStoreProvider } from './hooks/useBoosts.js';
 
 // Components — Room
 export { HangoutsRoom, type HangoutsRoomProps } from './components/room/HangoutsRoom.js';
