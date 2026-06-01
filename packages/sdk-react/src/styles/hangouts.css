@@ -2163,21 +2163,55 @@
 .hh-boost-overlay {
   position: absolute;
   right: 12px;
-  top: 12px;
-  width: min(380px, 42%);
+  bottom: 12px;
+  width: min(320px, 38%);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   z-index: 5;
-  pointer-events: none;
+}
+
+@keyframes hh-boost-slidein {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes hh-boost-fadeout {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(24px); }
 }
 
 .hh-boost-overlay__item {
-  background: rgba(13, 13, 18, 0.86);
+  position: relative;
+  background: rgba(13, 13, 18, 0.9);
   border: 1px solid rgba(227, 19, 55, 0.45);
   border-radius: 10px;
-  padding: 0.6rem 0.75rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  padding: 0.55rem 2rem 0.55rem 0.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  animation: hh-boost-slidein 0.3s ease;
+  pointer-events: all;
+}
+
+.hh-boost-overlay__item--fading {
+  animation: hh-boost-fadeout 0.4s ease forwards;
+}
+
+.hh-boost-overlay__dismiss {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.35rem;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 0.2rem 0.3rem;
+  border-radius: 3px;
+}
+.hh-boost-overlay__dismiss:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .hh-boost-overlay__top {
@@ -2209,9 +2243,122 @@
 }
 
 .hh-boost-overlay__message {
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   color: #fff;
   overflow-wrap: break-word;
+}
+
+/* ── Boost History Panel ─────────────────────────────────────────── */
+.hh-boost-history__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  background: transparent;
+}
+
+.hh-boost-history {
+  position: fixed;
+  top: 50%;
+  right: 1.25rem;
+  transform: translateY(-50%);
+  width: min(340px, 90vw);
+  max-height: 70vh;
+  background: #1a1a24;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  z-index: 951;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+.hh-boost-history__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.hh-boost-history__close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+}
+.hh-boost-history__close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.hh-boost-history__list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.hh-boost-history__empty {
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+  padding: 2.5rem 1rem;
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.hh-boost-history__item {
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.hh-boost-history__item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.hh-boost-history__sender {
+  font-weight: 600;
+  color: #ff8aa0;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.hh-boost-history__amount {
+  font-size: 0.82rem;
+  color: #fff;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.hh-boost-history__usd {
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 400;
+}
+
+.hh-boost-history__message {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0 0 0.2rem;
+  overflow-wrap: break-word;
+}
+
+.hh-boost-history__time {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.3);
 }
 
 .hh-obs .hh-audience {

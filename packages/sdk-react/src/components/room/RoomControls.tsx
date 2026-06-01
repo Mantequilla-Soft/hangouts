@@ -7,6 +7,7 @@ import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
 import { RecordingControls } from './RecordingControls.js';
 import { SendBoostDialog } from './SendBoostDialog.js';
+import { BoostHistoryPanel } from './BoostHistoryPanel.js';
 import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
 import { ObsPanel } from './ObsPanel.js';
 
@@ -46,6 +47,7 @@ export interface RoomControlsProps {
 export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEndRoom, onTransferHost, onSetLayout, hostIdentity, onVideoHandoff, onAudioHandoff, videoEnabled = false, roomVideoEnabled = false, chatOpen, onToggleChat, obsBaseUrl, boostConfig }: RoomControlsProps) {
   const { username, isAuthenticated } = useHangoutsContext();
   const [boostDialogOpen, setBoostDialogOpen] = useState(false);
+  const [boostHistoryOpen, setBoostHistoryOpen] = useState(false);
 
   // After a host transfer, the LiveKit metadata is the source of truth —
   // useRoomInfo re-renders on metadata changes, so the UI flips correctly
@@ -244,6 +246,17 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
       <div className="hh-controls__group hh-controls__group--right">
         {effectiveIsHost && <RecordingControls roomName={roomName} onVideoHandoff={onVideoHandoff} onAudioHandoff={onAudioHandoff} />}
 
+        {effectiveIsHost && (
+          <button
+            className={`hh-btn hh-btn--icon ${boostHistoryOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+            onClick={() => setBoostHistoryOpen((v) => !v)}
+            title="Superchat history"
+            aria-label="Superchat history"
+          >
+            💰
+          </button>
+        )}
+
         {effectiveIsHost && onSetLayout && (
           // The native <select> overlays the entire label as a fully
           // transparent layer so clicking ANYWHERE on the button opens
@@ -402,6 +415,10 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           boostConfig={boostConfig ?? { enabled: true, minBoostUsd: 0 }}
           onClose={() => setBoostDialogOpen(false)}
         />
+      )}
+
+      {boostHistoryOpen && (
+        <BoostHistoryPanel onClose={() => setBoostHistoryOpen(false)} />
       )}
     </div>
   );
