@@ -462,6 +462,93 @@ function RailCell({ trackRef, horizontal = true }: { trackRef: TrackReferenceOrP
   );
 }
 
+interface BoostCard {
+  id: string;
+  sender: string;
+  message: string;
+  amount: string;
+  asset: string;
+  usdAmount: number;
+  belowMinimum?: boolean;
+}
+
+function BoostRail() {
+  const [boosts, setBoosts] = useState<BoostCard[]>([]);
+
+  const onBoost = useCallback((msg: { payload: Uint8Array }) => {
+    try {
+      const text = new TextDecoder().decode(msg.payload);
+      const e = JSON.parse(text) as {
+        type?: string; id?: string; sender?: string; displayName?: string;
+        message?: string; amount?: string; asset?: string; usdAmount?: number;
+        belowMinimum?: boolean;
+      };
+      if (e.type !== 'boost' || !e.id) return;
+      // Sub-penny guard matches client-side filter
+      if ((e.usdAmount ?? 0) < 0.01) return;
+      setBoosts((prev) => {
+        if (prev.some((b) => b.id === e.id)) return prev;
+        return [...prev, {
+          id: e.id!,
+          sender: e.displayName || e.sender || '?',
+          message: e.message ?? '',
+          amount: e.amount ?? '0.000',
+          asset: e.asset ?? 'HBD',
+          usdAmount: e.usdAmount ?? 0,
+          belowMinimum: e.belowMinimum,
+        }].slice(-5); // keep last 5 visible in recording
+      });
+
+      // Auto-remove after 30 s — mirrors the live overlay behaviour
+      setTimeout(() => {
+        setBoosts((prev) => prev.filter((b) => b.id !== e.id));
+      }, 30_000);
+    } catch { /* ignore malformed */ }
+  }, []);
+  useDataChannel('boost', onBoost);
+
+  if (boosts.length === 0) return null;
+
+  return (
+    <div style={{
+      position: 'absolute',
+      bottom: 16,
+      left: 16,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 8,
+      zIndex: 6,
+      maxWidth: 300,
+      pointerEvents: 'none',
+    }}>
+      {boosts.map((boost) => (
+        <div key={boost.id} style={{
+          background: 'rgba(13, 13, 18, 0.88)',
+          border: `1px solid ${boost.belowMinimum ? 'rgba(255,200,80,0.35)' : 'rgba(227,19,55,0.5)'}`,
+          borderRadius: 10,
+          padding: '8px 12px',
+          boxShadow: '0 6px 20px rgba(0,0,0,0.4)',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          color: '#fff',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: boost.belowMinimum ? 'rgba(255,200,80,0.8)' : '#ff8aa0' }}>
+              Boost{boost.belowMinimum ? ' · below min' : ''}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 700 }}>
+              {boost.amount} {boost.asset} (${boost.usdAmount.toFixed(2)})
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginBottom: 3 }}>
+            from @{boost.sender}
+          </div>
+          <div style={{ fontSize: 13, wordBreak: 'break-word' }}>{boost.message}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function CompositeView({ roomName }: { roomName: string }) {
   void roomName;
   const meta = useRoomMeta();
@@ -677,6 +764,7 @@ export function EgressTemplate() {
       <VolumeSyncBridge />
       <CompositeView roomName={roomName} />
       <ChatRail />
+      <BoostRail />
     </LiveKitRoom>
   );
 }

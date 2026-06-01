@@ -56,7 +56,7 @@ setInterval(() => {
 // hangouts/demo/dist via nginx. The template renders the SAME visual layout
 // as the in-room hangouts UI (WYSIWYG) and falls back to the room background
 // image when no video is being published.
-const EGRESS_TEMPLATE_URL = 'https://hangouts.okinoko.io/egress-template/';
+const EGRESS_TEMPLATE_URL = 'https://hangout.3speak.tv/egress-template';
 
 async function verifyHost(roomName: string, username: string) {
   const rooms = await roomService.listRooms([roomName]);

@@ -143,6 +143,12 @@ export function SendBoostDialog({ roomName, boostConfig, onClose }: Props) {
                 </select>
               </div>
 
+              <p className="hh-boost-dialog__rate-hint">
+                {asset === 'HBD'
+                  ? '1 HBD = $1.00 — pegged to USD'
+                  : 'HIVE price varies with the market'}
+              </p>
+
               {boostConfig.minBoostUsd > 0 && (
                 <p className="hh-boost-dialog__hint">
                   Minimum ${boostConfig.minBoostUsd.toFixed(2)} USD to appear on screen

@@ -13,6 +13,40 @@ import { GuestNameModal } from '../lobby/GuestNameModal.js';
 import { BoostOverlay } from './BoostOverlay.js';
 import { BoostStoreProvider } from '../../hooks/useBoosts.js';
 
+/** Prevents the screen from sleeping while the user is in a room.
+ *  Acquires a WakeLock on mount, releases on unmount, and re-acquires
+ *  when the tab returns to the foreground (the browser releases it
+ *  automatically on visibility change). */
+function WakeLockGuard() {
+  useEffect(() => {
+    if (!('wakeLock' in navigator)) return;
+
+    let lock: WakeLockSentinel | null = null;
+
+    const acquire = async () => {
+      try {
+        lock = await (navigator as Navigator & { wakeLock: { request(type: string): Promise<WakeLockSentinel> } }).wakeLock.request('screen');
+      } catch {
+        // WakeLock denied or not supported — fail silently
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') acquire();
+    };
+
+    void acquire();
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      lock?.release();
+    };
+  }, []);
+
+  return null;
+}
+
 /** Mounts the hand-raise chime listener inside the LiveKit room. The
  *  hook must be a descendant of <LiveKitRoom> for useDataChannel to
  *  resolve its context; a tiny render-null component keeps that
@@ -214,6 +248,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
             only when LiveKit reports audio playback is blocked. */}
         <StartAudio label="Click to enable audio" className="hh-start-audio" />
         <HandRaiseChimeListener enabled={notificationSounds} />
+        <WakeLockGuard />
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
         <div
           className={`hh-room ${embedded ? 'hh-room--embedded' : ''}`}

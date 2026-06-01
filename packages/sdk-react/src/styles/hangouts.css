@@ -2699,9 +2699,22 @@
   padding: 0.55rem 0.6rem;
   cursor: pointer;
   outline: none;
+  /* Tell the browser to render the native dropdown in dark mode so
+     option text is readable instead of white-on-white */
+  color-scheme: dark;
+}
+.hh-boost-dialog__asset option {
+  background: #1a1a24;
+  color: #fff;
 }
 .hh-boost-dialog__asset:focus {
   border-color: rgba(231, 76, 60, 0.6);
+}
+
+.hh-boost-dialog__rate-hint {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.35);
+  margin: 0;
 }
 
 .hh-boost-dialog__hint {

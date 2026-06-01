@@ -224,7 +224,9 @@ async function pollPlatformWallet(log: (msg: string, detail?: unknown) => void):
   if (!account) return;
 
   const opTransfer = (utils.operationOrders as Record<string, number>).transfer;
-  const transferMask = utils.makeBitMaskFilter([opTransfer]);
+  // makeBitMaskFilter returns the [low, high] bitmask tuple getAccountHistory
+  // expects, but its declared return type is too loose (any[]) — assert it.
+  const transferMask = utils.makeBitMaskFilter([opTransfer]) as [number, number];
 
   const rows = await hiveClient.database.getAccountHistory(account, -1, 200, transferMask);
   const ordered = [...rows].sort((a, b) => a[0] - b[0]);
