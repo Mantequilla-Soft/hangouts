@@ -39,6 +39,8 @@ function keychainTransfer(
 export function SendBoostDialog({ roomName, boostConfig, onClose }: Props) {
   const { apiClient, username, aioha } = useHangoutsContext();
   const [platformAccount, setPlatformAccount] = useState<string | null>(null);
+  const [configLoading, setConfigLoading] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [asset, setAsset] = useState<'HBD' | 'HIVE'>('HBD');
   const [message, setMessage] = useState('');
@@ -46,15 +48,38 @@ export function SendBoostDialog({ roomName, boostConfig, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Guard against older sdk-core versions where getBoostConfig doesn't exist yet.
+    setConfigLoading(true);
+    setConfigError(null);
     try {
-      const maybeConfig = (apiClient as typeof apiClient & { getBoostConfig?: () => Promise<{ platformAccount: string }> }).getBoostConfig?.();
-      if (!maybeConfig) { setPlatformAccount(null); return; }
+      const maybeConfig = (apiClient as typeof apiClient & { getBoostConfig?: () => Promise<{ enabled: boolean; platformAccount: string }> }).getBoostConfig?.();
+      if (!maybeConfig) {
+        setPlatformAccount(null);
+        setConfigError('Boost config unavailable (update @snapie/hangouts-core)');
+        setConfigLoading(false);
+        return;
+      }
       maybeConfig
-        .then((cfg) => setPlatformAccount(cfg.platformAccount || null))
-        .catch(() => setPlatformAccount(null));
-    } catch {
+        .then((cfg) => {
+          if (!cfg.enabled) {
+            setConfigError('Boosts are not enabled on this server');
+            setPlatformAccount(null);
+          } else if (!cfg.platformAccount) {
+            setConfigError('Platform wallet not configured');
+            setPlatformAccount(null);
+          } else {
+            setPlatformAccount(cfg.platformAccount);
+          }
+          setConfigLoading(false);
+        })
+        .catch((err: unknown) => {
+          setPlatformAccount(null);
+          setConfigError(`Could not reach boost config: ${err instanceof Error ? err.message : String(err)}`);
+          setConfigLoading(false);
+        });
+    } catch (err) {
       setPlatformAccount(null);
+      setConfigError(`Config error: ${err instanceof Error ? err.message : String(err)}`);
+      setConfigLoading(false);
     }
   }, [apiClient]);
 
@@ -148,6 +173,7 @@ export function SendBoostDialog({ roomName, boostConfig, onClose }: Props) {
               <div className="hh-boost-dialog__char-count">{message.length} / 280</div>
 
               {error && <p className="hh-boost-dialog__error">{error}</p>}
+              {configError && <p className="hh-boost-dialog__error">{configError}</p>}
             </div>
 
             <div className="hh-boost-dialog__footer">
@@ -157,9 +183,9 @@ export function SendBoostDialog({ roomName, boostConfig, onClose }: Props) {
               <button
                 className="hh-btn hh-btn--primary"
                 onClick={send}
-                disabled={status === 'sending' || !platformAccount}
+                disabled={status === 'sending' || configLoading || !platformAccount}
               >
-                {status === 'sending' ? 'Sending…' : 'Send Boost'}
+                {configLoading ? 'Loading…' : status === 'sending' ? 'Sending…' : 'Send Boost'}
               </button>
             </div>
           </>
