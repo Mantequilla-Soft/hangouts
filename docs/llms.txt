@@ -1,0 +1,436 @@
+# Hive Hangouts — LLM Integration Reference
+
+This document is a compact, accurate reference for AI assistants and code generators
+integrating with the Hive Hangouts SDK. Read this before writing any integration code.
+
+---
+
+## What is Hive Hangouts?
+
+Twitter Spaces-style live audio rooms for the Hive blockchain. Users authenticate with
+their Hive identity (no separate accounts). The product is sometimes called "OpenPods"
+on Hive frontends like snapie.io and 3speak.tv.
+
+Three deployable components:
+1. **LiveKit SFU** — self-hosted WebRTC server (audio/video routing, recording, streaming)
+2. **Fastify API** (`server/`) — auth gateway; verifies Hive signatures, issues LiveKit tokens
+3. **React SDK** (`packages/`) — embeddable npm library for React web apps
+
+---
+
+## npm packages
+
+| Package | Install | Use for |
+|---------|---------|---------|
+| `@snapie/hangouts-react` | `npm i @snapie/hangouts-react @livekit/components-react livekit-client` | React web apps — includes all components, hooks, and re-exports core |
+| `@snapie/hangouts-core` | `npm i @snapie/hangouts-core` | React Native, Vue/Svelte, server scripts |
+
+Import CSS: `import '@snapie/hangouts-react/src/styles/hangouts.css'`
+
+---
+
+## Minimal React integration
+
+```tsx
+import { HangoutsProvider, RoomLobby, HangoutsRoom } from '@snapie/hangouts-react';
+import '@snapie/hangouts-react/src/styles/hangouts.css';
+import { useState } from 'react';
+
+export function App() {
+  const [room, setRoom] = useState<string | null>(null);
+  return (
+    <HangoutsProvider apiBaseUrl="https://your-api.example.com">
+      {room
+        ? <HangoutsRoom roomName={room} onLeave={() => setRoom(null)} embedded />
+        : <RoomLobby onJoinRoom={setRoom} />
+      }
+    </HangoutsProvider>
+  );
+}
+```
+
+---
+
+## HangoutsProvider props
+
+| Prop | Type | Required | Default | Notes |
+|------|------|----------|---------|-------|
+| `apiBaseUrl` | string | Yes | — | Base URL of the Fastify server (no trailing slash) |
+| `livekitServerUrl` | string | No | `wss://livekit.3speak.tv` | LiveKit WebSocket URL |
+| `sessionToken` | string | No | — | Pre-existing JWT; skips login flow |
+| `username` | string | No | — | Paired with `sessionToken` |
+| `imageServerApiKey` | string | No | — | Bearer token for `images.3speak.tv`; enables room background picker |
+| `aioha` | AiohaLike | No | — | Routes auth + boost transfers through any Aioha provider or custodial adapter |
+
+---
+
+## Authentication
+
+### Option A — Hive Keychain (browser extension only)
+
+```ts
+import { loginWithKeychain } from '@snapie/hangouts-core';
+const session = await loginWithKeychain(apiClient, 'alice');
+// { token: string, username: string }
+```
+
+Or in React via `useHangoutsAuth()`:
+```ts
+const { login } = useHangoutsAuth();
+await login('alice');  // opens Keychain popup
+```
+
+### Option B — Aioha (recommended for production)
+
+Pass your Aioha instance to `<HangoutsProvider aioha={aioha}>`.
+`useHangoutsAuth().login()` will use `aioha.signMessage()` automatically.
+Boost transfers use `aioha.transfer()`.
+Supported providers: Keychain, HiveAuth, PeakVault, MetaMask Snap, Ledger.
+
+```ts
+import { loginWithAioha } from '@snapie/hangouts-core';
+// aioha must already have an active session (user logged in via Aioha's own flow)
+const session = await loginWithAioha(apiClient, aioha);
+```
+
+### Option C — Custodial (Google login / server-held keys)
+
+Implement the `AiohaLike` interface and pass it as `aioha`:
+
+```ts
+import type { AiohaLike } from '@snapie/hangouts-core';
+
+const custodialAdapter: AiohaLike = {
+  getCurrentUser: () => username,
+  isLoggedIn: () => true,
+
+  // Called during login — sign the server's challenge with the posting key
+  signMessage: async (message) => {
+    const res = await fetch('/api/custodial/sign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, message }),
+    });
+    const { signature } = await res.json();
+    return { success: true, result: signature };
+  },
+
+  // Called when the user sends a boost — optional if app has no boosts
+  transfer: async (to, amount, currency, memo) => {
+    const res = await fetch('/api/custodial/transfer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: username, to, amount, currency, memo }),
+    });
+    return res.ok ? { success: true } : { success: false, error: await res.text() };
+  },
+};
+
+// <HangoutsProvider aioha={custodialAdapter} ...>
+```
+
+### Option D — Custom sign function
+
+```ts
+import { loginWithSignFn } from '@snapie/hangouts-core';
+const session = await loginWithSignFn(apiClient, 'alice', async (message) => {
+  return mySigningBackend.sign(message);  // return hex signature string
+});
+```
+
+### Auth flow (all paths)
+
+1. `POST /auth/challenge` → `{ challenge, expires }`
+2. Sign `challenge` with the user's Hive posting key
+3. `POST /auth/verify` → `{ token, username }` — this JWT goes on all subsequent requests as `Authorization: Bearer <token>`
+
+---
+
+## useHangoutsAuth() hook
+
+```ts
+const {
+  username,           // string | null
+  isAuthenticated,    // boolean
+  canSignIn,          // true if aioha present OR Keychain installed
+  isAiohaAvailable,   // true when aioha prop was passed to HangoutsProvider
+  isKeychainAvailable,// true when window.hive_keychain exists
+  login,              // (username?: string) => Promise<void>
+  logout,             // () => void
+  isLoading,          // boolean
+  error,              // string | null
+} = useHangoutsAuth();
+```
+
+---
+
+## HangoutsRoom props
+
+```tsx
+<HangoutsRoom
+  roomName="alice-room-abc123"        // required
+  onLeave={() => {}}                  // called when user clicks Leave
+  onError={(err: Error) => {}}        // WebRTC error (show fallback UI)
+  embedded                            // removes min-height; fits in modals/panels
+  maxHeight="80vh"
+  video                               // enable camera + screen share (premium users)
+  guestFallback                       // unauthenticated viewers auto-join as listen-only
+  getShareUrl={(roomName, origin) =>  // build share URL; omit to hide the share button
+    `https://yourapp.com/rooms/${roomName}`
+  }
+  onAudioHandoff={(file) => {         // { blob, filename, duration (s), size (bytes) }
+    // upload to podcast/3speak/IPFS; omit to hide the audio Upload button
+  }}
+  onVideoHandoff={(file) => {         // same shape
+    // upload to video platform; omit to hide the video Upload button
+  }}
+/>
+```
+
+---
+
+## RoomLobby props
+
+```tsx
+<RoomLobby
+  onJoinRoom={(roomName: string) => {}}
+  onRoomCreated={(room: Room, opts: { notifyOnHive: boolean }) => {}}
+  allowGuestBrowse   // show room list + join-as-guest to unauthenticated users
+/>
+```
+
+---
+
+## React hooks reference
+
+| Hook | Returns |
+|------|---------|
+| `useHangoutsAuth()` | `{ login, logout, username, isAuthenticated, canSignIn, isAiohaAvailable, isLoading, error }` |
+| `useHangoutsRoom()` | `{ join, create, listen, leave, isGuest, roomMeta, transferHost, setLayout, setViewState }` |
+| `useLiveHost(fallback?)` | `{ host: string, isLocalHost: boolean }` — updates live when host transfers |
+| `useRoomList()` | `Room[]` — polls every 10s; server filters unlisted rooms |
+| `useChat()` | `{ messages, sendMessage }` |
+| `useBoosts()` | `{ boosts: BoostEvent[] }` — subscribes to `boost` LiveKit data topic |
+| `useHandRaise()` | `{ raised, toggle, raisedParticipants }` |
+| `useHostControls()` | `{ promote, demote, kick, ban }` |
+| `useRecording()` | `{ start, stop, status, isRecording, fetchFile }` |
+| `useHiveAvatar(username)` | `string \| null` — Hive profile picture URL |
+
+---
+
+## Server API endpoints
+
+All endpoints on the Fastify server. "Host" auth = Bearer JWT + must be the room host.
+
+### Auth
+| Method | Path | Auth | Body | Returns |
+|--------|------|------|------|---------|
+| POST | `/auth/challenge` | No | `{ username }` | `{ challenge, expires }` |
+| POST | `/auth/verify` | No | `{ username, challenge, signature }` | `{ token, username }` |
+
+### Rooms
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| GET | `/rooms` | No | Lists all non-unlisted rooms |
+| GET | `/rooms/:name` | No | Single room |
+| POST | `/rooms` | Bearer | Body: `{ title, description?, backgroundImage?, visibility?, language?, boost? }` |
+| POST | `/rooms/:name/join` | Bearer | Returns `JoinRoomResponse` |
+| POST | `/rooms/:name/listen` | No | Guest token. Rate-limited: 10/5min per IP. Rejected for `hive-internal` rooms. Body: `{ displayName? }` or `{ silent: true }` for OBS observer |
+| POST | `/rooms/:name/host` | Host | Body: `{ newHost }` — live host transfer |
+| PATCH | `/rooms/:name/layout` | Host | Body: `{ layout: 'speaker'\|'grid'\|'single' }` |
+| DELETE | `/rooms/:name` | Host | Ends the room |
+
+### Participants
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| PATCH | `/rooms/:name/participants/:id/permissions` | Host | Body: `{ canPublish: boolean }` — promote/demote |
+| DELETE | `/rooms/:name/participants/:id` | Host | Kick |
+| POST | `/rooms/:name/participants/:id/ban` | Host | Ban guest (IP-scoped, guest-* only) |
+
+### Recording
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| POST | `/rooms/:name/record/start` | Host | Body: `{ mode?: 'audio'\|'video', layout?: 'speaker'\|'grid'\|'single' }` |
+| POST | `/rooms/:name/record/stop` | Host | Returns `{ downloadToken }` |
+| GET | `/rooms/:name/record/file/:token` | Host | Streams the file; use `fetchRecordingFile()` SDK method |
+| GET | `/rooms/:name/record/status` | Host | `{ recording, egressId?, mode?, layout? }` |
+| PATCH | `/rooms/:name/record/layout` | Host | Switch layout mid-recording (video only) |
+
+### Streaming
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| POST | `/rooms/:name/stream/start` | Host | Body: `{ platform: 'youtube'\|'twitch', streamKey, backgroundImageUrl?, videoEnabled? }` |
+| POST | `/rooms/:name/stream/stop` | Host | |
+| GET | `/rooms/:name/stream/status` | Host | `{ streaming, egressId }` |
+
+### Boosts
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| GET | `/boosts/config` | No | `{ enabled, platformAccount, feePercent }` |
+| PATCH | `/rooms/:name/boost` | Host | Update room boost config |
+
+---
+
+## Key TypeScript types
+
+```ts
+type RoomVisibility = 'public' | 'hive-internal' | 'unlisted'
+// public    — listed, guests allowed
+// hive-internal — listed, Hive accounts only (no guest tokens)
+// unlisted  — hidden from lobby, link-only, guests allowed
+
+interface Room {
+  name: string; title: string; host: string
+  description?: string; backgroundImage?: string
+  numParticipants?: number; createdAt: string
+  origin?: string        // hostname that created the room ("3speak.tv", "snapie.io")
+  visibility?: RoomVisibility; language?: string; boost?: BoostConfig
+}
+
+interface BoostConfig {
+  enabled: boolean; minBoostUsd: number; creatorPayoutAccount?: string
+}
+
+interface JoinRoomResponse {
+  token: string; roomName: string; identity: string
+  isHost: boolean; isPremium?: boolean; isGuest?: boolean
+}
+
+interface AuthSession { token: string; username: string }
+
+interface RecordingFileResult {
+  blob: Blob; filename: string; duration: number; size: number
+}
+
+interface BoostEvent {
+  type: 'boost'; id: string; room: string; sender: string
+  displayName?: string; message: string
+  amount: string; asset: 'HIVE' | 'HBD'; usdAmount: number
+  feeAmount: string; payoutAmount: string; recipient: string
+  txId: string; blockNum: number; timestamp: number
+  belowMinimum?: boolean   // below host's minBoostUsd; overlay suppressed, shown in history
+}
+
+class HangoutsApiError extends Error {
+  status: number    // HTTP status code
+  body?: unknown    // raw server response
+}
+```
+
+---
+
+## Identity prefixes
+
+| Prefix | Meaning |
+|--------|---------|
+| `alice` (plain username) | Authenticated Hive account |
+| `guest-{random}` | Unauthenticated guest — listen-only, cannot be promoted, can be IP-banned |
+| `obs-{random}` | OBS overlay observer — invisible in participant lists, no cap/ban logic |
+
+---
+
+## Guest listener constraints
+
+- Rate-limited: **10 tokens / 5 minutes per IP**
+- Per-room guest cap enforced server-side (default 50)
+- Cannot chat, raise hand, or be promoted to speaker
+- Chat panel shows a "sign in to chat" prompt
+- `hive-internal` rooms reject guest tokens entirely
+- Guest token TTL: **2 hours**
+
+---
+
+## Boost system
+
+Boosts are on-chain HIVE/HBD transfers to the platform account with a JSON memo.
+The server watches the Hive stream, validates transfers, splits the payout, and
+broadcasts a `BoostEvent` to all room participants via the `boost` LiveKit data topic.
+
+### Memo format
+
+```json
+{
+  "version": 1,
+  "room": "alice-room-abc123",
+  "message": "Great show!",
+  "sender": "bob",
+  "nonce": "1717000000000-abc123",
+  "displayName": "Bob"
+}
+```
+
+`version`, `room`, `message`, `sender`, `nonce` are required.
+
+### How the transfer happens
+
+1. Client calls `aioha.transfer(platformAccount, amount, currency, memo)` — or the built-in `SendBoostDialog` handles this automatically.
+2. Server detects the on-chain transfer, validates the memo, deduplicates by `nonce`.
+3. Server sends payout (minus platform fee) to `creatorPayoutAccount`.
+4. Server broadcasts `BoostEvent` to the room's LiveKit data channel.
+5. All participants receive it via `useBoosts()` and the overlay fires.
+
+---
+
+## Room visibility and `origin`
+
+- `Room.origin` is set from the `Origin` header of the create request.
+- Use it in `getShareUrl` to build share links that return the recipient to the same app:
+
+```tsx
+getShareUrl={(roomName, origin) => {
+  if (origin === 'snapie.io') return `https://snapie.io/rooms/${roomName}`;
+  if (origin === '3speak.tv') return `https://3speak.tv/openpods/${roomName}`;
+  return `https://hangout.3speak.tv/room/${roomName}`;
+}}
+```
+
+---
+
+## Recording handoff pattern
+
+The SDK never uploads for you. On stop, a 3-button dialog appears (Upload / Download / Dismiss).
+Upload calls the handoff callback you supply:
+
+```tsx
+onAudioHandoff={(file) => {
+  // file: { blob: Blob, filename: string, duration: number, size: number }
+  const form = new FormData();
+  form.append('file', file.blob, file.filename);
+  await fetch('https://audio.3speak.tv/upload', { method: 'POST', body: form });
+}}
+```
+
+Omit the callback to hide the Upload button for that mode.
+
+---
+
+## Theming
+
+CSS custom properties. Set on a wrapper element:
+
+```css
+[data-hh-theme="dark"] {
+  --hh-bg: #1a1a2e;
+  --hh-text: #e2e2e2;
+  --hh-primary: #6c63ff;
+  --hh-surface: #16213e;
+  --hh-border: #2a2a4a;
+}
+```
+
+Auto-detects system preference. Override with `data-hh-theme="dark"` or `data-hh-theme="light"`.
+
+---
+
+## Common gotchas
+
+1. **`livekitServerUrl` must be `wss://`** — not `https://`.
+2. **`apiBaseUrl` must be `https://`** — not `wss://`.
+3. **`aioha` user must already be logged in** before calling `loginWithAioha`. Drive Aioha's own login UI first.
+4. **Guest identity = `guest-{random}`** — the `identity` field in `JoinRoomResponse` tells you the actual stamped identity.
+5. **New speakers start mic/camera OFF** — don't assume they're live immediately after promotion.
+6. **`getShareUrl` receives `origin`** (the hostname string, e.g. `"3speak.tv"`), not a full URL.
+7. **Boosts below `minBoostUsd` are NOT rejected** — they arrive with `belowMinimum: true`. Overlay is suppressed; they appear in history with a badge.
+8. **`unlisted` rooms are filtered from `GET /rooms`** — you must know the name to link to one.
+9. **`hive-internal` rooms reject `/listen` requests** — check `room.visibility` before showing a guest join button.
+10. **`HangoutsApiError.status === 429`** on the guest token endpoint means IP rate-limited — show a wait message.

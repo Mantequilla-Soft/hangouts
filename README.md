@@ -4,7 +4,7 @@ Twitter Spaces-style live audio rooms for the [Hive](https://hive.io) blockchain
 
 ## What is this?
 
-Live audio rooms where anyone with a Hive account can host or join conversations. Authentication is done via Hive Keychain — no new accounts, no passwords. Your Hive identity is your hangout identity.
+Live audio rooms where anyone with a Hive account can host or join conversations. Authentication uses Hive Keychain or any [Aioha](https://aioha.dev)-compatible provider (HiveAuth, PeakVault, Ledger, MetaMask Snap) — no new accounts, no passwords. A custodial path (e.g. Google-login-backed accounts) is also supported via a thin `AiohaLike` adapter. Your Hive identity is your hangout identity.
 
 ## Architecture
 
@@ -87,6 +87,7 @@ import '@snapie/hangouts-react/src/styles/hangouts.css';
 | `sessionToken` | No | JWT from the auth flow |
 | `username` | No | Authenticated Hive username |
 | `imageServerApiKey` | No | Bearer token for `images.3speak.tv` — enables the background image picker in Create Room |
+| `aioha` | No | Aioha instance (or any `AiohaLike` adapter). When provided, login and boost transfers are routed through it instead of direct Keychain calls. Supports all Aioha providers (Keychain, HiveAuth, PeakVault, Ledger) and custodial adapters. |
 
 ## Server API
 

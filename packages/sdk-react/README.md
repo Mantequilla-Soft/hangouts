@@ -29,6 +29,57 @@ function App() {
 }
 ```
 
+### With Aioha (recommended for production apps)
+
+Pass your Aioha instance to `<HangoutsProvider>` and login/boost transfers are routed through it automatically — no Keychain extension required:
+
+```tsx
+import { useAioha } from '@aioha/react-ui';
+
+function App() {
+  const aioha = useAioha();
+  return (
+    <HangoutsProvider apiBaseUrl="https://hangout-api.3speak.tv" aioha={aioha}>
+      ...
+    </HangoutsProvider>
+  );
+}
+```
+
+When `aioha` is present, `useHangoutsAuth().login()` calls `aioha.signMessage()` and boosts call `aioha.transfer()` — covering Keychain, HiveAuth, PeakVault, Ledger, and any other registered provider.
+
+### With a custodial adapter (Google login / managed keys)
+
+For accounts controlled by a backend (e.g. Google OAuth → server-held keys), implement the `AiohaLike` interface from `@snapie/hangouts-core`:
+
+```tsx
+import type { AiohaLike } from '@snapie/hangouts-core';
+
+const custodialAdapter: AiohaLike = {
+  getCurrentUser: () => username,                  // from your session
+  isLoggedIn: () => true,
+  signMessage: async (message) => {
+    const res = await fetch('/api/custodial/sign', {
+      method: 'POST',
+      body: JSON.stringify({ username, message }),
+    });
+    const { signature } = await res.json();
+    return { success: true, result: signature };
+  },
+  transfer: async (to, amount, currency, memo) => {
+    const res = await fetch('/api/custodial/transfer', {
+      method: 'POST',
+      body: JSON.stringify({ from: username, to, amount, currency, memo }),
+    });
+    return res.ok ? { success: true } : { success: false, error: await res.text() };
+  },
+};
+
+<HangoutsProvider apiBaseUrl="..." aioha={custodialAdapter}>
+```
+
+The custodial backend signs the challenge with the account's active/posting key and broadcasts transfers — the SDK only needs the interface above.
+
 ## Features
 
 - **Hive Keychain login** — challenge-response auth with posting key
@@ -73,6 +124,19 @@ function App() {
 | `useHostControls()` | Promote, demote, kick |
 | `useRecording()` | Record, stop, fetch blob, download |
 | `useHiveAvatar()` | Hive profile picture URL |
+
+## HangoutsProvider props
+
+| Prop | Required | Description |
+|------|----------|-------------|
+| `apiBaseUrl` | Yes | Base URL of your Fastify server |
+| `livekitServerUrl` | No | LiveKit WebSocket URL (default: `wss://livekit.3speak.tv`) |
+| `sessionToken` | No | Pre-existing session JWT — skips the login flow if you already have one |
+| `username` | No | Authenticated Hive username (paired with `sessionToken`) |
+| `imageServerApiKey` | No | Bearer token for `images.3speak.tv` — enables the background image picker |
+| `aioha` | No | Aioha instance **or** any `AiohaLike` adapter. Routes login and boost transfers through it. Supports Keychain, HiveAuth, PeakVault, Ledger, custodial adapters, etc. Falls back to direct Keychain when omitted. |
+
+`useHangoutsAuth()` returns `{ canSignIn, isAiohaAvailable, isKeychainAvailable, login, logout, isAuthenticated, username, isLoading, error }`.
 
 ## HangoutsRoom props
 
