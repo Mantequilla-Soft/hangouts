@@ -92,11 +92,27 @@ export async function listEvents(opts: {
   if (!collection) return [];
 
   const query: Record<string, unknown> = {};
-  if (opts.status) {
-    query.status = Array.isArray(opts.status) ? { $in: opts.status } : opts.status;
+  const statuses = opts.status
+    ? (Array.isArray(opts.status) ? opts.status : [opts.status])
+    : (['scheduled', 'live'] as EventStatus[]);
+
+  if (statuses.includes('scheduled')) {
+    const now = new Date();
+    const others = statuses.filter((s) => s !== 'scheduled');
+    if (others.length === 0) {
+      query.status = 'scheduled';
+      query.scheduledAt = { $gte: now };
+    } else {
+      // scheduled events must still be in the future; other statuses are unrestricted
+      query.$or = [
+        { status: 'scheduled', scheduledAt: { $gte: now } },
+        { status: others.length === 1 ? others[0] : { $in: others } },
+      ];
+    }
   } else {
-    query.status = { $in: ['scheduled', 'live'] };
+    query.status = statuses.length === 1 ? statuses[0] : { $in: statuses };
   }
+
   if (opts.host) query.hostUsername = opts.host;
 
   try {
