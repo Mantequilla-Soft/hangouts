@@ -32,4 +32,11 @@ export type {
   StreamStartResponse,
   StreamStopResponse,
   StreamStatusResponse,
+  EventStatus,
+  EventVisibility,
+  HangoutsEvent,
+  CreateEventInput,
+  UpdateEventInput,
+  UserPresence,
+  StartEventResponse,
 } from './types.js';

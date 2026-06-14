@@ -1,7 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { AccessToken } from 'livekit-server-sdk';
-import { roomService } from '../lib/livekit.js';
-import { config } from '../config.js';
+import { roomService, generateRoomName, createLivekitToken } from '../lib/livekit.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { getUserStatus } from '../lib/users.js';
@@ -71,42 +69,6 @@ function generateObsIdentity(): string {
   return `${OBS_PREFIX}${id}`;
 }
 
-function generateRoomName(username: string, title: string): string {
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 32);
-  const id = Math.random().toString(36).slice(2, 8);
-  return `${username}-${slug}-${id}`;
-}
-
-async function createLivekitToken(
-  room: string,
-  identity: string,
-  options: { canPublish: boolean; canPublishData: boolean; premium?: boolean; ttl?: string; name?: string },
-): Promise<string> {
-  const at = new AccessToken(config.LIVEKIT_API_KEY, config.LIVEKIT_API_SECRET, {
-    identity,
-    name: options.name,
-    ttl: options.ttl ?? '6h',
-  });
-
-  const grant: Record<string, unknown> = {
-    roomJoin: true,
-    room,
-    canSubscribe: true,
-    canPublishData: options.canPublishData,
-  };
-
-  // canPublish controls whether the participant can publish any track at all.
-  // Camera/screenshare gating for non-premium users is handled on the frontend —
-  // canPublishSources source restrictions were unreliable across SDK versions.
-  grant.canPublish = options.canPublish;
-
-  at.addGrant(grant);
-  return at.toJwt();
-}
 
 export const roomRoutes: FastifyPluginAsync = async (fastify) => {
   // List active rooms (public — no auth required). Filters out rooms

@@ -13,6 +13,8 @@ vi.mock('../../src/lib/livekit.js', () => ({
     deleteRoom: vi.fn(),
     sendData: vi.fn(),
   },
+  generateRoomName: vi.fn().mockReturnValue('test-room'),
+  createLivekitToken: vi.fn().mockResolvedValue('mock-token'),
 }));
 
 vi.mock('../../src/lib/users.js', () => ({

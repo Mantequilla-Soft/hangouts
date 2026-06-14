@@ -13,6 +13,13 @@ export {
   type ParticipantRole,
   type HandRaiseEvent,
   type HangoutsApiClientOptions,
+  type HangoutsEvent,
+  type CreateEventInput,
+  type UpdateEventInput,
+  type EventStatus,
+  type EventVisibility,
+  type UserPresence,
+  type StartEventResponse,
 } from '@snapie/hangouts-core';
 
 // Provider
@@ -55,6 +62,10 @@ export { useRecording } from './hooks/useRecording.js';
 
 // Hooks — Streaming
 export { useStreaming } from './hooks/useStreaming.js';
+
+// Hooks — Events & Presence
+export { useEventList } from './hooks/useEventList.js';
+export { useUserPresence } from './hooks/useUserPresence.js';
 
 // Components — Lobby
 export { RoomLobby, type RoomLobbyProps } from './components/lobby/RoomLobby.js';

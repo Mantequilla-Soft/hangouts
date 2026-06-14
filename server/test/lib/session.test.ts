@@ -23,8 +23,10 @@ describe('verifySessionToken', () => {
   it('throws on a tampered token', async () => {
     const token = await createSessionToken('alice');
     const parts = token.split('.');
-    // Flip a character in the signature segment
-    parts[2] = parts[2].slice(0, -1) + (parts[2].slice(-1) === 'a' ? 'b' : 'a');
+    // Flip a character near the start of the signature — the last character's
+    // bottom 2 bits are base64 padding zeros that jose silently ignores, so
+    // tampering there can leave the decoded HMAC unchanged.
+    parts[2] = (parts[2][0] === 'A' ? 'B' : 'A') + parts[2].slice(1);
     await expect(verifySessionToken(parts.join('.'))).rejects.toThrow();
   });
 });

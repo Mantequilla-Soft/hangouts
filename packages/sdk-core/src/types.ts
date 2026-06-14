@@ -174,3 +174,57 @@ export interface StreamStatusResponse {
   streaming: boolean;
   egressId: string | null;
 }
+
+// Event scheduling
+
+export type EventStatus = 'scheduled' | 'live' | 'ended' | 'cancelled';
+export type EventVisibility = 'public' | 'unlisted';
+
+export interface HangoutsEvent {
+  id: string;
+  title: string;
+  description?: string;
+  hostUsername: string;
+  scheduledAt: string;
+  coverImage?: string;
+  tags?: string[];
+  attendees: string[];
+  attendeeCount: number;
+  status: EventStatus;
+  roomName?: string;
+  visibility: EventVisibility;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateEventInput {
+  title: string;
+  description?: string;
+  scheduledAt: string;
+  coverImage?: string;
+  tags?: string[];
+  visibility?: EventVisibility;
+}
+
+export interface UpdateEventInput {
+  title?: string;
+  description?: string;
+  scheduledAt?: string;
+  coverImage?: string;
+  tags?: string[];
+  visibility?: EventVisibility;
+}
+
+export interface UserPresence {
+  online: boolean;
+  roomName?: string;
+  roomTitle?: string;
+  role?: 'host' | 'speaker' | 'listener';
+}
+
+export interface StartEventResponse {
+  event: HangoutsEvent;
+  room: Room;
+  token: string;
+  isPremium?: boolean;
+}

@@ -1,4 +1,4 @@
-import type { Room, RoomVisibility, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse } from './types.js';
+import type { Room, RoomVisibility, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse } from './types.js';
 import { HangoutsApiError } from './errors.js';
 
 export interface HangoutsApiClientOptions {
@@ -264,5 +264,59 @@ export class HangoutsApiClient {
     config: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string },
   ): Promise<{ boost: { enabled: boolean; minBoostUsd: number; creatorPayoutAccount?: string } }> {
     return this.request('PATCH', `/rooms/${encodeURIComponent(roomName)}/boost`, config);
+  }
+
+  // Events
+
+  async listEvents(opts?: { status?: EventStatus; host?: string; limit?: number }): Promise<HangoutsEvent[]> {
+    const params = new URLSearchParams();
+    if (opts?.status) params.set('status', opts.status);
+    if (opts?.host) params.set('host', opts.host);
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    const qs = params.toString();
+    return this.request('GET', `/events${qs ? `?${qs}` : ''}`);
+  }
+
+  async getEvent(id: string): Promise<HangoutsEvent | null> {
+    try {
+      return await this.request('GET', `/events/${encodeURIComponent(id)}`);
+    } catch (err) {
+      if (err instanceof HangoutsApiError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
+  async createEvent(input: CreateEventInput): Promise<HangoutsEvent> {
+    return this.request('POST', '/events', input);
+  }
+
+  async updateEvent(id: string, input: UpdateEventInput): Promise<HangoutsEvent> {
+    return this.request('PATCH', `/events/${encodeURIComponent(id)}`, input);
+  }
+
+  async cancelEvent(id: string): Promise<void> {
+    return this.request('DELETE', `/events/${encodeURIComponent(id)}`);
+  }
+
+  async attendEvent(id: string): Promise<{ attendees: string[]; attendeeCount: number }> {
+    return this.request('POST', `/events/${encodeURIComponent(id)}/attend`);
+  }
+
+  async unattendEvent(id: string): Promise<{ attendees: string[]; attendeeCount: number }> {
+    return this.request('DELETE', `/events/${encodeURIComponent(id)}/attend`);
+  }
+
+  async startEvent(id: string): Promise<StartEventResponse> {
+    return this.request('POST', `/events/${encodeURIComponent(id)}/start`);
+  }
+
+  // Presence
+
+  async getUserPresence(username: string): Promise<UserPresence> {
+    return this.request('GET', `/presence/${encodeURIComponent(username)}`);
+  }
+
+  async getBulkPresence(usernames: string[]): Promise<Record<string, UserPresence>> {
+    return this.request('POST', '/presence/bulk', { usernames });
   }
 }
