@@ -209,6 +209,8 @@ const {
 | `useHangoutsRoom()` | `{ join, create, listen, leave, isGuest, roomMeta, transferHost, setLayout, setViewState }` |
 | `useLiveHost(fallback?)` | `{ host: string, isLocalHost: boolean }` — updates live when host transfers |
 | `useRoomList()` | `Room[]` — polls every 10s; server filters unlisted rooms |
+| `useEventList(opts?)` | `{ events, isLoading, error, refetch }` — polls upcoming/live events; see Events section |
+| `useUserPresence(username, opts?)` | `{ presence, isLoading, error, refetch }` — polls whether a user is currently live |
 | `useChat()` | `{ messages, sendMessage }` |
 | `useBoosts()` | `{ boosts: BoostEvent[] }` — subscribes to `boost` LiveKit data topic |
 | `useHandRaise()` | `{ raised, toggle, raisedParticipants }` |
@@ -269,6 +271,113 @@ All endpoints on the Fastify server. "Host" auth = Bearer JWT + must be the room
 | GET | `/boosts/config` | No | `{ enabled, platformAccount, feePercent }` |
 | PATCH | `/rooms/:name/boost` | Host | Update room boost config |
 
+### Events
+All event endpoints that require auth use `Authorization: Bearer <token>`.
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| GET | `/events` | No | List events. Query: `?status=scheduled&host=alice&limit=20`. Default returns `scheduled` + `live`. |
+| GET | `/events/:id` | No | Single event by MongoDB ObjectId |
+| POST | `/events` | Bearer | Create. Body: `{ title, scheduledAt, description?, coverImage?, tags?, visibility? }`. `scheduledAt` must be future ISO datetime. Returns 201. |
+| PATCH | `/events/:id` | Bearer (host) | Update. Same optional fields as POST. Only allowed while `status === 'scheduled'`. |
+| DELETE | `/events/:id` | Bearer (host) | Cancel/end. `scheduled → cancelled`, `live → ended`. Idempotent if already terminal. Returns 204. |
+| POST | `/events/:id/attend` | Bearer | Mark attending. Idempotent. Returns `{ attendees, attendeeCount }`. |
+| DELETE | `/events/:id/attend` | Bearer | Unattend. Idempotent. Returns `{ attendees, attendeeCount }`. |
+| POST | `/events/:id/start` | Bearer (host) | Creates the LiveKit room, marks event `live`, returns `{ event, room, token, isPremium }`. |
+
+### Presence
+Public endpoints — no auth, CORS open. Suitable for embedding in any frontend.
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| GET | `/presence/:username` | No | `{ online: false }` or `{ online: true, roomName, roomTitle, role: 'host'\|'speaker'\|'listener' }` |
+| POST | `/presence/bulk` | No | Body: `{ usernames: string[] }` (max 50). Returns `Record<username, UserPresence>`. Rate-limited: 20/min. |
+
+---
+
+## Events & Presence
+
+### Scheduling an event (host flow)
+
+```ts
+import { HangoutsApiClient } from '@snapie/hangouts-core';
+
+// Create
+const event = await apiClient.createEvent({
+  title: 'Weekly AMA',
+  scheduledAt: '2026-06-20T18:00:00Z',
+  description: 'Ask me anything about Hive',
+  visibility: 'public',
+  tags: ['ama', 'hive'],
+});
+
+// Start — creates the LiveKit room and returns a host token
+const { token, room } = await apiClient.startEvent(event.id);
+// join the room with `token` via the normal LiveKit flow
+```
+
+### RSVP / attendance (any Hive user)
+
+```ts
+await apiClient.attendEvent(event.id);   // mark attending
+await apiClient.unattendEvent(event.id); // remove
+```
+
+### Upcoming events widget (React, no auth needed)
+
+```tsx
+import { useEventList } from '@snapie/hangouts-react';
+
+function UpcomingHangouts() {
+  const { events, isLoading } = useEventList({ limit: 5 });
+  if (isLoading) return <p>Loading...</p>;
+  return (
+    <ul>
+      {events.map(e => (
+        <li key={e.id}>
+          <strong>{e.title}</strong> by {e.hostUsername}
+          — {new Date(e.scheduledAt).toLocaleString()}
+          — {e.attendeeCount} attending
+          {e.status === 'live' && <span> 🔴 LIVE</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+```
+
+### Upcoming events without React (plain fetch, zero deps)
+
+```ts
+// Any frontend — no SDK, no auth required
+const events = await fetch('https://your-api.example.com/events?limit=5')
+  .then(r => r.json());
+// events[0] = { id, title, hostUsername, scheduledAt, attendeeCount, status, ... }
+```
+
+### User presence badge (React)
+
+```tsx
+import { useUserPresence } from '@snapie/hangouts-react';
+
+function LiveBadge({ username }: { username: string }) {
+  const { presence } = useUserPresence(username);
+  if (!presence?.online) return null;
+  return <span>🔴 Live in "{presence.roomTitle}" as {presence.role}</span>;
+}
+```
+
+### Bulk presence (plain fetch, for "who's live" feeds)
+
+```ts
+const result = await fetch('https://your-api.example.com/presence/bulk', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ usernames: ['alice', 'bob', 'carol'] }),
+}).then(r => r.json());
+// { alice: { online: true, roomName: '...', role: 'host' }, bob: { online: false }, ... }
+```
+
 ---
 
 ## Key TypeScript types
@@ -314,6 +423,40 @@ interface BoostEvent {
 class HangoutsApiError extends Error {
   status: number    // HTTP status code
   body?: unknown    // raw server response
+}
+
+type EventStatus = 'scheduled' | 'live' | 'ended' | 'cancelled'
+type EventVisibility = 'public' | 'unlisted'
+
+interface HangoutsEvent {
+  id: string              // MongoDB ObjectId hex string
+  title: string
+  description?: string
+  hostUsername: string
+  scheduledAt: string     // ISO datetime
+  coverImage?: string     // URL
+  tags?: string[]
+  attendees: string[]     // Hive usernames
+  attendeeCount: number
+  status: EventStatus
+  roomName?: string       // set when host starts the event (status = 'live')
+  visibility: EventVisibility
+  createdAt: string
+  updatedAt: string
+}
+
+interface UserPresence {
+  online: boolean
+  roomName?: string
+  roomTitle?: string
+  role?: 'host' | 'speaker' | 'listener'
+}
+
+interface StartEventResponse {
+  event: HangoutsEvent
+  room: Room
+  token: string           // LiveKit token — pass to LiveKit's connect()
+  isPremium?: boolean
 }
 ```
 
@@ -434,3 +577,8 @@ Auto-detects system preference. Override with `data-hh-theme="dark"` or `data-hh
 8. **`unlisted` rooms are filtered from `GET /rooms`** — you must know the name to link to one.
 9. **`hive-internal` rooms reject `/listen` requests** — check `room.visibility` before showing a guest join button.
 10. **`HangoutsApiError.status === 429`** on the guest token endpoint means IP rate-limited — show a wait message.
+11. **`GET /events` is public and CORS-open** — call it with a plain `fetch()` from any frontend; no SDK or session needed.
+12. **`POST /events/:id/start` creates the LiveKit room** — do not call `POST /rooms` separately; `startEvent()` handles both and links the room to the event.
+13. **`event.roomName` is null until started** — check `event.status === 'live'` before linking to a room.
+14. **Presence queries LiveKit in real time** — it reflects who is currently connected, not who is scheduled. Use `event.status === 'live'` for scheduled-event state, and `/presence` for actual connection state.
+15. **`/presence/bulk` max 50 usernames per call** — batch larger lists client-side.

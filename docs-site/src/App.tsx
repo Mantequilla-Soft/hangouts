@@ -11,6 +11,7 @@ type Section =
   | 'recording'
   | 'streaming'
   | 'boosts'
+  | 'events-presence'
   | 'hand-raise-chimes'
   | 'theming'
   | 'premium-and-bans'
@@ -31,6 +32,7 @@ const NAV: { id: Section; label: string; group?: string }[] = [
   { id: 'recording', label: 'Recording & Egress', group: 'Features' },
   { id: 'streaming', label: 'Live Streaming', group: 'Features' },
   { id: 'boosts', label: 'Boost Messages', group: 'Features' },
+  { id: 'events-presence', label: 'Events & Presence', group: 'Features' },
   { id: 'hand-raise-chimes', label: 'Hand-Raise Chimes', group: 'Features' },
   { id: 'theming', label: 'Theming', group: 'Customization' },
 
@@ -80,6 +82,7 @@ export default function App() {
         {active === 'recording' && <Recording />}
         {active === 'streaming' && <Streaming />}
         {active === 'boosts' && <Boosts />}
+        {active === 'events-presence' && <EventsPresence />}
         {active === 'hand-raise-chimes' && <HandRaiseChimes />}
         {active === 'theming' && <Theming />}
         {active === 'premium-and-bans' && <PremiumAndBans />}
@@ -1851,6 +1854,253 @@ onRecordingUploaded: (result: { permlink, cid, playUrl }) => void [legacy]
   Guarantee: playUrl is immediately playable
   Action: redirect to post composer or show success
       `}</Code>
+    </>
+  );
+}
+
+// ─── Events & Presence ────────────────────────────────────────────────────────
+
+function EventsPresence() {
+  return (
+    <>
+      <H1>Events & Presence</H1>
+      <p>
+        Scheduled events let hosts announce upcoming OpenPods / Hangouts ahead of time. Listeners
+        can RSVP, and when the host is ready to go live, a single API call creates the LiveKit
+        room and transitions the event to <code>live</code>. Presence endpoints let any frontend
+        show "X is live right now" badges without requiring a Hive login.
+      </p>
+
+      <H2>Event lifecycle</H2>
+      <Code lang="text">{`
+scheduled ──▶ live ──▶ ended
+     │
+     └──────▶ cancelled
+      `}</Code>
+      <p>
+        A host creates an event (<code>scheduled</code>), clicks Start when ready (<code>live</code>
+        ), and the room ends automatically or the host stops it (<code>ended</code>). Cancelling
+        before going live sets <code>cancelled</code> instead.
+      </p>
+
+      <H2>TypeScript types</H2>
+      <Code lang="typescript">{`
+import type {
+  HangoutsEvent,
+  CreateEventInput,
+  UpdateEventInput,
+  UserPresence,
+  StartEventResponse,
+  EventStatus,
+  EventVisibility,
+} from '@snapie/hangouts-core';
+
+interface HangoutsEvent {
+  id: string;
+  title: string;
+  description?: string;
+  hostUsername: string;
+  scheduledAt: string;        // ISO-8601
+  coverImage?: string;
+  tags?: string[];
+  attendees: string[];        // Hive usernames
+  attendeeCount: number;
+  status: EventStatus;        // 'scheduled' | 'live' | 'ended' | 'cancelled'
+  roomName?: string;          // null until host calls startEvent()
+  visibility: EventVisibility; // 'public' | 'unlisted'
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface UserPresence {
+  online: boolean;
+  roomName?: string;
+  roomTitle?: string;
+  role?: 'host' | 'speaker' | 'listener';
+}
+
+interface StartEventResponse {
+  event: HangoutsEvent;
+  room: Room;         // LiveKit room object
+  token: string;     // host access token — pass to <HangoutsRoom />
+  isPremium: boolean;
+}
+      `}</Code>
+
+      <H2>React hooks</H2>
+
+      <H3>useEventList — upcoming events widget</H3>
+      <Code lang="typescript">{`
+import { useEventList } from '@snapie/hangouts-react';
+
+function UpcomingEvents() {
+  const { events, isLoading, error, refetch } = useEventList({
+    status: 'scheduled',   // filter by status (optional)
+    limit: 10,             // default 20
+    pollInterval: 30_000,  // auto-refresh every 30 s (optional)
+  });
+
+  if (isLoading) return <p>Loading...</p>;
+  if (error) return <p>Error: {error.message}</p>;
+
+  return (
+    <ul>
+      {events.map(ev => (
+        <li key={ev.id}>
+          <strong>{ev.title}</strong> by @{ev.hostUsername}
+          <br />
+          {new Date(ev.scheduledAt).toLocaleString()} · {ev.attendeeCount} attending
+        </li>
+      ))}
+    </ul>
+  );
+}
+      `}</Code>
+
+      <H3>useUserPresence — "live now" badge</H3>
+      <Code lang="typescript">{`
+import { useUserPresence } from '@snapie/hangouts-react';
+
+function LiveBadge({ username }: { username: string }) {
+  const { presence, isLoading } = useUserPresence(username, {
+    pollInterval: 15_000, // check every 15 s
+  });
+
+  if (isLoading || !presence?.online) return null;
+
+  return (
+    <span className="live-badge">
+      🔴 Live in "{presence.roomTitle}"
+    </span>
+  );
+}
+      `}</Code>
+
+      <H2>API client methods</H2>
+      <Code lang="typescript">{`
+import { HangoutsApiClient } from '@snapie/hangouts-core';
+
+const client = new HangoutsApiClient({
+  baseUrl: 'https://your-hangouts-server.com',
+  sessionToken: userSession, // optional — omit for public reads
+});
+
+// ── Public (no session required) ──────────────────────────────────
+
+// List events (also available as plain fetch — see below)
+const events = await client.listEvents({ status: 'scheduled', limit: 20 });
+
+// Single event
+const event = await client.getEvent('64f1a2b3c4d5e6f7a8b9c0d1');
+
+// User presence
+const presence = await client.getUserPresence('ausbitbank');
+// → { online: true, roomName: 'ausbitbank-ama-x7k2', roomTitle: 'AMA', role: 'host' }
+
+// Bulk presence (max 50 usernames)
+const map = await client.getBulkPresence(['ausbitbank', 'tibfox', 'meno']);
+// → { ausbitbank: { online: true, ... }, tibfox: { online: false }, meno: { online: false } }
+
+// ── Protected (session required) ──────────────────────────────────
+
+// Create event
+const newEvent = await client.createEvent({
+  title: 'Weekly AMA',
+  description: 'Ask me anything about Hive.',
+  scheduledAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+  visibility: 'public',
+  tags: ['ama', 'hive'],
+});
+
+// Update while still scheduled
+await client.updateEvent(newEvent.id, { title: 'Weekly AMA — Round 2' });
+
+// RSVP
+await client.attendEvent(newEvent.id);
+await client.unattendEvent(newEvent.id); // idempotent
+
+// Host goes live — creates the LiveKit room and returns a token
+const { event, token } = await client.startEvent(newEvent.id);
+// Pass token to <HangoutsRoom token={token} room={event.roomName} />
+
+// Cancel (sets status → 'cancelled')
+await client.cancelEvent(newEvent.id);
+      `}</Code>
+
+      <H2>Plain fetch — no SDK required</H2>
+      <p>
+        <code>GET /events</code> is public and CORS-open. Any frontend can call it with a bare
+        <code>fetch()</code> — no Hive login, no SDK install.
+      </p>
+      <Code lang="javascript">{`
+// Embed upcoming Hangouts anywhere — no SDK needed
+const res = await fetch('https://your-hangouts-server.com/events?status=scheduled&limit=5');
+const events = await res.json();
+
+// events[0] shape:
+// {
+//   id, title, hostUsername, scheduledAt, attendeeCount,
+//   coverImage, description, tags, status, visibility
+// }
+      `}</Code>
+      <Code lang="javascript">{`
+// Bulk presence check — also public
+const res = await fetch('https://your-hangouts-server.com/presence/bulk', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ usernames: ['ausbitbank', 'tibfox'] }),
+});
+const presenceMap = await res.json();
+// { ausbitbank: { online: true, roomName: '...', role: 'host' }, tibfox: { online: false } }
+      `}</Code>
+
+      <H2>Server API reference</H2>
+      <table className="docs__table">
+        <thead>
+          <tr><th>Method</th><th>Path</th><th>Auth</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>GET</td><td>/events</td><td>Public</td><td>List events. Query: <code>?status=&host=&limit=</code></td></tr>
+          <tr><td>GET</td><td>/events/:id</td><td>Public</td><td>Single event by MongoDB id</td></tr>
+          <tr><td>POST</td><td>/events</td><td>Required</td><td>Create event (host = session user)</td></tr>
+          <tr><td>PATCH</td><td>/events/:id</td><td>Required</td><td>Update while <code>scheduled</code> (host only)</td></tr>
+          <tr><td>DELETE</td><td>/events/:id</td><td>Required</td><td>Cancel/end event (host only)</td></tr>
+          <tr><td>POST</td><td>/events/:id/attend</td><td>Required</td><td>Mark attending (idempotent)</td></tr>
+          <tr><td>DELETE</td><td>/events/:id/attend</td><td>Required</td><td>Remove attendance (idempotent)</td></tr>
+          <tr><td>POST</td><td>/events/:id/start</td><td>Required</td><td>Go live: creates room, returns token</td></tr>
+          <tr><td>GET</td><td>/presence/:username</td><td>Public</td><td>Single-user presence</td></tr>
+          <tr><td>POST</td><td>/presence/bulk</td><td>Public</td><td>Up to 50 usernames per call</td></tr>
+        </tbody>
+      </table>
+
+      <H2>Gotchas</H2>
+      <ul>
+        <li>
+          <strong><code>event.roomName</code> is <code>null</code> until the host calls
+          <code>startEvent()</code>.</strong> Always check <code>event.status === 'live'</code>
+          before linking to a room.
+        </li>
+        <li>
+          <strong>Do not call <code>POST /rooms</code> separately for events.</strong>{' '}
+          <code>POST /events/:id/start</code> creates the LiveKit room internally and links it to
+          the event. Creating a room manually will leave it unlinked.
+        </li>
+        <li>
+          <strong>Presence is real-time LiveKit state, not scheduled intent.</strong> A user can
+          be scheduled to host an event but show <code>online: false</code> until they click
+          Start. Use <code>event.status</code> for scheduling state and <code>/presence</code>{' '}
+          for actual connection state.
+        </li>
+        <li>
+          <strong><code>/presence/bulk</code> is rate-limited to 20 req/min per IP</strong> and
+          accepts a maximum of 50 usernames per call. Batch large lists client-side.
+        </li>
+        <li>
+          <strong>MongoDB must be configured</strong> via <code>MONGODB_URI</code> in the
+          server's <code>.env</code> for events to persist. Without it the server starts normally
+          but all event writes return 503.
+        </li>
+      </ul>
     </>
   );
 }
