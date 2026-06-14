@@ -24,6 +24,7 @@ export {
 
 // Provider
 export { HangoutsProvider, type HangoutsProviderProps } from './context/HangoutsProvider.js';
+export { useHangoutsContext, type HangoutsContextValue } from './context/HangoutsContext.js';
 
 // Hooks
 export { useHangoutsAuth } from './hooks/useHangoutsAuth.js';

@@ -89,3 +89,314 @@ body {
     border-radius: 0;
   }
 }
+
+/* ─── Lobby tabs ──────────────────────────────────────────────────── */
+
+.hh-lobby-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.hh-lobby-tabs {
+  display: flex;
+  gap: 0;
+  padding: 1rem 1.5rem 0;
+  border-bottom: 1px solid var(--hh-border, rgba(128,128,128,0.2));
+  margin-top: 3.5rem; /* clear the fixed theme toggle */
+}
+
+.hh-lobby-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--hh-text-muted, #888);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.hh-lobby-tab--active {
+  color: var(--hh-accent, #e31337);
+  border-bottom-color: var(--hh-accent, #e31337);
+}
+
+/* ─── Events lobby ────────────────────────────────────────────────── */
+
+.hh-events-lobby {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
+  width: 100%;
+}
+
+.hh-events-lobby__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.hh-events-lobby__heading {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.hh-events-lobby__section {
+  margin-bottom: 2rem;
+}
+
+.hh-events-lobby__section-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--hh-text-muted, #888);
+  margin-bottom: 0.75rem;
+}
+
+.hh-events-lobby__empty {
+  text-align: center;
+  color: var(--hh-text-muted, #888);
+  padding: 3rem 1rem;
+}
+
+.hh-events-lobby__empty p + p {
+  margin-top: 0.75rem;
+}
+
+/* ─── Event card ──────────────────────────────────────────────────── */
+
+.hh-event-card {
+  background: var(--hh-surface, rgba(128,128,128,0.08));
+  border: 1px solid var(--hh-border, rgba(128,128,128,0.15));
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.875rem;
+  transition: border-color 0.15s;
+}
+
+.hh-event-card:hover {
+  border-color: var(--hh-border-hover, rgba(128,128,128,0.3));
+}
+
+.hh-event-card--live {
+  border-color: var(--hh-accent, #e31337);
+}
+
+.hh-event-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.375rem;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.hh-event-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.hh-event-card__live-badge {
+  color: var(--hh-accent, #e31337);
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  animation: hh-pulse 2s infinite;
+}
+
+@keyframes hh-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.hh-event-card__host {
+  color: var(--hh-text-muted, #888);
+  font-weight: 500;
+}
+
+.hh-event-card__unlisted {
+  background: var(--hh-surface, rgba(128,128,128,0.12));
+  color: var(--hh-text-muted, #888);
+  border-radius: 4px;
+  padding: 0 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.hh-event-card__time {
+  font-size: 0.8125rem;
+  color: var(--hh-text-muted, #888);
+}
+
+.hh-event-card__title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.375rem;
+}
+
+.hh-event-card__description {
+  font-size: 0.875rem;
+  color: var(--hh-text-muted, #888);
+  margin-bottom: 0.625rem;
+  line-height: 1.5;
+}
+
+.hh-event-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-bottom: 0.75rem;
+}
+
+.hh-event-card__tag {
+  font-size: 0.75rem;
+  color: var(--hh-accent, #e31337);
+  background: color-mix(in srgb, var(--hh-accent, #e31337) 12%, transparent);
+  border-radius: 4px;
+  padding: 0.1rem 0.45rem;
+}
+
+.hh-event-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.hh-event-card__attendees {
+  font-size: 0.8125rem;
+  color: var(--hh-text-muted, #888);
+}
+
+.hh-event-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.hh-event-card__error {
+  font-size: 0.8rem;
+  color: var(--hh-accent, #e31337);
+}
+
+/* ─── Schedule event form ─────────────────────────────────────────── */
+
+.hh-event-form-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: hh-demo-fade-in 0.15s ease;
+}
+
+.hh-event-form {
+  background: var(--hh-bg);
+  border: 1px solid var(--hh-border, rgba(128,128,128,0.2));
+  border-radius: 14px;
+  padding: 1.5rem;
+  width: min(100%, 480px);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+  animation: hh-demo-slide-up 0.2s ease;
+}
+
+.hh-event-form__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.hh-event-form__label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--hh-text-muted, #888);
+}
+
+.hh-event-form__input {
+  background: var(--hh-surface, rgba(128,128,128,0.08));
+  border: 1px solid var(--hh-border, rgba(128,128,128,0.2));
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9375rem;
+  color: var(--hh-text);
+  font-family: inherit;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+
+.hh-event-form__input:focus {
+  outline: none;
+  border-color: var(--hh-accent, #e31337);
+}
+
+.hh-event-form__textarea {
+  resize: vertical;
+  min-height: 5rem;
+}
+
+.hh-event-form__error {
+  font-size: 0.875rem;
+  color: var(--hh-accent, #e31337);
+}
+
+.hh-event-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+/* ─── Extra btn variants ──────────────────────────────────────────── */
+
+.hh-btn--outline {
+  background: transparent;
+  border: 1px solid var(--hh-border, rgba(128,128,128,0.3));
+  color: var(--hh-text);
+  border-radius: 6px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.hh-btn--outline:hover {
+  border-color: var(--hh-accent, #e31337);
+  color: var(--hh-accent, #e31337);
+}
+
+.hh-btn--ghost {
+  background: transparent;
+  border: none;
+  color: var(--hh-text-muted, #888);
+  border-radius: 6px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.hh-btn--ghost:hover {
+  color: var(--hh-accent, #e31337);
+}
