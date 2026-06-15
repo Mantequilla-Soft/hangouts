@@ -299,7 +299,11 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
         <HandRaiseChimeListener enabled={notificationSounds} />
         <GameNotificationListener
           onGameStarted={(gameId) => { setActiveGameId(gameId); setGameOpen(false); }}
-          onGameEnded={() => { setActiveGameId(null); setGameOpen(false); }}
+          onGameEnded={() => {
+            // Delay layout exit so players can see the final board state
+            // and winner banner before the game panel disappears.
+            setTimeout(() => { setActiveGameId(null); setGameOpen(false); }, 6000);
+          }}
         />
         <WakeLockGuard />
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>

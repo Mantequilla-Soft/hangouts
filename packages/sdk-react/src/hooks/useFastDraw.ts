@@ -298,7 +298,9 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
       }
 
       if (parsed.type === 'game:ended') {
-        resetState();
+        // Keep the game-over banner visible; layout exits after a delay
+        // managed by HangoutsRoom. resetState() fires on next game start.
+        setActive(false);
         return;
       }
     } catch { /* ignore malformed */ }

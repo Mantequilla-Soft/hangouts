@@ -200,7 +200,10 @@ export function useChess({ roomName }: UseChessOptions): UseChessResult {
       }
 
       if (parsed.type === 'game:ended') {
-        resetState();
+        // Keep the final board position and winner banner visible.
+        // Only disable interactions — resetState() fires when the next
+        // game starts or the component hydrates with no active game.
+        setActive(false);
         return;
       }
     } catch { /* ignore malformed */ }
