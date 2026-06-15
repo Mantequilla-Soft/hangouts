@@ -39,4 +39,9 @@ export type {
   UpdateEventInput,
   UserPresence,
   StartEventResponse,
+  GameInfo,
+  ActiveGame,
+  GameStartResponse,
+  GameActionResponse,
+  GameMessage,
 } from './types.js';

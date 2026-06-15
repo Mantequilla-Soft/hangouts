@@ -10,6 +10,8 @@ import { recordingRoutes } from './routes/recording.js';
 import { streamingRoutes } from './routes/streaming.js';
 import { boostRoutes } from './routes/boosts.js';
 import { eventRoutes } from './routes/events.js';
+import { gameRoutes } from './routes/games.js';
+import './games/index.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   // Ensure the recording output directory exists — it lives in /tmp which is
@@ -28,6 +30,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await server.register(streamingRoutes);
   await server.register(boostRoutes);
   await server.register(eventRoutes);
+  await server.register(gameRoutes);
 
   return server;
 }

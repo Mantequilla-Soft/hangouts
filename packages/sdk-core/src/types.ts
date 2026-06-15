@@ -228,3 +228,37 @@ export interface StartEventResponse {
   token: string;
   isPremium?: boolean;
 }
+
+// Games
+
+export interface GameInfo {
+  id: string;
+  name: string;
+  description: string;
+  minPlayers: number;
+  maxPlayers: number;
+}
+
+export interface ActiveGame {
+  gameId: string;
+  participants: string[];
+  startedAt: number;
+  state: unknown;
+}
+
+export interface GameStartResponse {
+  gameId: string;
+  participants: string[];
+  startedAt: number;
+}
+
+export interface GameActionResponse {
+  ended: boolean;
+}
+
+/** Data channel messages received on the "game" topic. */
+export type GameMessage =
+  | { type: 'game:started'; gameId: string; participants: string[]; broadcast: unknown }
+  | { type: 'game:state'; payload: unknown }
+  | { type: 'game:broadcast'; payload: unknown }
+  | { type: 'game:ended' };

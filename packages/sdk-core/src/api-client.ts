@@ -1,4 +1,4 @@
-import type { Room, RoomVisibility, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse } from './types.js';
+import type { Room, RoomVisibility, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse, GameInfo, ActiveGame, GameStartResponse, GameActionResponse } from './types.js';
 import { HangoutsApiError } from './errors.js';
 
 export interface HangoutsApiClientOptions {
@@ -318,5 +318,32 @@ export class HangoutsApiClient {
 
   async getBulkPresence(usernames: string[]): Promise<Record<string, UserPresence>> {
     return this.request('POST', '/presence/bulk', { usernames });
+  }
+
+  // Games
+
+  async listGames(): Promise<GameInfo[]> {
+    return this.request('GET', '/games');
+  }
+
+  async getActiveGame(roomName: string): Promise<ActiveGame | null> {
+    try {
+      return await this.request('GET', `/rooms/${encodeURIComponent(roomName)}/game`);
+    } catch (err) {
+      if (err instanceof HangoutsApiError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
+  async startGame(roomName: string, gameId: string, config?: unknown): Promise<GameStartResponse> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/game/start`, { gameId, config });
+  }
+
+  async sendGameAction(roomName: string, action: unknown): Promise<GameActionResponse> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/game/action`, { action });
+  }
+
+  async endGame(roomName: string): Promise<void> {
+    return this.request('DELETE', `/rooms/${encodeURIComponent(roomName)}/game`);
   }
 }
