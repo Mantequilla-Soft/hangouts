@@ -1,5 +1,6 @@
+import { useState, useEffect } from 'react';
 import { Chessboard } from 'react-chessboard';
-import type { PieceDropHandlerArgs } from 'react-chessboard';
+import type { PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard';
 import { useChess } from '../../hooks/useChess.js';
 import type { ChessGameStatus } from '../../hooks/useChess.js';
 
@@ -34,6 +35,12 @@ function formatMoveHistory(history: string[]): Array<{ n: number; w: string; b?:
 
 export function ChessContent({ roomName, isHost }: ChessContentProps) {
   const game = useChess({ roomName });
+  const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
+
+  // Clear selection when the turn changes (move was accepted) or game ends
+  useEffect(() => {
+    setSelectedSquare(null);
+  }, [game.turn, game.status]);
 
   const orientation = game.myColor === 'b' ? 'black' : 'white';
   const opponent = game.players
@@ -47,10 +54,48 @@ export function ChessContent({ roomName, isHost }: ChessContentProps) {
   const statusText = chessStatusText(game.status, game.winner, game.players, game.isMyTurn, game.isSpectator);
   const movePairs = formatMoveHistory(game.moveHistory);
 
+  // Drag-and-drop handler (desktop)
   const handlePieceDrop = ({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean => {
     if (!targetSquare) return false;
-    return game.makeMove(sourceSquare, targetSquare);
+    const moved = game.makeMove(sourceSquare, targetSquare);
+    if (moved) setSelectedSquare(null);
+    return moved;
   };
+
+  // Tap-to-move handler (mobile + desktop fallback)
+  const handleSquareClick = ({ piece, square }: SquareHandlerArgs) => {
+    if (!game.isMyTurn || gameOver || game.isSpectator) return;
+
+    if (selectedSquare) {
+      if (square === selectedSquare) {
+        // Tap same square — deselect
+        setSelectedSquare(null);
+        return;
+      }
+      // Try to move from selectedSquare to tapped square
+      const moved = game.makeMove(selectedSquare, square);
+      if (moved) {
+        setSelectedSquare(null);
+        return;
+      }
+      // Move failed — maybe tapping a different own piece to re-select
+      if (piece && game.myColor && piece.pieceType.startsWith(game.myColor)) {
+        setSelectedSquare(square);
+      } else {
+        setSelectedSquare(null);
+      }
+    } else {
+      // Select own piece
+      if (piece && game.myColor && piece.pieceType.startsWith(game.myColor)) {
+        setSelectedSquare(square);
+      }
+    }
+  };
+
+  const squareStyles: Record<string, React.CSSProperties> = {};
+  if (selectedSquare) {
+    squareStyles[selectedSquare] = { backgroundColor: 'rgba(255, 214, 0, 0.5)' };
+  }
 
   return (
     <div className="hh-chess">
@@ -62,7 +107,9 @@ export function ChessContent({ roomName, isHost }: ChessContentProps) {
             position: game.fen,
             boardOrientation: orientation,
             onPieceDrop: handlePieceDrop,
+            onSquareClick: handleSquareClick,
             allowDragging: game.isMyTurn && !gameOver,
+            squareStyles,
             boardStyle: { borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,.3)' },
           }}
         />
