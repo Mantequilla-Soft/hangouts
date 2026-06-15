@@ -2470,21 +2470,36 @@
 
 .hh-fastdraw {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  height: 100%;
-  overflow-y: auto;
+  flex-direction: row;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
-.hh-fastdraw__header {
+
+/* Canvas column (left) — holds the draw-block */
+.hh-fastdraw__draw-block {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
   display: flex;
-  justify-content: space-between;
-  font-size: 13px;
-  font-weight: 600;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.hh-fastdraw__canvas-area {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  container-type: size;
 }
 .hh-fastdraw__canvas-wrap {
   position: relative;
-  width: 100%;
+  width: min(100cqw, calc(100cqh * 4 / 3));
   aspect-ratio: 4 / 3;
   background: #ffffff;
   border-radius: 6px;
@@ -2503,7 +2518,27 @@
   align-items: center;
   flex-wrap: wrap;
   padding: 4px 0;
+  flex-shrink: 0;
 }
+
+/* Info column (right) */
+.hh-fastdraw__side {
+  flex: 0 0 auto;
+  width: min(190px, 30%);
+  min-width: 110px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.hh-fastdraw__header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .hh-fastdraw__swatch {
   width: 20px;
   height: 20px;
@@ -2529,9 +2564,11 @@
   justify-content: space-between;
   align-items: center;
   min-height: 32px;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 .hh-fastdraw__word {
-  font-size: 16px;
+  font-size: 14px;
   letter-spacing: 3px;
   font-family: monospace;
   font-weight: 600;
@@ -2544,7 +2581,7 @@
   margin: 0 1px;
 }
 .hh-fastdraw__timer {
-  font-size: 20px;
+  font-size: 18px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
 }
@@ -2562,7 +2599,8 @@
 }
 .hh-fastdraw__guess-input {
   flex: 1;
-  padding: 6px 10px;
+  min-width: 0;
+  padding: 6px 8px;
   border-radius: 4px;
   border: 1px solid var(--hh-border);
   background: var(--hh-surface);
@@ -2576,15 +2614,15 @@
 }
 .hh-fastdraw__reveal {
   text-align: center;
-  padding: 12px;
+  padding: 10px;
   background: var(--hh-surface);
   border-radius: 6px;
   border: 1px solid var(--hh-border);
 }
 .hh-fastdraw__reveal-word {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 700;
-  margin: 6px 0;
+  margin: 4px 0;
   color: var(--hh-accent);
 }
 .hh-fastdraw__scores {
@@ -2597,6 +2635,18 @@
   display: flex;
   justify-content: space-between;
   padding: 2px 0;
+}
+
+/* Mobile: stack canvas above info */
+@media (max-width: 768px) {
+  .hh-fastdraw { flex-direction: column; }
+  .hh-fastdraw__draw-block { flex: 1 1 0; width: 100%; }
+  .hh-fastdraw__side {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 40%;
+    overflow-y: auto;
+  }
 }
 
 /* === Recording === */

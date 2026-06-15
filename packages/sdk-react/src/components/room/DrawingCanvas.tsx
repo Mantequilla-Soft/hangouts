@@ -163,18 +163,22 @@ export function DrawingCanvas({ isDrawer, currentDrawer, strokeSnapshot, disable
   };
 
   return (
-    <div className="hh-fastdraw__canvas-wrap">
-      <canvas
-        ref={canvasRef}
-        className="hh-fastdraw__canvas"
-        width={600}
-        height={450}
-        style={{ cursor: disabled ? 'default' : isDrawer ? (eraser ? 'cell' : 'crosshair') : 'default' }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-      />
+    <div className="hh-fastdraw__draw-block">
+      <div className="hh-fastdraw__canvas-area">
+        <div className="hh-fastdraw__canvas-wrap">
+          <canvas
+            ref={canvasRef}
+            className="hh-fastdraw__canvas"
+            width={600}
+            height={450}
+            style={{ cursor: disabled ? 'default' : isDrawer ? (eraser ? 'cell' : 'crosshair') : 'default' }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+          />
+        </div>
+      </div>
       {isDrawer && !disabled && (
         <div className="hh-fastdraw__toolbar">
           {COLORS.map((c) => (
