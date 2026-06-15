@@ -2271,6 +2271,7 @@
 
 .hh-chess__board {
   width: 100%;
+  min-width: 120px;
 }
 
 .hh-chess__status {
