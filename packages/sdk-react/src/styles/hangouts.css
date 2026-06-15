@@ -491,6 +491,48 @@
   display: none;
 }
 
+/* Listeners column hidden in game-center mode — recovers the 96px for
+   the game board without unmounting the AudienceSection subscriptions. */
+.hh-room__listeners--hidden {
+  display: none;
+}
+
+/* Horizontal speaker strip above the game board. Fixed height so the
+   game area gets all remaining vertical space. Scrolls horizontally
+   when there are many speakers. */
+.hh-room__game-strip {
+  height: 72px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hh-room__game-strip::-webkit-scrollbar {
+  height: 4px;
+}
+
+.hh-room__game-strip::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+}
+
+/* Game board fills remaining space between speaker strip and controls. */
+.hh-room__game-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Remove left border when GamePanel is in the center (no sidebar context) */
+.hh-room__game-area > .hh-game-panel {
+  border-left: none;
+}
+
 /* Left rail of small audience avatars — keeps listeners visible without
    eating vertical space below the speaker grid. Frosted-glass surface
    matching the chat sidebar and controls bar so the room reads as a
@@ -577,6 +619,12 @@
     min-height: 0;
   }
   .hh-room__stage {
+    min-height: 180px;
+  }
+  .hh-room__game-strip {
+    height: 64px;
+  }
+  .hh-room__game-area {
     min-height: 180px;
   }
   .hh-room__sidebar {
@@ -744,6 +792,26 @@
   gap: 0.6rem;
   min-height: 0;
   margin-bottom: 0.75rem;
+}
+
+/* Game-strip mode: horizontal scroll row of small avatar tiles.
+   Overrides the column layout so speakers don't stack vertically. */
+.hh-stage--game-strip {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.5rem;
+  height: 100%;
+  flex: unset;
+  margin-bottom: 0;
+  min-height: 0;
+  width: max-content;
+}
+
+.hh-stage__strip-cell {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 
 .hh-stage__grid {

@@ -152,7 +152,7 @@ export function useHangoutsRoom() {
     await apiClient.setRoomLayout(state.roomName, layout);
   }, [apiClient, state.roomName]);
 
-  const setViewState = useCallback(async (view: { focusedIdentity?: string | null; suppressScreenAutoFocus?: boolean; chatOpen?: boolean }) => {
+  const setViewState = useCallback(async (view: { focusedIdentity?: string | null; suppressScreenAutoFocus?: boolean; chatOpen?: boolean; activeGameId?: string | null }) => {
     if (!state.roomName) return;
     await apiClient.setRoomViewState(state.roomName, view);
   }, [apiClient, state.roomName]);

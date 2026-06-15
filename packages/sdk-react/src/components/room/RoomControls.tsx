@@ -46,6 +46,9 @@ export interface RoomControlsProps {
   gameOpen?: boolean;
   /** Toggle the game sidebar. When provided, a game button appears in the controls. */
   onToggleGame?: () => void;
+  /** Currently running game id, or null. When set, the game toggle button is hidden
+   *  because the game already occupies the center stage area. */
+  activeGameId?: string | null;
   /** Boost config from room metadata. When present and enabled, shows a Boost button for authenticated non-guests. */
   boostConfig?: BoostConfig;
   /**
@@ -56,7 +59,7 @@ export interface RoomControlsProps {
   pushToTalk?: boolean;
 }
 
-export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEndRoom, onTransferHost, onSetLayout, hostIdentity, onVideoHandoff, onAudioHandoff, videoEnabled = false, roomVideoEnabled = false, chatOpen, onToggleChat, gameOpen, onToggleGame, obsBaseUrl, boostConfig, pushToTalk = false }: RoomControlsProps) {
+export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEndRoom, onTransferHost, onSetLayout, hostIdentity, onVideoHandoff, onAudioHandoff, videoEnabled = false, roomVideoEnabled = false, chatOpen, onToggleChat, gameOpen, onToggleGame, activeGameId, obsBaseUrl, boostConfig, pushToTalk = false }: RoomControlsProps) {
   const { username, isAuthenticated } = useHangoutsContext();
   const [boostDialogOpen, setBoostDialogOpen] = useState(false);
   const [boostHistoryOpen, setBoostHistoryOpen] = useState(false);
@@ -266,7 +269,7 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           </button>
         )}
 
-        {onToggleGame && !gameOpen && (
+        {onToggleGame && !gameOpen && !activeGameId && (
           <button
             className="hh-btn hh-btn--icon hh-btn--secondary"
             onClick={onToggleGame}

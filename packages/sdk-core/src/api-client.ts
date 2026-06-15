@@ -159,7 +159,7 @@ export class HangoutsApiClient {
    */
   async setRoomViewState(
     roomName: string,
-    state: { focusedIdentity?: string | null; suppressScreenAutoFocus?: boolean; chatOpen?: boolean },
+    state: { focusedIdentity?: string | null; suppressScreenAutoFocus?: boolean; chatOpen?: boolean; activeGameId?: string | null },
   ): Promise<{ focusedIdentity: string | null; suppressScreenAutoFocus: boolean; chatOpen: boolean }> {
     return this.request('PATCH', `/rooms/${encodeURIComponent(roomName)}/layout`, state);
   }

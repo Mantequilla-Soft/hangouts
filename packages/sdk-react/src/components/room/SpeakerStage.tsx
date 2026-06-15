@@ -20,6 +20,10 @@ export interface SpeakerStageProps {
   /** When false, the rail of small tiles moves to the right of the focus
    *  area (where the chat used to live) instead of stacking below it. */
   chatOpen?: boolean;
+  /** When true, bypasses all focus/carousel/layout logic and renders
+   *  speakers as a single horizontal scroll strip of small avatar tiles.
+   *  Used when a game occupies the center stage area. */
+  gameMode?: boolean;
 }
 
 export function SpeakerStage({
@@ -27,6 +31,7 @@ export function SpeakerStage({
   roomName,
   videoEnabled = false,
   chatOpen = true,
+  gameMode = false,
 }: SpeakerStageProps) {
   const { hostIdentity, isCurrentUserHost } = useLiveHost(fallbackHost);
   usePermissionsTick(); // re-render when any participant's canPublish changes
@@ -90,6 +95,25 @@ export function SpeakerStage({
 
   const speakers = participants.filter((p) => p.permissions?.canPublish);
   if (speakers.length === 0) return null;
+
+  if (gameMode) {
+    return (
+      <div className="hh-stage hh-stage--game-strip">
+        {speakers.map((p) => (
+          <div key={p.identity} className="hh-stage__strip-cell">
+            <ParticipantTile
+              participant={p}
+              role={getParticipantRole(p, hostIdentity)}
+              isCurrentUserHost={isCurrentUserHost}
+              roomName={roomName}
+              size="small"
+              videoEnabled={videoEnabled}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   // Resolve the active focus from the layout mode + explicit click:
   //   grid    → only focus on click (else show full grid)

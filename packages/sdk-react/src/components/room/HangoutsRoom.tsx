@@ -153,16 +153,17 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
   // template knows whether to render the chat panel in the recording.
   // Non-hosts toggling their own chat does NOT propagate — recording
   // follows the host's view.
-  const lastChatPushRef = useRef<boolean | null>(null);
+  const lastChatPushRef = useRef<string>('');
   useEffect(() => {
     if (!room.isHost || !room.roomName) return;
-    if (lastChatPushRef.current === chatOpen) return;
-    lastChatPushRef.current = chatOpen;
-    room.setViewState?.({ chatOpen }).catch((err) => {
+    const key = `${chatOpen ? '1' : '0'}:${activeGameId ?? ''}`;
+    if (lastChatPushRef.current === key) return;
+    lastChatPushRef.current = key;
+    room.setViewState?.({ chatOpen, activeGameId }).catch((err) => {
       // eslint-disable-next-line no-console
       console.warn('[Hangouts] Failed to push chatOpen:', err);
     });
-  }, [chatOpen, room.isHost, room.roomName, room.setViewState, room]);
+  }, [chatOpen, activeGameId, room.isHost, room.roomName, room.setViewState, room]);
 
   // Module-level dedup so React 18 StrictMode (which mounts effects twice in
   // dev) doesn't fire a second `room.join()` while the first is still in
@@ -192,7 +193,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
       .then((game) => {
         if (game) {
           setActiveGameId(game.gameId);
-          setGameOpen(true);
+          setGameOpen(false); // game goes to center — no picker sidebar needed
         }
       })
       .catch(() => { /* no active game or server unreachable — fine */ });
@@ -272,6 +273,10 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
   const videoEnabled = video;
   const canPublishVideo = video;
 
+  // When a game is active it occupies the center stage area — the game picker
+  // sidebar is not shown and the chat mutual-exclusion is lifted.
+  const gameIsCenter = !!activeGameId;
+
   return (
     <HangoutsErrorBoundary onError={onError}>
       <LiveKitRoom
@@ -293,7 +298,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
         <StartAudio label="Click to enable audio" className="hh-start-audio" />
         <HandRaiseChimeListener enabled={notificationSounds} />
         <GameNotificationListener
-          onGameStarted={(gameId) => { setActiveGameId(gameId); setChatOpen(false); setGameOpen(true); }}
+          onGameStarted={(gameId) => { setActiveGameId(gameId); setGameOpen(false); }}
           onGameEnded={() => { setActiveGameId(null); setGameOpen(false); }}
         />
         <WakeLockGuard />
@@ -320,7 +325,11 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
             shareUrl={getShareUrl ? getShareUrl(roomName, room.roomMeta?.origin) : null}
           />
           <div className="hh-room__content">
-            <aside className="hh-room__listeners">
+            {/* Listeners column — hidden when a game is center-stage to
+                recover horizontal space for the game board. Kept in DOM
+                (not conditionally rendered) so AudienceSection subscriptions
+                stay live; visibility is toggled via CSS class only. */}
+            <aside className={`hh-room__listeners${gameIsCenter ? ' hh-room__listeners--hidden' : ''}`}>
               <AudienceSection
                 hostIdentity={host}
                 isCurrentUserHost={room.isHost}
@@ -328,16 +337,43 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
               />
             </aside>
             <div className="hh-room__main">
-              <div className="hh-room__stage">
-                <SpeakerStage
-                  hostIdentity={host}
-                  isCurrentUserHost={room.isHost}
-                  roomName={roomName}
-                  videoEnabled={videoEnabled}
-                  chatOpen={chatOpen}
-                />
-                <BoostOverlay />
-              </div>
+              {/* Speaker area: compact 72px strip in game mode, full stage otherwise */}
+              {gameIsCenter ? (
+                <div className="hh-room__game-strip">
+                  <SpeakerStage
+                    hostIdentity={host}
+                    isCurrentUserHost={room.isHost}
+                    roomName={roomName}
+                    videoEnabled={videoEnabled}
+                    chatOpen={chatOpen}
+                    gameMode={true}
+                  />
+                  <BoostOverlay />
+                </div>
+              ) : (
+                <div className="hh-room__stage">
+                  <SpeakerStage
+                    hostIdentity={host}
+                    isCurrentUserHost={room.isHost}
+                    roomName={roomName}
+                    videoEnabled={videoEnabled}
+                    chatOpen={chatOpen}
+                  />
+                  <BoostOverlay />
+                </div>
+              )}
+
+              {/* Game board in center — only mounted when a game is running */}
+              {gameIsCenter && (
+                <div className="hh-room__game-area">
+                  <GamePanel
+                    roomName={roomName}
+                    isHost={room.isHost}
+                    activeGameId={activeGameId}
+                  />
+                </div>
+              )}
+
               <RoomControls
                 isHost={room.isHost}
                 isGuest={room.isGuest}
@@ -359,26 +395,39 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
                 roomVideoEnabled={video}
                 obsBaseUrl={obsBaseUrl}
                 chatOpen={chatOpen}
-                onToggleChat={() => { setGameOpen(false); setChatOpen((v) => !v); }}
+                onToggleChat={() => {
+                  // In game-center mode, chat can coexist with the game —
+                  // only close the game picker when toggling chat normally.
+                  if (!gameIsCenter) setGameOpen(false);
+                  setChatOpen((v) => !v);
+                }}
                 gameOpen={gameOpen}
                 onToggleGame={() => { setChatOpen(false); setGameOpen((v) => !v); }}
+                activeGameId={activeGameId}
                 pushToTalk={pushToTalk}
               />
             </div>
+
+            {/* Chat sidebar — independently toggleable in all states */}
             <aside className={`hh-room__sidebar${chatOpen ? '' : ' hh-room__sidebar--hidden'}`}>
               <ChatPanel
                 onClose={() => setChatOpen(false)}
                 isGuest={room.isGuest}
               />
             </aside>
-            <aside className={`hh-room__sidebar${gameOpen ? '' : ' hh-room__sidebar--hidden'}`}>
-              <GamePanel
-                roomName={roomName}
-                isHost={room.isHost}
-                onClose={() => setGameOpen(false)}
-                activeGameId={activeGameId}
-              />
-            </aside>
+
+            {/* Game picker sidebar — only mounted when no game is running.
+                When gameIsCenter, GamePanel lives in hh-room__game-area instead. */}
+            {!gameIsCenter && (
+              <aside className={`hh-room__sidebar${gameOpen ? '' : ' hh-room__sidebar--hidden'}`}>
+                <GamePanel
+                  roomName={roomName}
+                  isHost={room.isHost}
+                  onClose={() => setGameOpen(false)}
+                  activeGameId={null}
+                />
+              </aside>
+            )}
           </div>
         </div>
         </BoostStoreProvider>
