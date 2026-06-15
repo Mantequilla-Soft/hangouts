@@ -77,6 +77,7 @@ export const chessPlugin: GamePlugin = {
       return {
         state: newState,
         broadcast: { type: 'chess_game_over', result: 'resigned', winner },
+        spectatorState: { fen: state.fen, players: state.players, turn: state.fen.split(' ')[1] as 'w' | 'b', status: 'resigned', winner, moveHistory: state.moveHistory },
         ended: true,
       };
     }
@@ -123,6 +124,7 @@ export const chessPlugin: GamePlugin = {
       ? { type: 'chess_game_over', result: status, winner, fen: newFen, moveHistory: newHistory }
       : { type: 'chess_move', from: action.from, to: action.to, san: move.san, fen: newFen, turn: chess.turn(), check: chess.inCheck(), moveHistory: newHistory };
 
-    return { state: newState, broadcast: broadcastPayload, ended };
+    const spectatorState = { fen: newFen, players: state.players, turn: ended ? null : chess.turn(), status, winner: winner ?? null, moveHistory: newHistory };
+    return { state: newState, broadcast: broadcastPayload, spectatorState, ended };
   },
 };

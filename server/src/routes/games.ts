@@ -60,6 +60,7 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       participants: session.participants,
       startedAt: session.startedAt,
       state: isParticipant ? (session.payloads[request.username] ?? null) : (session.spectatorState ?? null),
+      boardState: isParticipant ? (session.spectatorState ?? null) : null,
       isSpectator: !isParticipant,
     });
   });
@@ -166,6 +167,7 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
 
     session.state = result.state;
     if (result.payloads) Object.assign(session.payloads, result.payloads);
+    if (result.spectatorState !== undefined) session.spectatorState = result.spectatorState;
 
     if (result.broadcast !== undefined) {
       await broadcastToRoom(name, { type: 'game:broadcast', payload: result.broadcast });

@@ -1,6 +1,6 @@
 {
   "name": "@snapie/hangouts-react",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,7 +22,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@snapie/hangouts-core": "^0.8.2",
+    "@snapie/hangouts-core": "^0.8.3",
     "chess.js": "^1.4.0",
     "react-chessboard": "^5.10.0"
   },

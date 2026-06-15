@@ -60,9 +60,10 @@ interface ChessGameOverBroadcast {
 interface ChessSpectatorState {
   fen: string;
   players: { w: string; b: string };
-  turn: 'w' | 'b';
+  turn: 'w' | 'b' | null;
   status: ChessGameStatus;
   moveHistory: string[];
+  winner?: string | null;
 }
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -116,7 +117,7 @@ export function useChess({ roomName }: UseChessOptions): UseChessResult {
         if (s) {
           setLocalFen(s.fen);
           setPlayers(s.players);
-          setTurn(s.turn);
+          if (s.turn) setTurn(s.turn);
           setStatus(s.status);
           setMoveHistory(s.moveHistory ?? []);
         }
@@ -125,6 +126,15 @@ export function useChess({ roomName }: UseChessOptions): UseChessResult {
         if (payload) {
           setMyColor(payload.color);
           setPlayers(payload.players);
+        }
+        const board = game.boardState as ChessSpectatorState | null;
+        if (board) {
+          setLocalFen(board.fen);
+          localFenRef.current = board.fen;
+          if (board.turn) setTurn(board.turn);
+          setStatus(board.status ?? 'playing');
+          setMoveHistory(board.moveHistory ?? []);
+          if (board.winner) setWinner(board.winner);
         }
       }
     } catch {

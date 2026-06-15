@@ -244,6 +244,7 @@ export interface ActiveGame {
   participants: string[];
   startedAt: number;
   state: unknown;
+  boardState?: unknown;
   isSpectator?: boolean;
 }
 

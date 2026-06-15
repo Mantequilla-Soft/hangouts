@@ -33,6 +33,7 @@ export interface GameActionResult {
   broadcast?: unknown;
   ended?: boolean;
   feedback?: { to: string; message: string };
+  spectatorState?: unknown;
 }
 
 export interface GameInfo {
