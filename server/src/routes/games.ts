@@ -95,8 +95,8 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
 
     const lkParticipants = await roomService.listParticipants(name);
     const participants = lkParticipants
-      .map((p) => p.identity)
-      .filter((id) => !id.startsWith('guest-') && !id.startsWith('obs-'));
+      .filter((p) => p.permission?.canPublish && !p.identity.startsWith('guest-') && !p.identity.startsWith('obs-'))
+      .map((p) => p.identity);
 
     if (participants.length < plugin.minPlayers) {
       return reply.badRequest(`Game requires at least ${plugin.minPlayers} players`);

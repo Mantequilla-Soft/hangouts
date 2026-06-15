@@ -487,6 +487,10 @@
   min-height: 0;
 }
 
+.hh-room__sidebar--hidden {
+  display: none;
+}
+
 /* Left rail of small audience avatars — keeps listeners visible without
    eating vertical space below the speaker grid. Frosted-glass surface
    matching the chat sidebar and controls bar so the room reads as a

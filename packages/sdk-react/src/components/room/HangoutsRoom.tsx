@@ -351,24 +351,20 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
                 pushToTalk={pushToTalk}
               />
             </div>
-            {chatOpen && (
-              <aside className="hh-room__sidebar">
-                <ChatPanel
-                  onClose={() => setChatOpen(false)}
-                  isGuest={room.isGuest}
-                />
-              </aside>
-            )}
-            {gameOpen && (
-              <aside className="hh-room__sidebar">
-                <GamePanel
-                  roomName={roomName}
-                  isHost={room.isHost}
-                  onClose={() => setGameOpen(false)}
-                  activeGameId={activeGameId}
-                />
-              </aside>
-            )}
+            <aside className={`hh-room__sidebar${chatOpen ? '' : ' hh-room__sidebar--hidden'}`}>
+              <ChatPanel
+                onClose={() => setChatOpen(false)}
+                isGuest={room.isGuest}
+              />
+            </aside>
+            <aside className={`hh-room__sidebar${gameOpen ? '' : ' hh-room__sidebar--hidden'}`}>
+              <GamePanel
+                roomName={roomName}
+                isHost={room.isHost}
+                onClose={() => setGameOpen(false)}
+                activeGameId={activeGameId}
+              />
+            </aside>
           </div>
         </div>
         </BoostStoreProvider>
