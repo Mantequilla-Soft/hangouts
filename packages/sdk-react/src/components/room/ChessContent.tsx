@@ -99,63 +99,67 @@ export function ChessContent({ roomName, isHost }: ChessContentProps) {
 
   return (
     <div className="hh-chess">
-      <div className="hh-chess__player hh-chess__player--top">{opponent}</div>
-
-      <div className="hh-chess__board">
-        <Chessboard
-          options={{
-            position: game.fen,
-            boardOrientation: orientation,
-            onPieceDrop: handlePieceDrop,
-            onSquareClick: handleSquareClick,
-            allowDragging: game.isMyTurn && !gameOver,
-            squareStyles,
-            boardStyle: { borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,.3)' },
-          }}
-        />
-      </div>
-
-      <div className="hh-chess__player hh-chess__player--bottom">{self}</div>
-
-      <div className={`hh-chess__status${gameOver ? ' hh-chess__status--gameover' : ''}`}>
-        {statusText}
-      </div>
-
-      {game.error && (
-        <div className="hh-chess__error">{game.error}</div>
-      )}
-
-      {movePairs.length > 0 && (
-        <div className="hh-chess__history">
-          {movePairs.map(({ n, w, b }) => (
-            <span key={n} className="hh-chess__move-pair">
-              <span className="hh-chess__move-num">{n}.</span>
-              <span className="hh-chess__move">{w}</span>
-              {b && <span className="hh-chess__move">{b}</span>}
-            </span>
-          ))}
+      {/* Left column: opponent → board → self */}
+      <div className="hh-chess__board-col">
+        <div className="hh-chess__player hh-chess__player--top">{opponent}</div>
+        <div className="hh-chess__board">
+          <Chessboard
+            options={{
+              position: game.fen,
+              boardOrientation: orientation,
+              onPieceDrop: handlePieceDrop,
+              onSquareClick: handleSquareClick,
+              allowDragging: game.isMyTurn && !gameOver,
+              squareStyles,
+              boardStyle: { borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,.3)' },
+            }}
+          />
         </div>
-      )}
+        <div className="hh-chess__player hh-chess__player--bottom">{self}</div>
+      </div>
 
-      <div className="hh-chess__actions">
-        {!game.isSpectator && game.myColor && !gameOver && (
-          <button
-            className="hh-btn hh-btn--secondary hh-btn--small"
-            onClick={() => void game.resign()}
-            disabled={game.isLoading}
-          >
-            Resign
-          </button>
+      {/* Right column: status, move history, action buttons */}
+      <div className="hh-chess__side">
+        <div className={`hh-chess__status${gameOver ? ' hh-chess__status--gameover' : ''}`}>
+          {statusText}
+        </div>
+
+        {game.error && (
+          <div className="hh-chess__error">{game.error}</div>
         )}
-        {isHost && !gameOver && (
-          <button
-            className="hh-btn hh-btn--danger hh-btn--small"
-            onClick={() => void game.endGame()}
-            disabled={game.isLoading}
-          >
-            End Game
-          </button>
+
+        {movePairs.length > 0 && (
+          <div className="hh-chess__history">
+            {movePairs.map(({ n, w, b }) => (
+              <span key={n} className="hh-chess__move-pair">
+                <span className="hh-chess__move-num">{n}.</span>
+                <span className="hh-chess__move">{w}</span>
+                {b && <span className="hh-chess__move">{b}</span>}
+              </span>
+            ))}
+          </div>
         )}
+
+        <div className="hh-chess__actions">
+          {!game.isSpectator && game.myColor && !gameOver && (
+            <button
+              className="hh-btn hh-btn--secondary hh-btn--small"
+              onClick={() => void game.resign()}
+              disabled={game.isLoading}
+            >
+              Resign
+            </button>
+          )}
+          {isHost && !gameOver && (
+            <button
+              className="hh-btn hh-btn--danger hh-btn--small"
+              onClick={() => void game.endGame()}
+              disabled={game.isLoading}
+            >
+              End Game
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
