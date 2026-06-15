@@ -639,23 +639,21 @@
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 
-  /* Chess: collapse to column layout on mobile — board on top, info below */
+  /* Chess: stack board above info; board still scales to fit (no scroll). */
   .hh-chess {
     flex-direction: column;
-    overflow-y: auto;
+    overflow: hidden;
   }
   .hh-chess__board-col {
-    align-self: center;
+    flex: 1 1 0;
+    min-height: 0;
     width: 100%;
-  }
-  .hh-chess__board {
-    flex: none;
-    width: 100%;
-    aspect-ratio: 1 / 1;
   }
   .hh-chess__side {
-    flex: none;
-    overflow-y: visible;
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 35%;
+    overflow-y: auto;
   }
 }
 
@@ -2333,7 +2331,7 @@
 
 /* === Chess === */
 
-/* Chess: board on left (capped to fit available height), info on right */
+/* Chess: board on left (scaled to fit available height), info on right */
 .hh-chess {
   display: flex;
   flex-direction: row;
@@ -2344,17 +2342,24 @@
   overflow: hidden;
 }
 
-/* Left column: width is bounded so the square board never overflows vertically.
-   280px accounts for header + game-strip + controls + player labels + padding.
-   560px cap prevents the board from crowding the info column on very tall screens. */
+/* Center-stage chess: reclaim the panel header row for the board. */
+.hh-game-panel--center:has(.hh-chess) .hh-game-panel__header {
+  display: none;
+}
+
+.hh-game-panel--center:has(.hh-chess) .hh-chess {
+  padding-top: 0.5rem;
+}
+
+/* Left column: flex child between opponent/self labels; board scales inside. */
 .hh-chess__board-col {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.25rem;
-  max-width: min(calc(100vh - 280px), 560px);
-  min-width: 120px;
-  flex-shrink: 1;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
 }
 
 .hh-chess__player {
@@ -2363,10 +2368,11 @@
   color: var(--hh-text);
   padding: 0.125rem 0;
   flex-shrink: 0;
+  width: 100%;
+  text-align: center;
 }
 
 .hh-chess__player--top {
-  text-align: right;
   color: var(--hh-text-secondary);
 }
 
@@ -2374,17 +2380,33 @@
   color: var(--hh-text);
 }
 
-/* Board fills the column's width, which is bounded by max-width above.
-   react-chessboard reads clientWidth and sizes the board to match. */
+/* Board area fills remaining column height; inner box is the largest square
+   that fits (container queries — avoids viewport-height guesses in modals). */
 .hh-chess__board {
+  flex: 1 1 0;
+  min-height: 0;
   width: 100%;
-  min-width: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  container-type: size;
+}
+
+.hh-chess__board-inner {
+  width: min(100cqw, 100cqh);
+  height: min(100cqw, 100cqh);
+}
+
+.hh-chess__board-inner [id$="-board"] {
+  width: 100%;
+  height: 100%;
 }
 
 /* Right column: status, move history, action buttons */
 .hh-chess__side {
-  flex: 1;
-  min-width: 80px;
+  flex: 0 0 auto;
+  width: min(150px, 30%);
+  min-width: 90px;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;

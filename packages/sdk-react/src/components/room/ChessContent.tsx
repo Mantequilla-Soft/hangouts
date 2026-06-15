@@ -103,17 +103,19 @@ export function ChessContent({ roomName, isHost }: ChessContentProps) {
       <div className="hh-chess__board-col">
         <div className="hh-chess__player hh-chess__player--top">{opponent}</div>
         <div className="hh-chess__board">
-          <Chessboard
-            options={{
-              position: game.fen,
-              boardOrientation: orientation,
-              onPieceDrop: handlePieceDrop,
-              onSquareClick: handleSquareClick,
-              allowDragging: game.isMyTurn && !gameOver,
-              squareStyles,
-              boardStyle: { borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,.3)' },
-            }}
-          />
+          <div className="hh-chess__board-inner">
+            <Chessboard
+              options={{
+                position: game.fen,
+                boardOrientation: orientation,
+                onPieceDrop: handlePieceDrop,
+                onSquareClick: handleSquareClick,
+                allowDragging: game.isMyTurn && !gameOver,
+                squareStyles,
+                boardStyle: { borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,.3)' },
+              }}
+            />
+          </div>
         </div>
         <div className="hh-chess__player hh-chess__player--bottom">{self}</div>
       </div>

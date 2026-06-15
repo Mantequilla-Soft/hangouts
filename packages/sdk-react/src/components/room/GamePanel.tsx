@@ -309,7 +309,7 @@ export function GamePanel({ roomName, isHost, onClose, activeGameId }: GamePanel
   const isActive = !!activeGameId;
 
   return (
-    <div className="hh-game-panel">
+    <div className={`hh-game-panel${!onClose ? ' hh-game-panel--center' : ''}`}>
       <div className="hh-game-panel__header">
         <span className="hh-game-panel__title">
           {activeGameId === 'chess' ? 'Chess' : activeGameId === 'word-guess' ? 'Word Guess' : activeGameId === 'fast-draw' ? 'Fast Draw' : 'Games'}
