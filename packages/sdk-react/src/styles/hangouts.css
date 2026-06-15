@@ -2049,6 +2049,12 @@
   border-color: var(--hh-primary);
 }
 
+.hh-game-panel__select-loading {
+  font-size: 0.8125rem;
+  color: var(--hh-text-muted);
+  padding: 0.375rem 0;
+}
+
 .hh-game-panel__error {
   font-size: 0.8125rem;
   color: var(--hh-danger, #e31337);

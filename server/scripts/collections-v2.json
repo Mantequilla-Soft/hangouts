@@ -1,0 +1,46 @@
+[
+  {
+    "id": "famous-people",
+    "name": "Famous People",
+    "words": [
+      "einstein", "shakespeare", "mozart", "newton", "darwin",
+      "napoleon", "cleopatra", "gandhi", "picasso", "beethoven",
+      "lincoln", "tesla", "michelangelo", "rembrandt", "mandela",
+      "churchill", "columbus", "galileo", "tutankhamun", "confucius",
+      "voltaire", "jefferson", "washington", "freud", "curie"
+    ]
+  },
+  {
+    "id": "historical-figures",
+    "name": "Historical Figures",
+    "words": [
+      "cleopatra", "napoleon", "caesar", "alexander", "hannibal",
+      "columbus", "lincoln", "washington", "charlemagne", "saladin",
+      "spartacus", "ramesses", "confucius", "machiavelli", "attila",
+      "nero", "caligula", "hammurabi", "xerxes", "leonidas",
+      "boudicca", "bismarck", "robespierre", "genghis", "tamerlane"
+    ]
+  },
+  {
+    "id": "philosophers",
+    "name": "Philosophers",
+    "words": [
+      "socrates", "plato", "aristotle", "kant", "nietzsche",
+      "descartes", "hegel", "locke", "hume", "rousseau",
+      "voltaire", "spinoza", "epicurus", "seneca", "schopenhauer",
+      "wittgenstein", "sartre", "camus", "confucius", "kierkegaard",
+      "leibniz", "aquinas", "zeno", "plutarch", "marcus"
+    ]
+  },
+  {
+    "id": "evil-characters",
+    "name": "Evil Characters",
+    "words": [
+      "voldemort", "sauron", "thanos", "joker", "hannibal",
+      "magneto", "maleficent", "ursula", "jafar", "cruella",
+      "moriarty", "chucky", "pennywise", "freddy", "dracula",
+      "palpatine", "iago", "cersei", "megatron", "shredder",
+      "carnage", "ultron", "apocalypse", "loki", "lex"
+    ]
+  }
+]

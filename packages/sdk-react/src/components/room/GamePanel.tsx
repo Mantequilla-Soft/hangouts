@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useWordGuess } from '../../hooks/useWordGuess.js';
+import { useHangoutsContext } from '../../context/HangoutsContext.js';
 
 export interface GamePanelProps {
   roomName: string;
@@ -7,17 +8,45 @@ export interface GamePanelProps {
   onClose?: () => void;
 }
 
-const THEMES = [
-  { id: 'animals', label: 'Animals' },
-  { id: 'food',    label: 'Food' },
-  { id: 'movies',  label: 'Movies' },
-];
+interface CollectionOption {
+  id: string;
+  name: string;
+  wordCount: number;
+}
 
 export function GamePanel({ roomName, isHost, onClose }: GamePanelProps) {
+  const { apiClient } = useHangoutsContext();
   const game = useWordGuess({ roomName });
-  const [selectedTheme, setSelectedTheme] = useState('animals');
+
+  const [collections, setCollections] = useState<CollectionOption[]>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(true);
+  const [selectedTheme, setSelectedTheme] = useState('');
   const [guessInput, setGuessInput] = useState('');
   const eventsBottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setCollectionsLoading(true);
+    apiClient.listWordCollections()
+      .then((cols) => {
+        setCollections(cols);
+        if (cols.length > 0 && !selectedTheme) {
+          setSelectedTheme(cols[0]!.id);
+        }
+      })
+      .catch(() => {
+        // Fallback so the panel is never completely broken
+        const fallback: CollectionOption[] = [
+          { id: 'animals', name: 'Animals', wordCount: 0 },
+          { id: 'food', name: 'Food', wordCount: 0 },
+          { id: 'movies', name: 'Movies', wordCount: 0 },
+        ];
+        setCollections(fallback);
+        if (!selectedTheme) setSelectedTheme('animals');
+      })
+      .finally(() => setCollectionsLoading(false));
+  // Only run once on mount — apiClient reference is stable
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     eventsBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -62,20 +91,26 @@ export function GamePanel({ roomName, isHost, onClose }: GamePanelProps) {
               </p>
               <label className="hh-game-panel__label">
                 Theme
-                <select
-                  className="hh-game-panel__select"
-                  value={selectedTheme}
-                  onChange={(e) => setSelectedTheme(e.target.value)}
-                >
-                  {THEMES.map((t) => (
-                    <option key={t.id} value={t.id}>{t.label}</option>
-                  ))}
-                </select>
+                {collectionsLoading ? (
+                  <span className="hh-game-panel__select-loading">Loading…</span>
+                ) : (
+                  <select
+                    className="hh-game-panel__select"
+                    value={selectedTheme}
+                    onChange={(e) => setSelectedTheme(e.target.value)}
+                  >
+                    {collections.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}{c.wordCount > 0 ? ` (${c.wordCount})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </label>
               <button
                 className="hh-btn hh-btn--primary"
                 onClick={handleStartGame}
-                disabled={game.isLoading}
+                disabled={game.isLoading || collectionsLoading || !selectedTheme}
               >
                 {game.isLoading ? 'Starting…' : 'Start Word Guess'}
               </button>
