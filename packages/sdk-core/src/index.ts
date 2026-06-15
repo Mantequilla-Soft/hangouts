@@ -44,4 +44,5 @@ export type {
   GameStartResponse,
   GameActionResponse,
   GameMessage,
+  WordCollection,
 } from './types.js';

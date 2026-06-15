@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { LiveKitRoom, RoomAudioRenderer, StartAudio } from '@livekit/components-react';
+import { useDataChannel } from '@livekit/components-react';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { useHandRaiseChime } from '../../hooks/useHandRaiseChime.js';
@@ -8,6 +9,7 @@ import { SpeakerStage } from './SpeakerStage.js';
 import { AudienceSection } from './AudienceSection.js';
 import { RoomControls } from './RoomControls.js';
 import { ChatPanel } from './ChatPanel.js';
+import { GamePanel } from './GamePanel.js';
 import { HangoutsErrorBoundary } from './HangoutsErrorBoundary.js';
 import { GuestNameModal } from '../lobby/GuestNameModal.js';
 import { BoostOverlay } from './BoostOverlay.js';
@@ -53,6 +55,26 @@ function WakeLockGuard() {
  *  positioning explicit. */
 function HandRaiseChimeListener({ enabled }: { enabled: boolean }) {
   useHandRaiseChime(enabled);
+  return null;
+}
+
+/** Listens for game lifecycle events on the 'game' data channel topic
+ *  so HangoutsRoom can auto-open/close the game panel without needing
+ *  the GamePanel itself to be mounted. */
+function GameNotificationListener({
+  onGameStarted,
+  onGameEnded,
+}: {
+  onGameStarted: () => void;
+  onGameEnded: () => void;
+}) {
+  useDataChannel('game', (msg) => {
+    try {
+      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as { type: string };
+      if (parsed.type === 'game:started') onGameStarted();
+      if (parsed.type === 'game:ended') onGameEnded();
+    } catch { /* ignore malformed */ }
+  });
   return null;
 }
 
@@ -124,6 +146,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
   const [chatOpen, setChatOpen] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth > 768 : true,
   );
+  const [gameOpen, setGameOpen] = useState(false);
   const [showGuestModal, setShowGuestModal] = useState(false);
   // Mirror the host's chat-open state into room metadata so the egress
   // template knows whether to render the chat panel in the recording.
@@ -254,6 +277,10 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
             only when LiveKit reports audio playback is blocked. */}
         <StartAudio label="Click to enable audio" className="hh-start-audio" />
         <HandRaiseChimeListener enabled={notificationSounds} />
+        <GameNotificationListener
+          onGameStarted={() => { setChatOpen(false); setGameOpen(true); }}
+          onGameEnded={() => setGameOpen(false)}
+        />
         <WakeLockGuard />
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
         <div
@@ -317,7 +344,9 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
                 roomVideoEnabled={video}
                 obsBaseUrl={obsBaseUrl}
                 chatOpen={chatOpen}
-                onToggleChat={() => setChatOpen((v) => !v)}
+                onToggleChat={() => { setGameOpen(false); setChatOpen((v) => !v); }}
+                gameOpen={gameOpen}
+                onToggleGame={() => { setChatOpen(false); setGameOpen((v) => !v); }}
                 pushToTalk={pushToTalk}
               />
             </div>
@@ -326,6 +355,15 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
                 <ChatPanel
                   onClose={() => setChatOpen(false)}
                   isGuest={room.isGuest}
+                />
+              </aside>
+            )}
+            {gameOpen && (
+              <aside className="hh-room__sidebar">
+                <GamePanel
+                  roomName={roomName}
+                  isHost={room.isHost}
+                  onClose={() => setGameOpen(false)}
                 />
               </aside>
             )}

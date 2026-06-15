@@ -1,10 +1,8 @@
 import type { GamePlugin, GameStartParams, GameStartResult, GameActionParams, GameActionResult } from '../lib/game-types.js';
+import { findCollection } from '../lib/word-collection.js';
 
-const THEMES: Record<string, string[]> = {
-  animals: ['elephant', 'rhinoceros', 'crocodile', 'giraffe', 'hippopotamus', 'cheetah', 'penguin', 'flamingo', 'octopus', 'platypus', 'kangaroo', 'orangutan'],
-  food: ['pizza', 'sushi', 'taco', 'croissant', 'ramen', 'avocado', 'pineapple', 'lasagna', 'hummus', 'paella', 'dumpling', 'kimchi'],
-  movies: ['inception', 'titanic', 'avatar', 'gladiator', 'interstellar', 'parasite', 'joker', 'oppenheimer', 'dune', 'matrix', 'jaws', 'shrek'],
-};
+// Fallback used only when MongoDB is unavailable
+const FALLBACK_WORDS = ['elephant', 'rhinoceros', 'crocodile', 'giraffe', 'penguin', 'octopus', 'kangaroo', 'chameleon'];
 
 interface WordGuessConfig {
   theme?: string;
@@ -34,10 +32,21 @@ export const wordGuessPlugin: GamePlugin = {
   minPlayers: 2,
   maxPlayers: 12,
 
-  onStart(params: GameStartParams): GameStartResult {
+  async onStart(params: GameStartParams): Promise<GameStartResult> {
     const cfg = (params.config ?? {}) as WordGuessConfig;
-    const theme = cfg.theme && THEMES[cfg.theme] ? cfg.theme : 'animals';
-    const wordPool = cfg.customWords?.length ? cfg.customWords : THEMES[theme]!;
+
+    let wordPool: string[];
+    let resolvedTheme: string;
+
+    if (cfg.customWords?.length) {
+      wordPool = cfg.customWords;
+      resolvedTheme = 'custom';
+    } else {
+      const themeId = cfg.theme ?? 'animals';
+      const collection = await findCollection(themeId);
+      wordPool = collection?.words ?? FALLBACK_WORDS;
+      resolvedTheme = collection ? themeId : 'animals';
+    }
 
     const shuffledWords = shuffle(wordPool);
     const assignments: Record<string, string> = {};
@@ -47,7 +56,7 @@ export const wordGuessPlugin: GamePlugin = {
 
     const state: WordGuessState = {
       assignments,
-      theme: cfg.customWords?.length ? 'custom' : theme,
+      theme: resolvedTheme,
       startedAt: Date.now(),
       guessed: [],
     };

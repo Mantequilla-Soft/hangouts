@@ -1,4 +1,4 @@
-import type { Room, RoomVisibility, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse, GameInfo, ActiveGame, GameStartResponse, GameActionResponse } from './types.js';
+import type { Room, RoomVisibility, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse, GameInfo, ActiveGame, GameStartResponse, GameActionResponse, WordCollection } from './types.js';
 import { HangoutsApiError } from './errors.js';
 
 export interface HangoutsApiClientOptions {
@@ -345,5 +345,9 @@ export class HangoutsApiClient {
 
   async endGame(roomName: string): Promise<void> {
     return this.request('DELETE', `/rooms/${encodeURIComponent(roomName)}/game`);
+  }
+
+  async listWordCollections(): Promise<WordCollection[]> {
+    return this.request('GET', '/game-collections');
   }
 }

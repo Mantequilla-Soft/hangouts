@@ -71,6 +71,12 @@ export { useUserPresence } from './hooks/useUserPresence.js';
 // Hooks — Push-to-Talk
 export { usePushToTalk, type UsePushToTalkOptions, type UsePushToTalkResult } from './hooks/usePushToTalk.js';
 
+// Hooks — Games
+export { useWordGuess, type UseWordGuessOptions, type UseWordGuessResult, type WordGuessEvent } from './hooks/useWordGuess.js';
+
+// Components — Games
+export { GamePanel, type GamePanelProps } from './components/room/GamePanel.js';
+
 // Components — Lobby
 export { RoomLobby, type RoomLobbyProps } from './components/lobby/RoomLobby.js';
 export { RoomCard, type RoomCardProps } from './components/lobby/RoomCard.js';

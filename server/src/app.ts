@@ -11,12 +11,12 @@ import { streamingRoutes } from './routes/streaming.js';
 import { boostRoutes } from './routes/boosts.js';
 import { eventRoutes } from './routes/events.js';
 import { gameRoutes } from './routes/games.js';
+import { seedWordCollections } from './lib/seed-word-collections.js';
 import './games/index.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
-  // Ensure the recording output directory exists — it lives in /tmp which is
-  // cleared on reboot, so we recreate it on every server start.
   await mkdir('/tmp/livekit-recordings', { recursive: true });
+  await seedWordCollections();
 
   const server = Fastify({ logger: true });
 

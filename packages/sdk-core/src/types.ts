@@ -262,3 +262,9 @@ export type GameMessage =
   | { type: 'game:state'; payload: unknown }
   | { type: 'game:broadcast'; payload: unknown }
   | { type: 'game:ended' };
+
+export interface WordCollection {
+  id: string;
+  name: string;
+  wordCount: number;
+}

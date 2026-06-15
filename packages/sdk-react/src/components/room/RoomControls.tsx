@@ -42,6 +42,10 @@ export interface RoomControlsProps {
   chatOpen?: boolean;
   /** Toggle the chat sidebar. When provided, a chat button appears in the controls. */
   onToggleChat?: () => void;
+  /** Whether the game sidebar is currently open. */
+  gameOpen?: boolean;
+  /** Toggle the game sidebar. When provided, a game button appears in the controls. */
+  onToggleGame?: () => void;
   /** Boost config from room metadata. When present and enabled, shows a Boost button for authenticated non-guests. */
   boostConfig?: BoostConfig;
   /**
@@ -52,7 +56,7 @@ export interface RoomControlsProps {
   pushToTalk?: boolean;
 }
 
-export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEndRoom, onTransferHost, onSetLayout, hostIdentity, onVideoHandoff, onAudioHandoff, videoEnabled = false, roomVideoEnabled = false, chatOpen, onToggleChat, obsBaseUrl, boostConfig, pushToTalk = false }: RoomControlsProps) {
+export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEndRoom, onTransferHost, onSetLayout, hostIdentity, onVideoHandoff, onAudioHandoff, videoEnabled = false, roomVideoEnabled = false, chatOpen, onToggleChat, gameOpen, onToggleGame, obsBaseUrl, boostConfig, pushToTalk = false }: RoomControlsProps) {
   const { username, isAuthenticated } = useHangoutsContext();
   const [boostDialogOpen, setBoostDialogOpen] = useState(false);
   const [boostHistoryOpen, setBoostHistoryOpen] = useState(false);
@@ -259,6 +263,17 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
             {unread > 0 && (
               <span className="hh-controls__chat-badge">{unread}</span>
             )}
+          </button>
+        )}
+
+        {onToggleGame && !gameOpen && (
+          <button
+            className="hh-btn hh-btn--icon hh-btn--secondary"
+            onClick={onToggleGame}
+            title="Show games"
+            aria-label="Show games"
+          >
+            🎮
           </button>
         )}
       </div>

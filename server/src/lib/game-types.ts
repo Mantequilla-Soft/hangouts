@@ -4,7 +4,7 @@ export interface GamePlugin {
   description: string;
   minPlayers: number;
   maxPlayers: number;
-  onStart(params: GameStartParams): GameStartResult;
+  onStart(params: GameStartParams): Promise<GameStartResult> | GameStartResult;
   onAction(params: GameActionParams): GameActionResult;
 }
 

@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { gameRegistry } from '../lib/game-registry.js';
 import { gameSessionStore } from '../lib/game-session-store.js';
+import { listCollections } from '../lib/word-collection.js';
 
 async function verifyHost(roomName: string, username: string) {
   const rooms = await roomService.listRooms([roomName]);
@@ -32,6 +33,11 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
   // List available game plugins — public, no auth required.
   fastify.get('/games', async (_request, reply) => {
     return reply.send(gameRegistry.list());
+  });
+
+  // List available word collections — public, no auth required.
+  fastify.get('/game-collections', async (_request, reply) => {
+    return reply.send(await listCollections());
   });
 
   // Get active game state for the calling participant (for late joiners).
@@ -97,7 +103,7 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.badRequest(`Game supports at most ${plugin.maxPlayers} players`);
     }
 
-    const result = plugin.onStart({ participants, config });
+    const result = await plugin.onStart({ participants, config });
     const session = gameSessionStore.start(name, plugin, result.state, participants, result.payloads);
 
     await broadcastToRoom(name, {

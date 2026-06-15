@@ -1970,6 +1970,236 @@
   color: var(--hh-primary);
 }
 
+/* === Game Panel === */
+
+.hh-game-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--hh-surface);
+  border-left: 1px solid var(--hh-border);
+  overflow: hidden;
+}
+
+.hh-game-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--hh-border);
+  flex-shrink: 0;
+}
+
+.hh-game-panel__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.hh-game-panel__collapse {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--hh-text-muted);
+  font-size: 1.125rem;
+  padding: 0 0.25rem;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.hh-game-panel__collapse:hover {
+  color: var(--hh-text);
+}
+
+/* ── Idle (no active game) ── */
+
+.hh-game-panel__idle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem 0.875rem;
+}
+
+.hh-game-panel__idle-hint {
+  font-size: 0.8125rem;
+  color: var(--hh-text-muted);
+  line-height: 1.5;
+}
+
+.hh-game-panel__label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--hh-text-muted);
+}
+
+.hh-game-panel__select {
+  background: var(--hh-bg);
+  border: 1px solid var(--hh-border);
+  border-radius: 6px;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.875rem;
+  color: var(--hh-text);
+  cursor: pointer;
+}
+
+.hh-game-panel__select:focus {
+  outline: none;
+  border-color: var(--hh-primary);
+}
+
+.hh-game-panel__error {
+  font-size: 0.8125rem;
+  color: var(--hh-danger, #e31337);
+  margin: 0;
+}
+
+/* ── Active game ── */
+
+.hh-game-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.hh-game-panel__my-word {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.875rem;
+  background: color-mix(in srgb, var(--hh-primary, #e31337) 8%, transparent);
+  border-bottom: 1px solid var(--hh-border);
+  flex-shrink: 0;
+}
+
+.hh-game-panel__my-word-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--hh-text-muted);
+  font-weight: 600;
+}
+
+.hh-game-panel__my-word-value {
+  font-size: 1.375rem;
+  font-weight: 700;
+  margin-top: 0.2rem;
+  letter-spacing: 0.08em;
+}
+
+/* ── Others list ── */
+
+.hh-game-panel__others {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0.875rem;
+  border-bottom: 1px solid var(--hh-border);
+}
+
+.hh-game-panel__others-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--hh-text-muted);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.hh-game-panel__other-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  font-size: 0.8125rem;
+}
+
+.hh-game-panel__other-row--guessed {
+  opacity: 0.6;
+}
+
+.hh-game-panel__other-identity {
+  color: var(--hh-text-muted);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hh-game-panel__other-word {
+  font-weight: 700;
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+}
+
+.hh-game-panel__guessed-badge {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+}
+
+/* ── Guess form ── */
+
+.hh-game-panel__guess-form {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--hh-border);
+  flex-shrink: 0;
+}
+
+.hh-game-panel__guess-input {
+  flex: 1;
+  background: var(--hh-bg);
+  border: 1px solid var(--hh-border);
+  border-radius: 6px;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.875rem;
+  color: var(--hh-text);
+  font-family: inherit;
+  min-width: 0;
+}
+
+.hh-game-panel__guess-input:focus {
+  outline: none;
+  border-color: var(--hh-primary);
+}
+
+/* ── Event log ── */
+
+.hh-game-panel__events {
+  flex: 0 0 auto;
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 0.5rem 0.875rem;
+  border-bottom: 1px solid var(--hh-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.hh-game-panel__event {
+  font-size: 0.78125rem;
+  line-height: 1.4;
+}
+
+.hh-game-panel__event--correct {
+  color: #22c55e;
+}
+
+.hh-game-panel__event--wrong {
+  color: var(--hh-text-muted);
+}
+
+/* ── Footer (end game) ── */
+
+.hh-game-panel__footer {
+  padding: 0.625rem 0.875rem;
+  flex-shrink: 0;
+}
+
 /* === Recording === */
 
 .hh-recording-indicator {
