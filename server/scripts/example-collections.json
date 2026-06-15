@@ -1,0 +1,20 @@
+[
+  {
+    "id": "space",
+    "name": "Space & Astronomy",
+    "words": [
+      "nebula", "quasar", "supernova", "pulsar", "magnetar",
+      "singularity", "exoplanet", "asteroid", "comet", "eclipse",
+      "solstice", "equinox", "parallax", "redshift", "cosmos"
+    ]
+  },
+  {
+    "id": "hive",
+    "name": "Hive & Web3",
+    "words": [
+      "witness", "delegation", "curation", "powerdown", "hivemind",
+      "steemit", "splinterlands", "blocktrades", "keychain", "posting",
+      "proposal", "downvote", "bandwidth", "resourcecredits", "sidechain"
+    ]
+  }
+]
