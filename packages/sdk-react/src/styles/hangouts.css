@@ -2066,7 +2066,8 @@
 .hh-game-panel {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   background: var(--hh-surface);
   border-left: 1px solid var(--hh-border);
   overflow: hidden;
@@ -2159,6 +2160,7 @@
   flex-direction: column;
   gap: 0;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -2331,7 +2333,7 @@
 
 /* === Chess === */
 
-/* Chess: board on left (sized by available height), info on right */
+/* Chess: board on left (capped to fit available height), info on right */
 .hh-chess {
   display: flex;
   flex-direction: row;
@@ -2342,14 +2344,17 @@
   overflow: hidden;
 }
 
-/* Left column — height fills the row; board's aspect-ratio determines the column width */
+/* Left column: width is bounded so the square board never overflows vertically.
+   280px accounts for header + game-strip + controls + player labels + padding.
+   560px cap prevents the board from crowding the info column on very tall screens. */
 .hh-chess__board-col {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.25rem;
-  flex-shrink: 0;
-  min-width: 0;
+  max-width: min(calc(100vh - 280px), 560px);
+  min-width: 120px;
+  flex-shrink: 1;
 }
 
 .hh-chess__player {
@@ -2369,19 +2374,17 @@
   color: var(--hh-text);
 }
 
-/* Board: grows in the column's height axis; aspect-ratio makes width = height.
-   react-chessboard reads clientWidth, which equals the flex-computed height. */
+/* Board fills the column's width, which is bounded by max-width above.
+   react-chessboard reads clientWidth and sizes the board to match. */
 .hh-chess__board {
-  flex: 1;
-  min-height: 0;
+  width: 100%;
   min-width: 120px;
-  aspect-ratio: 1 / 1;
 }
 
-/* Right column: status, move history, buttons — scrolls if needed */
+/* Right column: status, move history, action buttons */
 .hh-chess__side {
   flex: 1;
-  min-width: 100px;
+  min-width: 80px;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
