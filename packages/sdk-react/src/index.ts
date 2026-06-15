@@ -20,6 +20,9 @@ export {
   type EventVisibility,
   type UserPresence,
   type StartEventResponse,
+  type GameResultPayload,
+  type ChessGameResult,
+  type FastDrawGameResult,
 } from '@snapie/hangouts-core';
 
 // Provider

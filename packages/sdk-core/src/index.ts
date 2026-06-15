@@ -44,5 +44,8 @@ export type {
   GameStartResponse,
   GameActionResponse,
   GameMessage,
+  GameResultPayload,
+  ChessGameResult,
+  FastDrawGameResult,
   WordCollection,
 } from './types.js';

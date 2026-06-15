@@ -12,6 +12,7 @@ type Section =
   | 'streaming'
   | 'boosts'
   | 'events-presence'
+  | 'games'
   | 'hand-raise-chimes'
   | 'theming'
   | 'premium-and-bans'
@@ -33,6 +34,7 @@ const NAV: { id: Section; label: string; group?: string }[] = [
   { id: 'streaming', label: 'Live Streaming', group: 'Features' },
   { id: 'boosts', label: 'Boost Messages', group: 'Features' },
   { id: 'events-presence', label: 'Events & Presence', group: 'Features' },
+  { id: 'games', label: 'Games & Results', group: 'Features' },
   { id: 'hand-raise-chimes', label: 'Hand-Raise Chimes', group: 'Features' },
   { id: 'theming', label: 'Theming', group: 'Customization' },
 
@@ -83,6 +85,7 @@ export default function App() {
         {active === 'streaming' && <Streaming />}
         {active === 'boosts' && <Boosts />}
         {active === 'events-presence' && <EventsPresence />}
+        {active === 'games' && <Games />}
         {active === 'hand-raise-chimes' && <HandRaiseChimes />}
         {active === 'theming' && <Theming />}
         {active === 'premium-and-bans' && <PremiumAndBans />}
@@ -2099,6 +2102,228 @@ const presenceMap = await res.json();
           <strong>MongoDB must be configured</strong> via <code>MONGODB_URI</code> in the
           server's <code>.env</code> for events to persist. Without it the server starts normally
           but all event writes return 503.
+        </li>
+      </ul>
+    </>
+  );
+}
+
+function Games() {
+  return (
+    <>
+      <H1>Games &amp; Results</H1>
+      <p>
+        Hangouts ships three built-in game plugins that run inside any live room.
+        Games are started by the host; all active speakers play automatically while
+        audience members spectate. When a game is active, the room layout shifts
+        automatically — the board occupies the center stage and speakers shrink to
+        a compact avatar strip above it. No extra props are needed to trigger this.
+      </p>
+
+      <H2>Available games</H2>
+      <table className="docs__table">
+        <thead>
+          <tr><th>gameId</th><th>Name</th><th>Players</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>chess</code></td><td>Chess</td><td>2</td><td>Standard chess. Move until checkmate, stalemate, or a player resigns.</td></tr>
+          <tr><td><code>fast-draw</code></td><td>Fast Draw</td><td>2–8</td><td>Pictionary-style. One player draws, others guess. First to a score threshold wins.</td></tr>
+          <tr><td><code>word-guess</code></td><td>Word Guess</td><td>2–8</td><td>Hangman-style cooperative word guessing with themed word packs.</td></tr>
+        </tbody>
+      </table>
+
+      <H2>Receiving results — onGameEnd</H2>
+      <p>
+        Add <code>onGameEnd</code> to <code>&lt;HangoutsRoom&gt;</code> to receive a structured
+        snapshot when any game session ends (win, resign, or host abort). Use it to post results
+        to the Hive blockchain, create a snap, update a leaderboard, etc.
+      </p>
+      <Code lang="tsx">{`
+import type { GameResultPayload, ChessGameResult, FastDrawGameResult } from '@snapie/hangouts-react';
+
+<HangoutsRoom
+  roomName={roomName}
+  onGameEnd={(result) => {
+    console.log(result.gameId);   // 'chess' | 'fast-draw' | 'word-guess'
+    console.log(result.players);  // ['alice', 'bob']  ← Hive usernames; not spectators
+    console.log(result.startedAt); // Unix ms
+    console.log(result.endedAt);   // Unix ms
+    console.log(result.duration);  // seconds
+    console.log(result.result);    // game-specific state — cast based on gameId
+  }}
+/>
+      `}</Code>
+
+      <H2>GameResultPayload shape</H2>
+      <Code lang="typescript">{`
+interface GameResultPayload {
+  gameId: string;       // 'chess' | 'fast-draw' | 'word-guess'
+  players: string[];    // Hive usernames of players (not spectators)
+  startedAt: number;    // Unix ms
+  endedAt: number;      // Unix ms
+  duration: number;     // seconds
+  result: unknown;      // game-specific — cast based on gameId
+}
+      `}</Code>
+
+      <H3>Chess result (gameId === 'chess')</H3>
+      <Code lang="typescript">{`
+import type { ChessGameResult } from '@snapie/hangouts-react';
+
+// Inside onGameEnd:
+if (result.gameId === 'chess') {
+  const chess = result.result as ChessGameResult;
+  // chess.fen          → final board position (FEN string)
+  // chess.players      → { w: 'alice', b: 'bob' }
+  // chess.status       → 'checkmate' | 'resigned' | 'draw' | 'stalemate'
+  // chess.winner       → 'alice' or null for draw
+  // chess.moveHistory  → ['e4', 'e5', 'Nf3', 'Nc6', ...] (SAN notation)
+}
+      `}</Code>
+
+      <H3>Fast Draw result (gameId === 'fast-draw')</H3>
+      <Code lang="typescript">{`
+import type { FastDrawGameResult } from '@snapie/hangouts-react';
+
+if (result.gameId === 'fast-draw') {
+  const fd = result.result as FastDrawGameResult;
+  // fd.winners  → ['alice']  (Hive usernames)
+  // fd.scores   → { alice: 3, bob: 1 }
+  // fd.phase    → 'game_over'
+  // fd.roundNumber → how many rounds were played
+}
+      `}</Code>
+
+      <H2>Post results to Hive blockchain</H2>
+      <p>
+        Pass the result to Aioha, Hive Keychain, or any signing library to broadcast
+        a <code>custom_json</code> operation. The example below uses Aioha.
+      </p>
+      <Code lang="tsx">{`
+<HangoutsRoom
+  onGameEnd={async (result) => {
+    if (result.gameId === 'chess') {
+      const chess = result.result as ChessGameResult;
+
+      await aioha.broadcastCustomJson(
+        'active',               // or 'posting'
+        'hangouts_chess_result',
+        {
+          app: 'snapie/1.0',
+          room: roomName,
+          players: result.players,
+          winner: chess.winner,
+          status: chess.status,
+          pgn: chess.moveHistory.join(' '),
+          duration: result.duration,
+        }
+      );
+    }
+
+    if (result.gameId === 'fast-draw') {
+      const fd = result.result as FastDrawGameResult;
+
+      await aioha.broadcastCustomJson(
+        'active',
+        'hangouts_fastdraw_result',
+        {
+          app: 'snapie/1.0',
+          room: roomName,
+          players: result.players,
+          winners: fd.winners,
+          scores: fd.scores,
+          duration: result.duration,
+        }
+      );
+    }
+  }}
+/>
+      `}</Code>
+
+      <H2>Create a snap from game results</H2>
+      <Code lang="tsx">{`
+<HangoutsRoom
+  onGameEnd={(result) => {
+    if (result.gameId === 'chess') {
+      const chess = result.result as ChessGameResult;
+      const body = chess.winner
+        ? \`@\${chess.winner} wins by \${chess.status}! PGN: \${chess.moveHistory.slice(0, 6).join(' ')}...\`
+        : \`Chess ended in a \${chess.status}.\`;
+      postSnap(body); // your snap creation function
+    }
+  }}
+/>
+      `}</Code>
+
+      <H2>Direct hook access</H2>
+      <p>
+        For custom in-room game UI, mount the game hooks inside a component that lives
+        within <code>&lt;HangoutsRoom&gt;</code> (they require a LiveKit room context):
+      </p>
+      <Code lang="typescript">{`
+import { useChess, useFastDraw, useWordGuess } from '@snapie/hangouts-react';
+
+function MyChessPanel({ roomName }: { roomName: string }) {
+  const {
+    active, fen, myColor, players, status, winner,
+    moveHistory, isMyTurn, makeMove, resign, isSpectator,
+  } = useChess({ roomName });
+
+  if (!active) return null;
+  // render your custom chess board...
+}
+
+function MyFastDrawPanel({ roomName }: { roomName: string }) {
+  const {
+    active, phase, isDrawer, word, wordLength, scores,
+    winners, submitGuess, syncCanvas,
+  } = useFastDraw({ roomName });
+
+  // render your custom drawing canvas...
+}
+      `}</Code>
+      <p>
+        Hooks hydrate from the server on mount, so late joiners and spectators
+        automatically receive the current game state without needing to catch
+        up on missed events.
+      </p>
+
+      <H2>Server API</H2>
+      <table className="docs__table">
+        <thead>
+          <tr><th>Method</th><th>Path</th><th>Auth</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>GET</td><td>/games</td><td>Public</td><td>List available game plugins</td></tr>
+          <tr><td>GET</td><td>/game-collections</td><td>Public</td><td>List word collections for Word Guess</td></tr>
+          <tr><td>GET</td><td>/rooms/:name/game</td><td>Required</td><td>Active game state (per-participant view)</td></tr>
+          <tr><td>POST</td><td>/rooms/:name/game/start</td><td>Required (host)</td><td>Start a game. Body: <code>&#123; gameId, config? &#125;</code></td></tr>
+          <tr><td>POST</td><td>/rooms/:name/game/action</td><td>Required</td><td>Submit a game action. Body: <code>&#123; action &#125;</code></td></tr>
+          <tr><td>DELETE</td><td>/rooms/:name/game</td><td>Required (host)</td><td>End the active game</td></tr>
+        </tbody>
+      </table>
+
+      <H2>Gotchas</H2>
+      <ul>
+        <li>
+          <strong><code>onGameEnd</code> is not called if the server has no session data</strong>{' '}
+          (e.g., the game:ended message arrived without a payload — possible with older server
+          versions). Always guard against missing fields.
+        </li>
+        <li>
+          <strong>Host abort sends the mid-game state as <code>result</code></strong>, not a
+          terminal game-over state. Check <code>status</code> (chess) or <code>phase</code>{' '}
+          (fast-draw) to distinguish a natural end from an abort.
+        </li>
+        <li>
+          <strong>The game board stays visible for ~6 seconds after <code>onGameEnd</code> fires</strong>{' '}
+          — the layout exit is intentionally delayed so players can read the final result.
+          If you start async blockchain work in <code>onGameEnd</code>, it runs during this
+          window — no need to rush.
+        </li>
+        <li>
+          <strong>Chess <code>moveHistory</code> is in SAN notation</strong> — e.g.{' '}
+          <code>['e4', 'e5', 'Nf3']</code>. Use it as a PGN move list for replays or analysis.
         </li>
       </ul>
     </>

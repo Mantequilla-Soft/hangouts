@@ -565,6 +565,121 @@ Auto-detects system preference. Override with `data-hh-theme="dark"` or `data-hh
 
 ---
 
+## Games
+
+Three built-in game plugins run inside Hangouts rooms: **Chess**, **Fast Draw** (pictionary-style drawing + guessing), and **Word Guess** (hangman-style). Games are host-only to start; all speakers play automatically; audience members spectate.
+
+When a game starts, `<HangoutsRoom>` automatically shifts layout — the board moves to the center and speakers shrink to a compact avatar strip. No extra props needed for layout management.
+
+### onGameEnd prop
+
+Add `onGameEnd` to `<HangoutsRoom>` to receive a structured snapshot when any game ends (win, resign, or host abort). Use it to post results to Hive, create a snap, etc.
+
+```tsx
+import type { GameResultPayload, ChessGameResult, FastDrawGameResult } from '@snapie/hangouts-react';
+
+<HangoutsRoom
+  roomName={roomName}
+  onGameEnd={(result) => {
+    // result.gameId  → 'chess' | 'fast-draw' | 'word-guess'
+    // result.players → ['alice', 'bob']   (Hive usernames; not spectators)
+    // result.startedAt / endedAt → Unix ms
+    // result.duration → seconds
+    // result.result  → game-specific state — cast based on gameId
+  }}
+/>
+```
+
+### GameResultPayload shape
+
+```typescript
+interface GameResultPayload {
+  gameId: string;       // 'chess' | 'fast-draw' | 'word-guess'
+  players: string[];    // Hive usernames of players (not spectators)
+  startedAt: number;    // Unix ms
+  endedAt: number;      // Unix ms
+  duration: number;     // seconds
+  result: unknown;      // cast based on gameId — see below
+}
+```
+
+**Chess** (`result as ChessGameResult`):
+```typescript
+{
+  fen: string;           // final board position in FEN notation
+  players: { w: string; b: string };   // white/black Hive usernames
+  status: 'checkmate' | 'resigned' | 'draw' | 'stalemate';
+  winner: string | null; // Hive username, or null for draw
+  moveHistory: string[]; // SAN notation, e.g. ['e4', 'e5', 'Nf3', ...]
+  turn: 'w' | 'b' | null;
+}
+```
+
+**Fast Draw** (`result as FastDrawGameResult`):
+```typescript
+{
+  phase: 'game_over';
+  winners: string[];                  // Hive usernames of winners
+  scores: Record<string, number>;     // all player scores
+  roundNumber: number;
+  drawer: string;                     // last drawer
+  revealedWord: string | null;        // last word
+}
+```
+
+### Post results to Hive blockchain
+
+```tsx
+import type { ChessGameResult } from '@snapie/hangouts-react';
+
+<HangoutsRoom
+  onGameEnd={async (result) => {
+    if (result.gameId === 'chess') {
+      const chess = result.result as ChessGameResult;
+      // broadcast via Hive Keychain, Aioha, etc.
+      await aioha.broadcastCustomJson(
+        'active',
+        'hangouts_chess_result',
+        {
+          app: 'snapie/1.0',
+          room: roomName,
+          players: result.players,
+          winner: chess.winner,
+          status: chess.status,
+          pgn: chess.moveHistory.join(' '),
+          duration: result.duration,
+        }
+      );
+    }
+  }}
+/>
+```
+
+### Direct hook access
+
+For custom in-room game UI, use hooks inside a component mounted within `<HangoutsRoom>`:
+
+```typescript
+import { useChess, useFastDraw, useWordGuess } from '@snapie/hangouts-react';
+
+const { fen, status, winner, moveHistory, makeMove, resign } = useChess({ roomName });
+const { phase, scores, winners, submitGuess, isDrawer } = useFastDraw({ roomName });
+```
+
+Hooks hydrate from the server on mount — late joiners and spectators automatically get the current game state.
+
+### Server game API
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | /games | Public | List available game plugins |
+| GET | /rooms/:name/game | Required | Active game state for calling participant |
+| POST | /rooms/:name/game/start | Required (host) | Start a game (`body: { gameId, config? }`) |
+| POST | /rooms/:name/game/action | Required | Submit a game action (`body: { action }`) |
+| DELETE | /rooms/:name/game | Required (host) | End the active game |
+
+---
+
 ## Common gotchas
 
 1. **`livekitServerUrl` must be `wss://`** — not `https://`.

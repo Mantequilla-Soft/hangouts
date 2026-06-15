@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { LiveKitRoom, RoomAudioRenderer, StartAudio } from '@livekit/components-react';
 import { useDataChannel } from '@livekit/components-react';
+import type { GameResultPayload } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { useHandRaiseChime } from '../../hooks/useHandRaiseChime.js';
@@ -66,13 +67,31 @@ function GameNotificationListener({
   onGameEnded,
 }: {
   onGameStarted: (gameId: string) => void;
-  onGameEnded: () => void;
+  onGameEnded: (payload?: GameResultPayload) => void;
 }) {
   useDataChannel('game', (msg) => {
     try {
-      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as { type: string; gameId?: string };
+      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as {
+        type: string;
+        gameId?: string;
+        players?: string[];
+        startedAt?: number;
+        endedAt?: number;
+        duration?: number;
+        result?: unknown;
+      };
       if (parsed.type === 'game:started') onGameStarted(parsed.gameId ?? '');
-      if (parsed.type === 'game:ended') onGameEnded();
+      if (parsed.type === 'game:ended') {
+        const payload: GameResultPayload | undefined = parsed.gameId ? {
+          gameId: parsed.gameId,
+          players: parsed.players ?? [],
+          startedAt: parsed.startedAt ?? 0,
+          endedAt: parsed.endedAt ?? Date.now(),
+          duration: parsed.duration ?? 0,
+          result: parsed.result ?? null,
+        } : undefined;
+        onGameEnded(payload);
+      }
     } catch { /* ignore malformed */ }
   });
   return null;
@@ -137,9 +156,18 @@ export interface HangoutsRoomProps {
    * Has no effect for listen-only guests.
    */
   pushToTalk?: boolean;
+  /**
+   * Called when a game session ends (win, resign, or host abort).
+   * Receives a structured snapshot of the final game state — use it to
+   * post a Hive custom_json, create a snap, or log results.
+   *
+   * Cast `result` to `ChessGameResult` or `FastDrawGameResult` based on `gameId`.
+   * Not called when the server has no session data (very old server version).
+   */
+  onGameEnd?: (result: GameResultPayload) => void;
 }
 
-export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl = 'https://hangout.3speak.tv', pushToTalk = false }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl = 'https://hangout.3speak.tv', pushToTalk = false, onGameEnd }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated, apiClient } = useHangoutsContext();
   // Default chat closed on mobile — the stage needs the space more than the sidebar does.
@@ -299,7 +327,8 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
         <HandRaiseChimeListener enabled={notificationSounds} />
         <GameNotificationListener
           onGameStarted={(gameId) => { setActiveGameId(gameId); setGameOpen(false); }}
-          onGameEnded={() => {
+          onGameEnded={(payload) => {
+            if (payload) onGameEnd?.(payload);
             // Delay layout exit so players can see the final board state
             // and winner banner before the game panel disappears.
             setTimeout(() => { setActiveGameId(null); setGameOpen(false); }, 6000);

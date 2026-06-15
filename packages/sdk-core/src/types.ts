@@ -264,7 +264,43 @@ export type GameMessage =
   | { type: 'game:state'; payload: unknown }
   | { type: 'game:broadcast'; payload: unknown }
   | { type: 'game:feedback'; message: string }
-  | { type: 'game:ended' };
+  | { type: 'game:ended'; gameId?: string; players?: string[]; startedAt?: number; endedAt?: number; duration?: number; result?: unknown };
+
+/** Final snapshot delivered to the onGameEnd prop on <HangoutsRoom>. */
+export interface GameResultPayload {
+  /** Plugin identifier: 'chess' | 'fast-draw' | 'word-guess'. */
+  gameId: string;
+  /** Hive usernames of everyone who played (not spectators). */
+  players: string[];
+  /** Unix ms timestamp when the game started. */
+  startedAt: number;
+  /** Unix ms timestamp when the game ended. */
+  endedAt: number;
+  /** Duration in seconds. */
+  duration: number;
+  /** Game-specific final state. Cast to ChessGameResult or FastDrawGameResult based on gameId. */
+  result: unknown;
+}
+
+/** Chess result shape inside GameResultPayload.result when gameId === 'chess'. */
+export interface ChessGameResult {
+  fen: string;
+  players: { w: string; b: string };
+  turn: 'w' | 'b' | null;
+  status: 'playing' | 'checkmate' | 'resigned' | 'draw' | 'stalemate';
+  winner: string | null;
+  moveHistory: string[];
+}
+
+/** Fast Draw result shape inside GameResultPayload.result when gameId === 'fast-draw'. */
+export interface FastDrawGameResult {
+  phase: 'drawing' | 'reveal' | 'game_over';
+  winners: string[];
+  scores: Record<string, number>;
+  roundNumber: number;
+  drawer: string;
+  revealedWord: string | null;
+}
 
 export interface WordCollection {
   id: string;

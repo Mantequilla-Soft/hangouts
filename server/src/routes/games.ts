@@ -189,8 +189,17 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     if (result.ended) {
+      const endedAt = Date.now();
+      const endPayload = {
+        gameId: session.gameId,
+        players: session.participants,
+        startedAt: session.startedAt,
+        endedAt,
+        duration: Math.round((endedAt - session.startedAt) / 1000),
+        result: session.spectatorState ?? null,
+      };
       gameSessionStore.end(name);
-      await broadcastToRoom(name, { type: 'game:ended' });
+      await broadcastToRoom(name, { type: 'game:ended', ...endPayload });
     }
 
     return reply.send({ ended: result.ended ?? false });
@@ -213,8 +222,18 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
     if (check.error === 'not_found') return reply.notFound('Room not found');
     if (check.error === 'forbidden') return reply.forbidden('Only the host can end a game');
 
+    const abortedSession = gameSessionStore.get(name);
+    const endedAt = Date.now();
+    const endPayload = abortedSession ? {
+      gameId: abortedSession.gameId,
+      players: abortedSession.participants,
+      startedAt: abortedSession.startedAt,
+      endedAt,
+      duration: Math.round((endedAt - abortedSession.startedAt) / 1000),
+      result: abortedSession.spectatorState ?? null,
+    } : {};
     gameSessionStore.end(name);
-    await broadcastToRoom(name, { type: 'game:ended' });
+    await broadcastToRoom(name, { type: 'game:ended', ...endPayload });
     return reply.code(204).send();
   });
 };

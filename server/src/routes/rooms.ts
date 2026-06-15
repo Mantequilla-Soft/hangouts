@@ -364,7 +364,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       canPublish: false,
       canPublishData: !silent, // obs observers are purely read-only
       premium: false,
-      ttl: silent ? '12h' : '2h',
+      ttl: silent ? '12h' : '6h',
       name: displayName,
     });
 
