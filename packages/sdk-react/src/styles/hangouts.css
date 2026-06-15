@@ -2325,6 +2325,139 @@
   padding: 0.25rem 0;
 }
 
+/* === Fast Draw === */
+
+.hh-fastdraw {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  height: 100%;
+  overflow-y: auto;
+}
+.hh-fastdraw__header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+}
+.hh-fastdraw__canvas-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #ffffff;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--hh-border);
+}
+.hh-fastdraw__canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+.hh-fastdraw__toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 4px 0;
+}
+.hh-fastdraw__swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  flex-shrink: 0;
+}
+.hh-fastdraw__swatch--active {
+  border-color: var(--hh-accent);
+  box-shadow: 0 0 0 1px var(--hh-accent);
+}
+.hh-fastdraw__size-select {
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--hh-border);
+  background: var(--hh-surface);
+  color: var(--hh-text);
+}
+.hh-fastdraw__word-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 32px;
+}
+.hh-fastdraw__word {
+  font-size: 16px;
+  letter-spacing: 3px;
+  font-family: monospace;
+  font-weight: 600;
+}
+.hh-fastdraw__word--revealed {
+  color: var(--hh-accent);
+}
+.hh-fastdraw__dash {
+  display: inline-block;
+  margin: 0 1px;
+}
+.hh-fastdraw__timer {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.hh-fastdraw__timer--urgent {
+  color: #e53e3e;
+  animation: hh-pulse 0.6s ease-in-out infinite;
+}
+@keyframes hh-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.hh-fastdraw__guess-row {
+  display: flex;
+  gap: 6px;
+}
+.hh-fastdraw__guess-input {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--hh-border);
+  background: var(--hh-surface);
+  color: var(--hh-text);
+  font-size: 13px;
+}
+.hh-fastdraw__feedback {
+  font-size: 12px;
+  color: #e53e3e;
+  text-align: center;
+}
+.hh-fastdraw__reveal {
+  text-align: center;
+  padding: 12px;
+  background: var(--hh-surface);
+  border-radius: 6px;
+  border: 1px solid var(--hh-border);
+}
+.hh-fastdraw__reveal-word {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 6px 0;
+  color: var(--hh-accent);
+}
+.hh-fastdraw__scores {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.hh-fastdraw__score-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
 /* === Recording === */
 
 .hh-recording-indicator {

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useWordGuess } from '../../hooks/useWordGuess.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { ChessContent } from './ChessContent.js';
+import { FastDrawContent } from './FastDrawContent.js';
 
 export interface GamePanelProps {
   roomName: string;
@@ -126,6 +127,8 @@ function IdleContent({ roomName, isHost }: { roomName: string; isHost: boolean }
 
   const [games, setGames] = useState<GameOption[]>([]);
   const [selectedGame, setSelectedGame] = useState('word-guess');
+  const [selectedWinThreshold, setSelectedWinThreshold] = useState(5);
+  const [selectedRoundDuration, setSelectedRoundDuration] = useState(60);
 
   const [collections, setCollections] = useState<CollectionOption[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(true);
@@ -140,10 +143,10 @@ function IdleContent({ roomName, isHost }: { roomName: string; isHost: boolean }
         }
       })
       .catch(() => {
-        // Fallback: show both games without metadata
         setGames([
           { id: 'word-guess', name: 'Word Guess', description: '' },
           { id: 'chess', name: 'Chess', description: '' },
+          { id: 'fast-draw', name: 'Fast Draw', description: '' },
         ]);
       });
 
@@ -178,8 +181,13 @@ function IdleContent({ roomName, isHost }: { roomName: string; isHost: boolean }
     if (selectedGame === 'word-guess') {
       void wordGame.startGame({ theme: selectedTheme });
     } else if (selectedGame === 'chess') {
-      // Chess has no config — start directly via API
       void apiClient.startGame(roomName, 'chess');
+    } else if (selectedGame === 'fast-draw') {
+      void apiClient.startGame(roomName, 'fast-draw', {
+        theme: selectedTheme,
+        winThreshold: selectedWinThreshold,
+        roundDuration: selectedRoundDuration,
+      });
     }
   };
 
@@ -233,6 +241,55 @@ function IdleContent({ roomName, isHost }: { roomName: string; isHost: boolean }
         </p>
       )}
 
+      {selectedGame === 'fast-draw' && (
+        <>
+          <p className="hh-game-panel__idle-hint">
+            One player draws a word, everyone else guesses. Drawer and first correct
+            guesser each score a point. First to the win threshold wins!
+          </p>
+          <label className="hh-game-panel__label">
+            Theme
+            {collectionsLoading ? (
+              <span className="hh-game-panel__select-loading">Loading…</span>
+            ) : (
+              <select
+                className="hh-game-panel__select"
+                value={selectedTheme}
+                onChange={(e) => setSelectedTheme(e.target.value)}
+              >
+                {collections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}{c.wordCount > 0 ? ` (${c.wordCount})` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+          </label>
+          <label className="hh-game-panel__label">
+            Points to win
+            <select
+              className="hh-game-panel__select"
+              value={selectedWinThreshold}
+              onChange={(e) => setSelectedWinThreshold(Number(e.target.value))}
+            >
+              {[3, 5, 7, 10].map((n) => <option key={n} value={n}>{n} points</option>)}
+            </select>
+          </label>
+          <label className="hh-game-panel__label">
+            Round time
+            <select
+              className="hh-game-panel__select"
+              value={selectedRoundDuration}
+              onChange={(e) => setSelectedRoundDuration(Number(e.target.value))}
+            >
+              <option value={30}>30 seconds</option>
+              <option value={60}>60 seconds</option>
+              <option value={90}>90 seconds</option>
+            </select>
+          </label>
+        </>
+      )}
+
       <button
         className="hh-btn hh-btn--primary"
         onClick={handleStart}
@@ -255,7 +312,7 @@ export function GamePanel({ roomName, isHost, onClose, activeGameId }: GamePanel
     <div className="hh-game-panel">
       <div className="hh-game-panel__header">
         <span className="hh-game-panel__title">
-          {activeGameId === 'chess' ? 'Chess' : activeGameId === 'word-guess' ? 'Word Guess' : 'Games'}
+          {activeGameId === 'chess' ? 'Chess' : activeGameId === 'word-guess' ? 'Word Guess' : activeGameId === 'fast-draw' ? 'Fast Draw' : 'Games'}
         </span>
         {onClose && (
           <button
@@ -275,6 +332,8 @@ export function GamePanel({ roomName, isHost, onClose, activeGameId }: GamePanel
         </div>
       ) : activeGameId === 'chess' ? (
         <ChessContent roomName={roomName} isHost={isHost} />
+      ) : activeGameId === 'fast-draw' ? (
+        <FastDrawContent roomName={roomName} isHost={isHost} />
       ) : (
         <WordGuessContent roomName={roomName} isHost={isHost} />
       )}
