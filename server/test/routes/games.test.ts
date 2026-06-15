@@ -308,6 +308,7 @@ describe('POST /rooms/:name/game/start', () => {
       expect.anything(),
       ['alice', 'bob'],  // guests/obs filtered out
       expect.anything(),
+      undefined, // spectatorState (mock plugin does not return one)
     );
   });
 });

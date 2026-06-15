@@ -9,12 +9,14 @@ export class GameSessionStore {
     state: unknown,
     participants: string[],
     payloads: Record<string, unknown>,
+    spectatorState?: unknown,
   ): GameSession {
     const session: GameSession = {
       plugin,
       state,
       participants,
       payloads,
+      spectatorState,
       roomName,
       gameId: plugin.id,
       startedAt: Date.now(),

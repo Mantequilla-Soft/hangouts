@@ -54,11 +54,13 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
     const { name } = request.params as { name: string };
     const session = gameSessionStore.get(name);
     if (!session) return reply.notFound('No active game in this room');
+    const isParticipant = session.participants.includes(request.username);
     return reply.send({
       gameId: session.gameId,
       participants: session.participants,
       startedAt: session.startedAt,
-      state: session.payloads[request.username] ?? null,
+      state: isParticipant ? (session.payloads[request.username] ?? null) : (session.spectatorState ?? null),
+      isSpectator: !isParticipant,
     });
   });
 
@@ -104,7 +106,7 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const result = await plugin.onStart({ participants, config });
-    const session = gameSessionStore.start(name, plugin, result.state, participants, result.payloads);
+    const session = gameSessionStore.start(name, plugin, result.state, participants, result.payloads, result.spectatorState);
 
     await broadcastToRoom(name, {
       type: 'game:started',
@@ -175,6 +177,13 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
           sendToParticipant(name, identity, { type: 'game:state', payload }),
         ),
       );
+    }
+
+    if (result.feedback) {
+      await sendToParticipant(name, result.feedback.to, {
+        type: 'game:feedback',
+        message: result.feedback.message,
+      });
     }
 
     if (result.ended) {

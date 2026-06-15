@@ -65,13 +65,13 @@ function GameNotificationListener({
   onGameStarted,
   onGameEnded,
 }: {
-  onGameStarted: () => void;
+  onGameStarted: (gameId: string) => void;
   onGameEnded: () => void;
 }) {
   useDataChannel('game', (msg) => {
     try {
-      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as { type: string };
-      if (parsed.type === 'game:started') onGameStarted();
+      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as { type: string; gameId?: string };
+      if (parsed.type === 'game:started') onGameStarted(parsed.gameId ?? '');
       if (parsed.type === 'game:ended') onGameEnded();
     } catch { /* ignore malformed */ }
   });
@@ -147,6 +147,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
     typeof window !== 'undefined' ? window.innerWidth > 768 : true,
   );
   const [gameOpen, setGameOpen] = useState(false);
+  const [activeGameId, setActiveGameId] = useState<string | null>(null);
   const [showGuestModal, setShowGuestModal] = useState(false);
   // Mirror the host's chat-open state into room metadata so the egress
   // template knows whether to render the chat panel in the recording.
@@ -278,8 +279,8 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
         <StartAudio label="Click to enable audio" className="hh-start-audio" />
         <HandRaiseChimeListener enabled={notificationSounds} />
         <GameNotificationListener
-          onGameStarted={() => { setChatOpen(false); setGameOpen(true); }}
-          onGameEnded={() => setGameOpen(false)}
+          onGameStarted={(gameId) => { setActiveGameId(gameId); setChatOpen(false); setGameOpen(true); }}
+          onGameEnded={() => { setActiveGameId(null); setGameOpen(false); }}
         />
         <WakeLockGuard />
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
@@ -364,6 +365,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
                   roomName={roomName}
                   isHost={room.isHost}
                   onClose={() => setGameOpen(false)}
+                  activeGameId={activeGameId}
                 />
               </aside>
             )}

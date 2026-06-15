@@ -73,6 +73,7 @@ export { usePushToTalk, type UsePushToTalkOptions, type UsePushToTalkResult } fr
 
 // Hooks — Games
 export { useWordGuess, type UseWordGuessOptions, type UseWordGuessResult, type WordGuessEvent } from './hooks/useWordGuess.js';
+export { useChess, type UseChessOptions, type UseChessResult, type ChessGameStatus } from './hooks/useChess.js';
 
 // Components — Games
 export { GamePanel, type GamePanelProps } from './components/room/GamePanel.js';

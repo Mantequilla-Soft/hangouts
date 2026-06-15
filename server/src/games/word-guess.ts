@@ -76,6 +76,7 @@ export const wordGuessPlugin: GamePlugin = {
       state,
       payloads,
       broadcast: { theme: state.theme, playerCount: params.participants.length },
+      spectatorState: { theme: state.theme, playerCount: params.participants.length },
     };
   },
 

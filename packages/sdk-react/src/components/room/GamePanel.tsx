@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { useWordGuess } from '../../hooks/useWordGuess.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
+import { ChessContent } from './ChessContent.js';
 
 export interface GamePanelProps {
   roomName: string;
   isHost: boolean;
   onClose?: () => void;
+  activeGameId?: string | null;
 }
 
 interface CollectionOption {
@@ -14,47 +16,22 @@ interface CollectionOption {
   wordCount: number;
 }
 
-export function GamePanel({ roomName, isHost, onClose }: GamePanelProps) {
-  const { apiClient } = useHangoutsContext();
-  const game = useWordGuess({ roomName });
+interface GameOption {
+  id: string;
+  name: string;
+  description: string;
+}
 
-  const [collections, setCollections] = useState<CollectionOption[]>([]);
-  const [collectionsLoading, setCollectionsLoading] = useState(true);
-  const [selectedTheme, setSelectedTheme] = useState('');
+// ─── Word Guess active content ─────────────────────────────────────────────
+
+function WordGuessContent({ roomName, isHost }: { roomName: string; isHost: boolean }) {
+  const game = useWordGuess({ roomName });
   const [guessInput, setGuessInput] = useState('');
   const eventsBottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setCollectionsLoading(true);
-    apiClient.listWordCollections()
-      .then((cols) => {
-        setCollections(cols);
-        if (cols.length > 0 && !selectedTheme) {
-          setSelectedTheme(cols[0]!.id);
-        }
-      })
-      .catch(() => {
-        // Fallback so the panel is never completely broken
-        const fallback: CollectionOption[] = [
-          { id: 'animals', name: 'Animals', wordCount: 0 },
-          { id: 'food', name: 'Food', wordCount: 0 },
-          { id: 'movies', name: 'Movies', wordCount: 0 },
-        ];
-        setCollections(fallback);
-        if (!selectedTheme) setSelectedTheme('animals');
-      })
-      .finally(() => setCollectionsLoading(false));
-  // Only run once on mount — apiClient reference is stable
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
     eventsBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [game.events.length]);
-
-  const handleStartGame = () => {
-    void game.startGame({ theme: selectedTheme });
-  };
 
   const handleGuess = (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,10 +41,221 @@ export function GamePanel({ roomName, isHost, onClose }: GamePanelProps) {
   };
 
   return (
+    <div className="hh-game-panel__body">
+      <div className="hh-game-panel__my-word">
+        <span className="hh-game-panel__my-word-label">Your word</span>
+        <span className="hh-game-panel__my-word-value">
+          {game.hasGuessed ? '✅ Guessed!' : '???'}
+        </span>
+      </div>
+
+      <div className="hh-game-panel__others">
+        <div className="hh-game-panel__others-label">Others' words</div>
+        {game.others.map(({ identity, word }) => (
+          <div
+            key={identity}
+            className={`hh-game-panel__other-row${game.guessed.has(identity) ? ' hh-game-panel__other-row--guessed' : ''}`}
+          >
+            <span className="hh-game-panel__other-identity">{identity}</span>
+            <span className="hh-game-panel__other-word">{word.toUpperCase()}</span>
+            {game.guessed.has(identity) && (
+              <span className="hh-game-panel__guessed-badge">✅</span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {!game.hasGuessed && (
+        <form className="hh-game-panel__guess-form" onSubmit={handleGuess}>
+          <input
+            className="hh-game-panel__guess-input"
+            type="text"
+            placeholder="Your guess…"
+            value={guessInput}
+            onChange={(e) => setGuessInput(e.target.value)}
+            autoComplete="off"
+          />
+          <button
+            className="hh-btn hh-btn--primary hh-btn--small"
+            type="submit"
+            disabled={game.isLoading || !guessInput.trim()}
+          >
+            Guess
+          </button>
+        </form>
+      )}
+
+      {game.error && <p className="hh-game-panel__error">{game.error}</p>}
+
+      {game.events.length > 0 && (
+        <div className="hh-game-panel__events">
+          {game.events.map((ev, i) => (
+            <div
+              key={i}
+              className={`hh-game-panel__event ${ev.correct ? 'hh-game-panel__event--correct' : 'hh-game-panel__event--wrong'}`}
+            >
+              {ev.correct
+                ? `✅ ${ev.identity} guessed ${ev.word ? ev.word.toUpperCase() : 'correctly'}!`
+                : `❌ ${ev.identity} guessed wrong`}
+            </div>
+          ))}
+          <div ref={eventsBottomRef} />
+        </div>
+      )}
+
+      {isHost && (
+        <div className="hh-game-panel__footer">
+          <button
+            className="hh-btn hh-btn--danger hh-btn--small"
+            onClick={() => void game.endGame()}
+            disabled={game.isLoading}
+          >
+            End Game
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Idle content (game picker) ────────────────────────────────────────────
+
+function IdleContent({ roomName, isHost }: { roomName: string; isHost: boolean }) {
+  const { apiClient } = useHangoutsContext();
+  const wordGame = useWordGuess({ roomName });
+
+  const [games, setGames] = useState<GameOption[]>([]);
+  const [selectedGame, setSelectedGame] = useState('word-guess');
+
+  const [collections, setCollections] = useState<CollectionOption[]>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(true);
+  const [selectedTheme, setSelectedTheme] = useState('');
+
+  useEffect(() => {
+    apiClient.listGames()
+      .then((list) => {
+        setGames(list);
+        if (list.length > 0 && !list.find((g) => g.id === selectedGame)) {
+          setSelectedGame(list[0]!.id);
+        }
+      })
+      .catch(() => {
+        // Fallback: show both games without metadata
+        setGames([
+          { id: 'word-guess', name: 'Word Guess', description: '' },
+          { id: 'chess', name: 'Chess', description: '' },
+        ]);
+      });
+
+    setCollectionsLoading(true);
+    apiClient.listWordCollections()
+      .then((cols) => {
+        setCollections(cols);
+        if (cols.length > 0 && !selectedTheme) setSelectedTheme(cols[0]!.id);
+      })
+      .catch(() => {
+        const fallback: CollectionOption[] = [
+          { id: 'animals', name: 'Animals', wordCount: 0 },
+          { id: 'food', name: 'Food', wordCount: 0 },
+          { id: 'movies', name: 'Movies', wordCount: 0 },
+        ];
+        setCollections(fallback);
+        if (!selectedTheme) setSelectedTheme('animals');
+      })
+      .finally(() => setCollectionsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!isHost) {
+    return (
+      <p className="hh-game-panel__idle-hint">
+        Waiting for the host to start a game…
+      </p>
+    );
+  }
+
+  const handleStart = () => {
+    if (selectedGame === 'word-guess') {
+      void wordGame.startGame({ theme: selectedTheme });
+    } else if (selectedGame === 'chess') {
+      // Chess has no config — start directly via API
+      void apiClient.startGame(roomName, 'chess');
+    }
+  };
+
+  return (
+    <>
+      {games.length > 1 && (
+        <div className="hh-game-panel__game-picker">
+          {games.map((g) => (
+            <button
+              key={g.id}
+              className={`hh-game-panel__game-btn${selectedGame === g.id ? ' hh-game-panel__game-btn--active' : ''}`}
+              onClick={() => setSelectedGame(g.id)}
+            >
+              {g.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selectedGame === 'word-guess' && (
+        <>
+          <p className="hh-game-panel__idle-hint">
+            Each player is secretly assigned a word. Everyone can see everyone
+            else's word — but not their own. Ask questions and guess yours!
+          </p>
+          <label className="hh-game-panel__label">
+            Theme
+            {collectionsLoading ? (
+              <span className="hh-game-panel__select-loading">Loading…</span>
+            ) : (
+              <select
+                className="hh-game-panel__select"
+                value={selectedTheme}
+                onChange={(e) => setSelectedTheme(e.target.value)}
+              >
+                {collections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}{c.wordCount > 0 ? ` (${c.wordCount})` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+          </label>
+        </>
+      )}
+
+      {selectedGame === 'chess' && (
+        <p className="hh-game-panel__idle-hint">
+          Classic 2-player chess. Colors are assigned randomly at game start.
+          The host and one other participant play; everyone else watches.
+        </p>
+      )}
+
+      <button
+        className="hh-btn hh-btn--primary"
+        onClick={handleStart}
+        disabled={wordGame.isLoading || (selectedGame === 'word-guess' && (collectionsLoading || !selectedTheme))}
+      >
+        {wordGame.isLoading ? 'Starting…' : `Start ${games.find((g) => g.id === selectedGame)?.name ?? selectedGame}`}
+      </button>
+
+      {wordGame.error && <p className="hh-game-panel__error">{wordGame.error}</p>}
+    </>
+  );
+}
+
+// ─── Panel shell ───────────────────────────────────────────────────────────
+
+export function GamePanel({ roomName, isHost, onClose, activeGameId }: GamePanelProps) {
+  const isActive = !!activeGameId;
+
+  return (
     <div className="hh-game-panel">
       <div className="hh-game-panel__header">
         <span className="hh-game-panel__title">
-          {game.active ? 'Word Guess' : 'Games'}
+          {activeGameId === 'chess' ? 'Chess' : activeGameId === 'word-guess' ? 'Word Guess' : 'Games'}
         </span>
         {onClose && (
           <button
@@ -81,126 +269,14 @@ export function GamePanel({ roomName, isHost, onClose }: GamePanelProps) {
         )}
       </div>
 
-      {!game.active ? (
+      {!isActive ? (
         <div className="hh-game-panel__idle">
-          {isHost ? (
-            <>
-              <p className="hh-game-panel__idle-hint">
-                Each player is secretly assigned a word. Everyone can see everyone
-                else's word — but not their own. Ask questions and guess yours!
-              </p>
-              <label className="hh-game-panel__label">
-                Theme
-                {collectionsLoading ? (
-                  <span className="hh-game-panel__select-loading">Loading…</span>
-                ) : (
-                  <select
-                    className="hh-game-panel__select"
-                    value={selectedTheme}
-                    onChange={(e) => setSelectedTheme(e.target.value)}
-                  >
-                    {collections.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}{c.wordCount > 0 ? ` (${c.wordCount})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </label>
-              <button
-                className="hh-btn hh-btn--primary"
-                onClick={handleStartGame}
-                disabled={game.isLoading || collectionsLoading || !selectedTheme}
-              >
-                {game.isLoading ? 'Starting…' : 'Start Word Guess'}
-              </button>
-              {game.error && (
-                <p className="hh-game-panel__error">{game.error}</p>
-              )}
-            </>
-          ) : (
-            <p className="hh-game-panel__idle-hint">
-              Waiting for the host to start a game…
-            </p>
-          )}
+          <IdleContent roomName={roomName} isHost={isHost} />
         </div>
+      ) : activeGameId === 'chess' ? (
+        <ChessContent roomName={roomName} isHost={isHost} />
       ) : (
-        <div className="hh-game-panel__body">
-          <div className="hh-game-panel__my-word">
-            <span className="hh-game-panel__my-word-label">Your word</span>
-            <span className="hh-game-panel__my-word-value">
-              {game.hasGuessed ? '✅ Guessed!' : '???'}
-            </span>
-          </div>
-
-          <div className="hh-game-panel__others">
-            <div className="hh-game-panel__others-label">Others' words</div>
-            {game.others.map(({ identity, word }) => (
-              <div
-                key={identity}
-                className={`hh-game-panel__other-row${game.guessed.has(identity) ? ' hh-game-panel__other-row--guessed' : ''}`}
-              >
-                <span className="hh-game-panel__other-identity">{identity}</span>
-                <span className="hh-game-panel__other-word">{word.toUpperCase()}</span>
-                {game.guessed.has(identity) && (
-                  <span className="hh-game-panel__guessed-badge">✅</span>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {!game.hasGuessed && (
-            <form className="hh-game-panel__guess-form" onSubmit={handleGuess}>
-              <input
-                className="hh-game-panel__guess-input"
-                type="text"
-                placeholder="Your guess…"
-                value={guessInput}
-                onChange={(e) => setGuessInput(e.target.value)}
-                autoComplete="off"
-              />
-              <button
-                className="hh-btn hh-btn--primary hh-btn--small"
-                type="submit"
-                disabled={game.isLoading || !guessInput.trim()}
-              >
-                Guess
-              </button>
-            </form>
-          )}
-
-          {game.error && (
-            <p className="hh-game-panel__error">{game.error}</p>
-          )}
-
-          {game.events.length > 0 && (
-            <div className="hh-game-panel__events">
-              {game.events.map((ev, i) => (
-                <div
-                  key={i}
-                  className={`hh-game-panel__event ${ev.correct ? 'hh-game-panel__event--correct' : 'hh-game-panel__event--wrong'}`}
-                >
-                  {ev.correct
-                    ? `✅ ${ev.identity} guessed ${ev.word ? ev.word.toUpperCase() : 'correctly'}!`
-                    : `❌ ${ev.identity} guessed wrong`}
-                </div>
-              ))}
-              <div ref={eventsBottomRef} />
-            </div>
-          )}
-
-          {isHost && (
-            <div className="hh-game-panel__footer">
-              <button
-                className="hh-btn hh-btn--danger hh-btn--small"
-                onClick={() => void game.endGame()}
-                disabled={game.isLoading}
-              >
-                End Game
-              </button>
-            </div>
-          )}
-        </div>
+        <WordGuessContent roomName={roomName} isHost={isHost} />
       )}
     </div>
   );

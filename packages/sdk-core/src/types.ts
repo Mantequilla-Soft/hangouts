@@ -244,6 +244,7 @@ export interface ActiveGame {
   participants: string[];
   startedAt: number;
   state: unknown;
+  isSpectator?: boolean;
 }
 
 export interface GameStartResponse {
@@ -261,6 +262,7 @@ export type GameMessage =
   | { type: 'game:started'; gameId: string; participants: string[]; broadcast: unknown }
   | { type: 'game:state'; payload: unknown }
   | { type: 'game:broadcast'; payload: unknown }
+  | { type: 'game:feedback'; message: string }
   | { type: 'game:ended' };
 
 export interface WordCollection {

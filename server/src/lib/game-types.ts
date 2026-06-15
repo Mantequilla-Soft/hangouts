@@ -17,6 +17,7 @@ export interface GameStartResult {
   state: unknown;
   payloads: Record<string, unknown>;
   broadcast?: unknown;
+  spectatorState?: unknown;
 }
 
 export interface GameActionParams {
@@ -31,6 +32,7 @@ export interface GameActionResult {
   payloads?: Record<string, unknown>;
   broadcast?: unknown;
   ended?: boolean;
+  feedback?: { to: string; message: string };
 }
 
 export interface GameInfo {
@@ -46,6 +48,7 @@ export interface GameSession {
   state: unknown;
   participants: string[];
   payloads: Record<string, unknown>;
+  spectatorState?: unknown;
   roomName: string;
   gameId: string;
   startedAt: number;
