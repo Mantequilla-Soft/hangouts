@@ -141,7 +141,7 @@ export interface HangoutsRoomProps {
 
 export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl = 'https://hangout.3speak.tv', pushToTalk = false }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
-  const { isAuthenticated } = useHangoutsContext();
+  const { isAuthenticated, apiClient } = useHangoutsContext();
   // Default chat closed on mobile — the stage needs the space more than the sidebar does.
   const [chatOpen, setChatOpen] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth > 768 : true,
@@ -183,6 +183,20 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
       setShowGuestModal(true);
     }
   }, [roomName, isAuthenticated, guestFallback, room]);
+
+  // Seed activeGameId on join so late-joiners and audience members see any
+  // game that was already running when they arrived (they miss game:started).
+  useEffect(() => {
+    if (!room.livekitToken || !isAuthenticated) return;
+    apiClient.getActiveGame(roomName)
+      .then((game) => {
+        if (game) {
+          setActiveGameId(game.gameId);
+          setGameOpen(true);
+        }
+      })
+      .catch(() => { /* no active game or server unreachable — fine */ });
+  }, [room.livekitToken, roomName, isAuthenticated, apiClient]);
 
   if (showGuestModal) {
     return (
