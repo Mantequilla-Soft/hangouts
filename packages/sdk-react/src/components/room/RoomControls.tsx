@@ -3,6 +3,7 @@ import { useLocalParticipant, useLocalParticipantPermissions, useParticipants, u
 import type { BoostConfig, StreamPlatform } from '@snapie/hangouts-core';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { useChat } from '../../hooks/useChat.js';
+import { usePushToTalk } from '../../hooks/usePushToTalk.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
 import { RecordingControls } from './RecordingControls.js';
@@ -43,9 +44,15 @@ export interface RoomControlsProps {
   onToggleChat?: () => void;
   /** Boost config from room metadata. When present and enabled, shows a Boost button for authenticated non-guests. */
   boostConfig?: BoostConfig;
+  /**
+   * When true, replaces the mute toggle with a push-to-talk button.
+   * Hold the button (or spacebar) to speak — release to mute again.
+   * Has no effect for listeners (canPublish=false).
+   */
+  pushToTalk?: boolean;
 }
 
-export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEndRoom, onTransferHost, onSetLayout, hostIdentity, onVideoHandoff, onAudioHandoff, videoEnabled = false, roomVideoEnabled = false, chatOpen, onToggleChat, obsBaseUrl, boostConfig }: RoomControlsProps) {
+export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEndRoom, onTransferHost, onSetLayout, hostIdentity, onVideoHandoff, onAudioHandoff, videoEnabled = false, roomVideoEnabled = false, chatOpen, onToggleChat, obsBaseUrl, boostConfig, pushToTalk = false }: RoomControlsProps) {
   const { username, isAuthenticated } = useHangoutsContext();
   const [boostDialogOpen, setBoostDialogOpen] = useState(false);
   const [boostHistoryOpen, setBoostHistoryOpen] = useState(false);
@@ -81,6 +88,7 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
   const isCameraOn = localParticipant?.isCameraEnabled ?? false;
   const isScreenSharing = localParticipant?.isScreenShareEnabled ?? false;
   const { isRaised, raiseHand, lowerHand } = useHandRaise();
+  const ptt = usePushToTalk({ enabled: pushToTalk && canPublish });
   const prevCanPublish = useRef(canPublish);
   const [showStreaming, setShowStreaming] = useState(false);
   const [showObsPanel, setShowObsPanel] = useState(false);
@@ -177,13 +185,24 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
       {/* Left: share/self actions — hidden entirely for listen-only
           guests since they can't publish, chat, or raise their hand. */}
       <div className="hh-controls__group hh-controls__group--left">
-        {canPublish && (
+        {canPublish && !pushToTalk && (
           <button
             className={`hh-btn hh-btn--icon ${isMuted ? 'hh-btn--danger' : 'hh-btn--secondary'}`}
             onClick={toggleMute}
             title={isMuted ? 'Unmute' : 'Mute'}
           >
             {isMuted ? '🔇' : '🎙️'}
+          </button>
+        )}
+
+        {canPublish && pushToTalk && (
+          <button
+            className={`hh-btn hh-btn--ptt ${ptt.isActive ? 'hh-btn--ptt-active' : ''}`}
+            title={ptt.isActive ? 'Speaking…' : 'Hold to talk (Space)'}
+            aria-label={ptt.isActive ? 'Speaking' : 'Push to talk'}
+            {...ptt.bind}
+          >
+            {ptt.isActive ? '🎙️ Speaking…' : '🎙️ Hold to Talk'}
           </button>
         )}
 

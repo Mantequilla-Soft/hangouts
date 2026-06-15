@@ -68,6 +68,9 @@ export { useStreaming } from './hooks/useStreaming.js';
 export { useEventList } from './hooks/useEventList.js';
 export { useUserPresence } from './hooks/useUserPresence.js';
 
+// Hooks — Push-to-Talk
+export { usePushToTalk, type UsePushToTalkOptions, type UsePushToTalkResult } from './hooks/usePushToTalk.js';
+
 // Components — Lobby
 export { RoomLobby, type RoomLobbyProps } from './components/lobby/RoomLobby.js';
 export { RoomCard, type RoomCardProps } from './components/lobby/RoomCard.js';

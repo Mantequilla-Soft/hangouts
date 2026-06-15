@@ -109,9 +109,15 @@ export interface HangoutsRoomProps {
    * Override to point at your own deployment, or pass "" to hide the button.
    */
   obsBaseUrl?: string;
+  /**
+   * When true, replaces the mute toggle with a push-to-talk button for speakers.
+   * Hold the button or press spacebar to speak — release to mute again.
+   * Has no effect for listen-only guests.
+   */
+  pushToTalk?: boolean;
 }
 
-export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl = 'https://hangout.3speak.tv' }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl = 'https://hangout.3speak.tv', pushToTalk = false }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
   // Default chat closed on mobile — the stage needs the space more than the sidebar does.
@@ -312,6 +318,7 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
                 obsBaseUrl={obsBaseUrl}
                 chatOpen={chatOpen}
                 onToggleChat={() => setChatOpen((v) => !v)}
+                pushToTalk={pushToTalk}
               />
             </div>
             {chatOpen && (

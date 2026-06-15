@@ -79,6 +79,37 @@ body {
   flex-direction: column;
 }
 
+.hh-demo-room-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  background: rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.hh-demo-ptt-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--hh-text-muted, #888);
+  cursor: pointer;
+  user-select: none;
+}
+
+.hh-demo-ptt-toggle input[type="checkbox"] {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+  accent-color: #22c55e;
+}
+
+.hh-demo-ptt-hint {
+  opacity: 0.6;
+  font-size: 0.72rem;
+}
+
 /* Phones: full-screen the modal (no aspect ratio, no border radius). */
 @media (max-width: 768px) {
   .hh-demo-modal {

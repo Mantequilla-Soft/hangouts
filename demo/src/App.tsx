@@ -408,6 +408,7 @@ function MainApp() {
   const [activeRoom, setActiveRoom] = useState<string | null>(getRoomFromUrl);
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
   const [lobbyTab, setLobbyTab] = useState<LobbyTab>('live');
+  const [pushToTalk, setPushToTalk] = useState(false);
 
   const toggleTheme = () => {
     const next = theme === 'light' ? 'dark' : 'light';
@@ -448,6 +449,16 @@ function MainApp() {
         {activeRoom ? (
           <div className="hh-demo-overlay">
             <div className="hh-demo-modal" data-hh-theme={theme}>
+              <div className="hh-demo-room-bar">
+                <label className="hh-demo-ptt-toggle">
+                  <input
+                    type="checkbox"
+                    checked={pushToTalk}
+                    onChange={(e) => setPushToTalk(e.target.checked)}
+                  />
+                  Push to Talk <span className="hh-demo-ptt-hint">(Space)</span>
+                </label>
+              </div>
               <HangoutsRoom
                 roomName={activeRoom}
                 onLeave={() => setActiveRoom(null)}
@@ -455,6 +466,7 @@ function MainApp() {
                 video
                 guestFallback
                 obsBaseUrl={window.location.origin}
+                pushToTalk={pushToTalk}
               />
             </div>
           </div>
