@@ -4,9 +4,13 @@ import type { GamePlugin, GameStartParams, GameStartResult, GameActionParams, Ga
 interface ChessState {
   fen: string;
   players: { w: string; b: string };
-  status: 'playing' | 'checkmate' | 'draw' | 'stalemate' | 'resigned';
+  status: 'playing' | 'checkmate' | 'draw' | 'stalemate' | 'resigned' | 'timeout';
   winner?: string;
   moveHistory: string[];
+  timeControl: number | null;   // ms per side, null = untimed
+  whiteClock: number | null;    // ms remaining for white
+  blackClock: number | null;    // ms remaining for black
+  lastMoveAt: number | null;    // timestamp of last confirmed move
 }
 
 interface ChessMoveAction {
@@ -20,7 +24,15 @@ interface ChessResignAction {
   type: 'resign';
 }
 
-type ChessAction = ChessMoveAction | ChessResignAction;
+interface ChessClaimTimeoutAction {
+  type: 'claim_timeout';
+}
+
+type ChessAction = ChessMoveAction | ChessResignAction | ChessClaimTimeoutAction;
+
+interface ChessConfig {
+  timeControl?: number; // seconds per side
+}
 
 function colorOf(identity: string, players: { w: string; b: string }): 'w' | 'b' | null {
   if (players.w === identity) return 'w';
@@ -36,6 +48,9 @@ export const chessPlugin: GamePlugin = {
   maxPlayers: 2,
 
   onStart(params: GameStartParams): GameStartResult {
+    const config = (params.config ?? {}) as ChessConfig;
+    const tcMs = config.timeControl ? config.timeControl * 1000 : null;
+
     const shuffled = [...params.participants].sort(() => Math.random() - 0.5);
     const players = { w: shuffled[0]!, b: shuffled[1]! };
     const chess = new Chess();
@@ -46,9 +61,13 @@ export const chessPlugin: GamePlugin = {
       players,
       status: 'playing',
       moveHistory: [],
+      timeControl: tcMs,
+      whiteClock: tcMs,
+      blackClock: tcMs,
+      lastMoveAt: tcMs ? Date.now() : null,
     };
 
-    const spectatorState = { fen, players, turn: 'w' as const, status: 'playing', moveHistory: [] };
+    const spectatorState = { fen, players, turn: 'w' as const, status: 'playing', moveHistory: [], timeControl: tcMs, whiteClock: tcMs, blackClock: tcMs };
 
     return {
       state,
@@ -76,8 +95,30 @@ export const chessPlugin: GamePlugin = {
       const newState: ChessState = { ...state, status: 'resigned', winner };
       return {
         state: newState,
-        broadcast: { type: 'chess_game_over', result: 'resigned', winner },
-        spectatorState: { fen: state.fen, players: state.players, turn: state.fen.split(' ')[1] as 'w' | 'b', status: 'resigned', winner, moveHistory: state.moveHistory },
+        broadcast: { type: 'chess_game_over', result: 'resigned', winner, whiteClock: state.whiteClock, blackClock: state.blackClock },
+        spectatorState: { fen: state.fen, players: state.players, turn: state.fen.split(' ')[1] as 'w' | 'b', status: 'resigned', winner, moveHistory: state.moveHistory, timeControl: state.timeControl, whiteClock: state.whiteClock, blackClock: state.blackClock },
+        ended: true,
+      };
+    }
+
+    if (action.type === 'claim_timeout') {
+      if (state.timeControl === null) return { state };
+      const currentTurn = new Chess(state.fen).turn();
+      const activePlayer = state.players[currentTurn];
+      if (params.from === activePlayer) {
+        return { state, feedback: { to: params.from, message: 'Cannot claim timeout against yourself' } };
+      }
+      const elapsed = state.lastMoveAt ? Date.now() - state.lastMoveAt : 0;
+      const activeClock = currentTurn === 'w' ? (state.whiteClock ?? 0) : (state.blackClock ?? 0);
+      if (activeClock - elapsed > 0) {
+        return { state, feedback: { to: params.from, message: 'Opponent still has time' } };
+      }
+      const winner = params.from;
+      const newState: ChessState = { ...state, status: 'timeout', winner };
+      return {
+        state: newState,
+        broadcast: { type: 'chess_game_over', result: 'timeout', winner, whiteClock: state.whiteClock, blackClock: state.blackClock },
+        spectatorState: { fen: state.fen, players: state.players, turn: null, status: 'timeout', winner, moveHistory: state.moveHistory, timeControl: state.timeControl, whiteClock: state.whiteClock, blackClock: state.blackClock },
         ended: true,
       };
     }
@@ -103,6 +144,30 @@ export const chessPlugin: GamePlugin = {
       return { state, feedback: { to: params.from, message: 'Illegal move' } };
     }
 
+    // Clock deduction — only for timed games, after confirming move is legal
+    let whiteClock = state.whiteClock;
+    let blackClock = state.blackClock;
+    let lastMoveAt = state.lastMoveAt;
+    if (state.timeControl !== null && lastMoveAt !== null) {
+      const elapsed = Date.now() - lastMoveAt;
+      if (playerColor === 'w') whiteClock = Math.max(0, (whiteClock ?? 0) - elapsed);
+      else                      blackClock = Math.max(0, (blackClock ?? 0) - elapsed);
+      lastMoveAt = Date.now();
+
+      if ((whiteClock ?? 0) <= 0 || (blackClock ?? 0) <= 0) {
+        const timeoutWinner = playerColor === 'w' ? state.players.b : state.players.w;
+        const newHistory = [...state.moveHistory, move.san];
+        const newFen = chess.fen();
+        const timeoutState: ChessState = { ...state, fen: newFen, status: 'timeout', winner: timeoutWinner, moveHistory: newHistory, whiteClock, blackClock, lastMoveAt };
+        return {
+          state: timeoutState,
+          broadcast: { type: 'chess_game_over', result: 'timeout', winner: timeoutWinner, fen: newFen, moveHistory: newHistory, whiteClock, blackClock },
+          spectatorState: { fen: newFen, players: state.players, turn: null, status: 'timeout', winner: timeoutWinner, moveHistory: newHistory, timeControl: state.timeControl, whiteClock, blackClock },
+          ended: true,
+        };
+      }
+    }
+
     let status: ChessState['status'] = 'playing';
     let winner: string | undefined;
     let ended = false;
@@ -118,13 +183,13 @@ export const chessPlugin: GamePlugin = {
 
     const newFen = chess.fen();
     const newHistory = [...state.moveHistory, move.san];
-    const newState: ChessState = { ...state, fen: newFen, status, winner, moveHistory: newHistory };
+    const newState: ChessState = { ...state, fen: newFen, status, winner, moveHistory: newHistory, whiteClock, blackClock, lastMoveAt };
 
     const broadcastPayload = ended
-      ? { type: 'chess_game_over', result: status, winner, fen: newFen, moveHistory: newHistory }
-      : { type: 'chess_move', from: action.from, to: action.to, san: move.san, fen: newFen, turn: chess.turn(), check: chess.inCheck(), moveHistory: newHistory };
+      ? { type: 'chess_game_over', result: status, winner, fen: newFen, moveHistory: newHistory, whiteClock, blackClock }
+      : { type: 'chess_move', from: action.from, to: action.to, san: move.san, fen: newFen, turn: chess.turn(), check: chess.inCheck(), moveHistory: newHistory, whiteClock, blackClock };
 
-    const spectatorState = { fen: newFen, players: state.players, turn: ended ? null : chess.turn(), status, winner: winner ?? null, moveHistory: newHistory };
+    const spectatorState = { fen: newFen, players: state.players, turn: ended ? null : chess.turn(), status, winner: winner ?? null, moveHistory: newHistory, timeControl: state.timeControl, whiteClock, blackClock };
     return { state: newState, broadcast: broadcastPayload, spectatorState, ended };
   },
 };

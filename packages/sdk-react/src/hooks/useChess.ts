@@ -7,7 +7,7 @@ export interface UseChessOptions {
   roomName: string;
 }
 
-export type ChessGameStatus = 'playing' | 'checkmate' | 'draw' | 'stalemate' | 'resigned';
+export type ChessGameStatus = 'playing' | 'checkmate' | 'draw' | 'stalemate' | 'resigned' | 'timeout';
 
 export interface UseChessResult {
   active: boolean;
@@ -22,9 +22,13 @@ export interface UseChessResult {
   isSpectator: boolean;
   isLoading: boolean;
   error: string | null;
+  timeControl: number | null;
+  whiteClock: number | null;
+  blackClock: number | null;
   startGame: () => Promise<void>;
   makeMove: (from: string, to: string, promotion?: string) => boolean;
   resign: () => Promise<void>;
+  claimTimeout: () => Promise<void>;
   endGame: () => Promise<void>;
 }
 
@@ -47,14 +51,18 @@ interface ChessMoveBroadcast {
   turn: 'w' | 'b';
   check: boolean;
   moveHistory: string[];
+  whiteClock?: number | null;
+  blackClock?: number | null;
 }
 
 interface ChessGameOverBroadcast {
   type: 'chess_game_over';
   result: ChessGameStatus;
   winner?: string;
-  fen: string;
-  moveHistory: string[];
+  fen?: string;
+  moveHistory?: string[];
+  whiteClock?: number | null;
+  blackClock?: number | null;
 }
 
 interface ChessSpectatorState {
@@ -64,6 +72,9 @@ interface ChessSpectatorState {
   status: ChessGameStatus;
   moveHistory: string[];
   winner?: string | null;
+  timeControl?: number | null;
+  whiteClock?: number | null;
+  blackClock?: number | null;
 }
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -84,6 +95,9 @@ export function useChess({ roomName }: UseChessOptions): UseChessResult {
   const [isSpectator, setIsSpectator] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [timeControl, setTimeControl] = useState<number | null>(null);
+  const [whiteClock, setWhiteClock] = useState<number | null>(null);
+  const [blackClock, setBlackClock] = useState<number | null>(null);
 
   // Keep a ref for makeMove to read without stale closure issues
   const localFenRef = useRef(localFen);
@@ -99,6 +113,9 @@ export function useChess({ roomName }: UseChessOptions): UseChessResult {
     setWinner(null);
     setMoveHistory([]);
     setIsSpectator(false);
+    setTimeControl(null);
+    setWhiteClock(null);
+    setBlackClock(null);
   }, []);
 
   const hydrate = useCallback(async () => {
@@ -120,6 +137,9 @@ export function useChess({ roomName }: UseChessOptions): UseChessResult {
           if (s.turn) setTurn(s.turn);
           setStatus(s.status);
           setMoveHistory(s.moveHistory ?? []);
+          setTimeControl(s.timeControl ?? null);
+          setWhiteClock(s.whiteClock ?? null);
+          setBlackClock(s.blackClock ?? null);
         }
       } else {
         const payload = game.state as ChessPayload | null;
@@ -135,6 +155,9 @@ export function useChess({ roomName }: UseChessOptions): UseChessResult {
           setStatus(board.status ?? 'playing');
           setMoveHistory(board.moveHistory ?? []);
           if (board.winner) setWinner(board.winner);
+          setTimeControl(board.timeControl ?? null);
+          setWhiteClock(board.whiteClock ?? null);
+          setBlackClock(board.blackClock ?? null);
         }
       }
     } catch {
@@ -183,11 +206,15 @@ export function useChess({ roomName }: UseChessOptions): UseChessResult {
           setTurn(p.turn);
           setMoveHistory(p.moveHistory ?? []);
           localFenRef.current = p.fen;
+          if (p.whiteClock !== undefined) setWhiteClock(p.whiteClock);
+          if (p.blackClock !== undefined) setBlackClock(p.blackClock);
         } else if (p?.type === 'chess_game_over') {
           setLocalFen(p.fen ?? localFenRef.current);
           setMoveHistory(p.moveHistory ?? []);
           setStatus(p.result);
           setWinner(p.winner ?? null);
+          if (p.whiteClock !== undefined) setWhiteClock(p.whiteClock);
+          if (p.blackClock !== undefined) setBlackClock(p.blackClock);
         }
         return;
       }
@@ -261,6 +288,13 @@ export function useChess({ roomName }: UseChessOptions): UseChessResult {
     }
   }, [api, roomName]);
 
+  const claimTimeout = useCallback(async () => {
+    if (!api) return;
+    try {
+      await api.sendGameAction(roomName, { type: 'claim_timeout' });
+    } catch { /* silent — server will return feedback if not valid */ }
+  }, [api, roomName]);
+
   const endGame = useCallback(async () => {
     if (!api) return;
     setIsLoading(true);
@@ -279,6 +313,16 @@ export function useChess({ roomName }: UseChessOptions): UseChessResult {
 
   const isMyTurn = !isSpectator && myColor !== null && liveTurn === myColor && status === 'playing';
 
+  // Local clock tick — visual only; corrected by server values on each chess_move broadcast
+  useEffect(() => {
+    if (!active || status !== 'playing' || timeControl === null) return;
+    const id = setInterval(() => {
+      if (liveTurn === 'w') setWhiteClock(c => Math.max(0, (c ?? 0) - 200));
+      else setBlackClock(c => Math.max(0, (c ?? 0) - 200));
+    }, 200);
+    return () => clearInterval(id);
+  }, [active, status, liveTurn, timeControl]);
+
   return {
     active,
     fen: localFen,
@@ -292,9 +336,13 @@ export function useChess({ roomName }: UseChessOptions): UseChessResult {
     isSpectator,
     isLoading,
     error,
+    timeControl,
+    whiteClock,
+    blackClock,
     startGame,
     makeMove,
     resign,
+    claimTimeout,
     endGame,
   };
 }

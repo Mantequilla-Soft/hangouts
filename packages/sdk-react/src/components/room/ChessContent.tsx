@@ -18,11 +18,23 @@ function chessStatusText(
 ): string {
   if (status === 'checkmate') return winner ? `Checkmate! ${winner} wins.` : 'Checkmate!';
   if (status === 'resigned') return winner ? `${winner} wins by resignation.` : 'Game over.';
+  if (status === 'timeout') return winner ? `${winner} wins on time.` : 'Time out!';
   if (status === 'draw') return "It's a draw!";
   if (status === 'stalemate') return "Stalemate — draw!";
   if (isSpectator && players) return `${players.w} (white) vs ${players.b} (black)`;
   if (isMyTurn) return 'Your turn';
   return "Opponent's turn…";
+}
+
+function ChessClock({ ms, active, label }: { ms: number; active: boolean; label: string }) {
+  const s = Math.ceil(ms / 1000);
+  const urgent = active && ms < 30_000;
+  return (
+    <div className={`hh-chess__clock${active ? ' hh-chess__clock--active' : ''}${urgent ? ' hh-chess__clock--urgent' : ''}`}>
+      <span className="hh-chess__clock-label">{label}</span>
+      <span className="hh-chess__clock-time">{Math.floor(s / 60)}:{(s % 60).toString().padStart(2, '0')}</span>
+    </div>
+  );
 }
 
 function formatMoveHistory(history: string[]): Array<{ n: number; w: string; b?: string }> {
@@ -126,7 +138,7 @@ export function ChessContent({ roomName, isHost }: ChessContentProps) {
         <div className="hh-chess__player hh-chess__player--bottom">{self}</div>
       </div>
 
-      {/* Right column: status, move history, action buttons */}
+      {/* Right column: status, clocks, move history, action buttons */}
       <div className="hh-chess__side">
         <div className={`hh-chess__status${gameOver ? ' hh-chess__status--gameover' : ''}`}>
           {statusText}
@@ -134,6 +146,16 @@ export function ChessContent({ roomName, isHost }: ChessContentProps) {
 
         {game.error && (
           <div className="hh-chess__error">{game.error}</div>
+        )}
+
+        {game.timeControl !== null && (
+          <div className="hh-chess__clock-strip">
+            <ChessClock
+              ms={game.blackClock ?? 0}
+              active={!gameOver && game.turn === 'b'}
+              label={game.players?.b ?? 'Black'}
+            />
+          </div>
         )}
 
         {movePairs.length > 0 && (
@@ -149,6 +171,16 @@ export function ChessContent({ roomName, isHost }: ChessContentProps) {
           </div>
         )}
 
+        {game.timeControl !== null && (
+          <div className="hh-chess__clock-strip">
+            <ChessClock
+              ms={game.whiteClock ?? 0}
+              active={!gameOver && game.turn === 'w'}
+              label={game.players?.w ?? 'White'}
+            />
+          </div>
+        )}
+
         <div className="hh-chess__actions">
           {!game.isSpectator && game.myColor && !gameOver && (
             <button
@@ -158,6 +190,16 @@ export function ChessContent({ roomName, isHost }: ChessContentProps) {
             >
               Resign
             </button>
+          )}
+          {game.timeControl !== null && !game.isMyTurn && !game.isSpectator && !gameOver && (
+            (game.turn === 'w' ? game.whiteClock : game.blackClock) === 0 && (
+              <button
+                className="hh-btn hh-btn--primary hh-btn--small"
+                onClick={() => void game.claimTimeout()}
+              >
+                Claim Timeout Win
+              </button>
+            )
           )}
           {isHost && !gameOver && (
             <button

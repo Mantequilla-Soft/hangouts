@@ -210,12 +210,16 @@ describe('fastDrawPlugin.onAction — advance_round', () => {
     expect(Object.keys(r.payloads!)).toEqual(expect.arrayContaining(PLAYERS));
   });
 
-  it('ignores advance_round if reveal timer has not ended yet', async () => {
+  it('advances round immediately when host sends advance_round during reveal (no time guard)', async () => {
     const { state } = await start();
+    // revealEndsAt still in the future — host-controlled pacing ignores it
     const revealState: FastDrawState = { ...state, phase: 'reveal', revealEndsAt: Date.now() + 10000, guesser: null };
     const r = fastDrawPlugin.onAction({ from: PLAYERS[0]!, action: { type: 'advance_round' }, state: revealState, participants: PLAYERS });
-    expect(r.state).toBe(revealState);
-    expect(r.broadcast).toBeUndefined();
+    const newState = r.state as FastDrawState;
+    expect(newState.phase).toBe('drawing');
+    expect(r.broadcast).toBeDefined();
+    const bc = r.broadcast as { type: string };
+    expect(bc.type).toBe('fast_draw_round_start');
   });
 
   it('clears strokeSnapshot on next round', async () => {

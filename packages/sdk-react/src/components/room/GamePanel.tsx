@@ -129,6 +129,7 @@ function IdleContent({ roomName, isHost }: { roomName: string; isHost: boolean }
   const [selectedGame, setSelectedGame] = useState('word-guess');
   const [selectedWinThreshold, setSelectedWinThreshold] = useState(5);
   const [selectedRoundDuration, setSelectedRoundDuration] = useState(60);
+  const [selectedTimeControl, setSelectedTimeControl] = useState(0);
 
   const [collections, setCollections] = useState<CollectionOption[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(true);
@@ -181,7 +182,8 @@ function IdleContent({ roomName, isHost }: { roomName: string; isHost: boolean }
     if (selectedGame === 'word-guess') {
       void wordGame.startGame({ theme: selectedTheme });
     } else if (selectedGame === 'chess') {
-      void apiClient.startGame(roomName, 'chess');
+      const config = selectedTimeControl > 0 ? { timeControl: selectedTimeControl } : {};
+      void apiClient.startGame(roomName, 'chess', config);
     } else if (selectedGame === 'fast-draw') {
       void apiClient.startGame(roomName, 'fast-draw', {
         theme: selectedTheme,
@@ -235,10 +237,26 @@ function IdleContent({ roomName, isHost }: { roomName: string; isHost: boolean }
       )}
 
       {selectedGame === 'chess' && (
-        <p className="hh-game-panel__idle-hint">
-          Classic 2-player chess. Colors are assigned randomly at game start.
-          The host and one other participant play; everyone else watches.
-        </p>
+        <>
+          <p className="hh-game-panel__idle-hint">
+            Classic 2-player chess. Colors are assigned randomly at game start.
+            The host and one other participant play; everyone else watches.
+          </p>
+          <label className="hh-game-panel__label">
+            Time control
+            <select
+              className="hh-game-panel__select"
+              value={selectedTimeControl}
+              onChange={(e) => setSelectedTimeControl(Number(e.target.value))}
+            >
+              <option value={0}>Untimed</option>
+              <option value={180}>3 min — Blitz</option>
+              <option value={300}>5 min — Blitz</option>
+              <option value={600}>10 min — Rapid</option>
+              <option value={1200}>20 min — Rapid</option>
+            </select>
+          </label>
+        </>
       )}
 
       {selectedGame === 'fast-draw' && (

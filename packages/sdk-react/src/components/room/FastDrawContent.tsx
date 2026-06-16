@@ -135,6 +135,18 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
             )}
           </div>
         )}
+
+        {isHost && !isGameOver && (
+          <div className="hh-fastdraw__host-controls">
+            <button
+              className="hh-btn hh-btn--danger hh-btn--small"
+              onClick={() => void game.endGame()}
+              disabled={game.isLoading}
+            >
+              End Game
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

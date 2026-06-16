@@ -19,6 +19,10 @@ export interface ParticipantTileProps {
   isPanelOpen?: boolean;
   onTogglePanel?: () => void;
   videoEnabled?: boolean;
+  /** Word badge for word-guess game — shows above name in overlay. "???" for own tile. */
+  wordBadge?: string;
+  /** When true, applies green "guessed" styling to the word badge. */
+  wordBadgeGuessed?: boolean;
 }
 
 export function ParticipantTile({
@@ -29,6 +33,8 @@ export function ParticipantTile({
   roomName,
   size = 'normal',
   videoEnabled = false,
+  wordBadge,
+  wordBadgeGuessed = false,
 }: ParticipantTileProps) {
   const isSpeaking = useIsSpeaking(participant);
   // Guest identities (`guest-{random}`) have no Hive account, so the
@@ -117,6 +123,11 @@ export function ParticipantTile({
           {isHandRaised && <span className="hh-tile__hand">✋</span>}
         </div>
         <span className="hh-tile__name">{displayName}</span>
+        {wordBadge && (
+          <span className={`hh-tile__word hh-tile__word--small${wordBadgeGuessed ? ' hh-tile__word--guessed' : ''}`}>
+            {wordBadge.toUpperCase()}
+          </span>
+        )}
         {showMenuButton && (
           <>
             <button
@@ -175,6 +186,11 @@ export function ParticipantTile({
       )}
 
       <div className="hh-tile__overlay">
+        {wordBadge && (
+          <span className={`hh-tile__word${wordBadgeGuessed ? ' hh-tile__word--guessed' : ''}`}>
+            {wordBadge.toUpperCase()}
+          </span>
+        )}
         {isMuted && <span className="hh-tile__mute" title="Muted">🔇</span>}
         <span className="hh-tile__name">{displayName}</span>
         {role === 'host' && <span className="hh-tile__role">Host</span>}

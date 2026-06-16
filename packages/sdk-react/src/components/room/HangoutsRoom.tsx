@@ -11,6 +11,7 @@ import { AudienceSection } from './AudienceSection.js';
 import { RoomControls } from './RoomControls.js';
 import { ChatPanel } from './ChatPanel.js';
 import { GamePanel } from './GamePanel.js';
+import { WordGuessStage } from './WordGuessStage.js';
 import { HangoutsErrorBoundary } from './HangoutsErrorBoundary.js';
 import { GuestNameModal } from '../lobby/GuestNameModal.js';
 import { BoostOverlay } from './BoostOverlay.js';
@@ -370,20 +371,41 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
               />
             </aside>
             <div className="hh-room__main">
-              {/* Speaker area: compact 72px strip in game mode, full stage otherwise */}
-              {gameIsCenter ? (
-                <div className="hh-room__game-strip">
-                  <SpeakerStage
-                    hostIdentity={host}
-                    isCurrentUserHost={room.isHost}
+              {/* Speaker area / game center — layout depends on active game type */}
+              {gameIsCenter && activeGameId === 'word-guess' ? (
+                /* Word Guess: faces ARE the game — full grid with word badges, no speaker strip */
+                <div className="hh-room__game-area">
+                  <WordGuessStage
                     roomName={roomName}
+                    isHost={room.isHost}
+                    hostIdentity={host}
                     videoEnabled={videoEnabled}
-                    chatOpen={chatOpen}
-                    gameMode={true}
                   />
-                  <BoostOverlay />
                 </div>
+              ) : gameIsCenter ? (
+                /* Chess / Fast Draw: compact speaker strip above the board */
+                <>
+                  <div className="hh-room__game-strip">
+                    <SpeakerStage
+                      hostIdentity={host}
+                      isCurrentUserHost={room.isHost}
+                      roomName={roomName}
+                      videoEnabled={videoEnabled}
+                      chatOpen={chatOpen}
+                      gameMode={true}
+                    />
+                    <BoostOverlay />
+                  </div>
+                  <div className="hh-room__game-area">
+                    <GamePanel
+                      roomName={roomName}
+                      isHost={room.isHost}
+                      activeGameId={activeGameId}
+                    />
+                  </div>
+                </>
               ) : (
+                /* No active game: full speaker stage */
                 <div className="hh-room__stage">
                   <SpeakerStage
                     hostIdentity={host}
@@ -393,17 +415,6 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
                     chatOpen={chatOpen}
                   />
                   <BoostOverlay />
-                </div>
-              )}
-
-              {/* Game board in center — only mounted when a game is running */}
-              {gameIsCenter && (
-                <div className="hh-room__game-area">
-                  <GamePanel
-                    roomName={roomName}
-                    isHost={room.isHost}
-                    activeGameId={activeGameId}
-                  />
                 </div>
               )}
 
