@@ -169,10 +169,9 @@ export const fastDrawPlugin: GamePlugin = {
         return { state, feedback: { to: from, message: 'Not quite!' } };
       }
 
-      // Correct guess
+      // Correct guess — go to reveal and wait for host to advance
       const newScores = { ...state.scores, [from]: state.scores[from]! + 1, [currentDrawer]: state.scores[currentDrawer]! + 1 };
-      const revealEndsAt = Date.now() + 4000;
-      const newState: FastDrawState = { ...state, phase: 'reveal', guesser: from, scores: newScores, revealEndsAt };
+      const newState: FastDrawState = { ...state, phase: 'reveal', guesser: from, scores: newScores, revealEndsAt: null };
 
       const winners = Object.entries(newScores)
         .filter(([, s]) => s >= state.winThreshold)
@@ -191,7 +190,7 @@ export const fastDrawPlugin: GamePlugin = {
       return {
         state: newState,
         spectatorState: buildSpectatorState(newState),
-        broadcast: { type: 'fast_draw_correct', guesser: from, word: state.currentWord, scores: newScores, revealEndsAt },
+        broadcast: { type: 'fast_draw_correct', guesser: from, word: state.currentWord, scores: newScores, revealEndsAt: null },
       };
     }
 
@@ -202,19 +201,17 @@ export const fastDrawPlugin: GamePlugin = {
         if (Date.now() < state.roundStartedAt + state.roundDuration * 1000) {
           return { state, feedback: { to: from, message: 'Round is still active' } };
         }
-        const revealEndsAt = Date.now() + 4000;
-        const newState: FastDrawState = { ...state, phase: 'reveal', revealEndsAt };
+        // Time expired — go to reveal and wait for host to start next round
+        const newState: FastDrawState = { ...state, phase: 'reveal', revealEndsAt: null };
         return {
           state: newState,
           spectatorState: buildSpectatorState(newState),
-          broadcast: { type: 'fast_draw_time_expired', word: state.currentWord, scores: state.scores, revealEndsAt },
+          broadcast: { type: 'fast_draw_time_expired', word: state.currentWord, scores: state.scores, revealEndsAt: null },
         };
       }
 
       if (state.phase === 'reveal') {
-        if (state.revealEndsAt && Date.now() < state.revealEndsAt) {
-          return { state };
-        }
+        // No time guard — host controls when the next round starts
         // Advance to next round
         const nextIndex = (state.currentDrawerIndex + 1) % state.drawerOrder.length;
         const nextDrawer = state.drawerOrder[nextIndex]!;

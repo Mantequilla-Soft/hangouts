@@ -116,11 +116,10 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
               ? <><div>{game.guesser} got it!</div><div className="hh-fastdraw__reveal-word">{game.revealedWord}</div><div>+1 each</div></>
               : <><div>Time&apos;s up!</div><div className="hh-fastdraw__reveal-word">{game.revealedWord}</div></>
             }
-            {game.revealEndsAt && (
-              <div className="hh-fastdraw__timer" style={{ fontSize: 14 }}>
-                Next round in {formatTime(Math.max(0, game.revealEndsAt - Date.now()))}…
-              </div>
-            )}
+            {isHost
+              ? <button className="hh-btn hh-btn--primary hh-btn--small" onClick={() => void game.nextRound()}>Next Round</button>
+              : <div className="hh-fastdraw__waiting">Waiting for host…</div>
+            }
           </div>
         )}
 

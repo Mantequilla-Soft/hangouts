@@ -45,6 +45,7 @@ export interface UseFastDrawResult {
   startGame: (config?: FastDrawConfig) => Promise<void>;
   submitGuess: (word: string) => Promise<void>;
   syncCanvas: (strokes: Stroke[]) => void;
+  nextRound: () => Promise<void>;
   endGame: () => Promise<void>;
 }
 
@@ -203,18 +204,17 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
 
   useEffect(() => { void hydrate(); }, [hydrate]);
 
-  // Auto-advance timer: fires advance_round when drawing or reveal timer expires
+  // Auto-advance timer: fires advance_round only when drawing time expires.
+  // Reveal phase is host-controlled — host presses "Next Round" to advance.
   useEffect(() => {
-    if (!active || phase === 'game_over' || !api) return;
-    const target = phase === 'drawing'
-      ? roundStartedAt + roundDuration * 1000
-      : (revealEndsAt ?? 0);
+    if (!active || phase !== 'drawing' || !api) return;
+    const target = roundStartedAt + roundDuration * 1000;
     const ms = target - Date.now();
     const send = () => void api.sendGameAction(roomName, { type: 'advance_round' }).catch(() => {});
     if (ms <= 0) { send(); return; }
     const t = setTimeout(send, ms);
     return () => clearTimeout(t);
-  }, [active, phase, roundStartedAt, roundDuration, revealEndsAt, api, roomName]);
+  }, [active, phase, roundStartedAt, roundDuration, api, roomName]);
 
   const onMessage = useCallback((msg: { payload: Uint8Array }) => {
     try {
@@ -331,6 +331,13 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
     }, 500);
   }, [api, roomName]);
 
+  const nextRound = useCallback(async () => {
+    if (!api) return;
+    setError(null);
+    try { await api.sendGameAction(roomName, { type: 'advance_round' }); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Failed to advance round'); }
+  }, [api, roomName]);
+
   const endGame = useCallback(async () => {
     if (!api) return;
     setIsLoading(true); setError(null);
@@ -346,6 +353,6 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
     active, phase, isDrawer, currentDrawer, word, wordLength,
     scores, myScore, winners, roundNumber, roundStartedAt, roundDuration,
     revealEndsAt, guesser, revealedWord, strokeSnapshot, isSpectator,
-    error, isLoading, startGame, submitGuess, syncCanvas, endGame,
+    error, isLoading, startGame, submitGuess, syncCanvas, nextRound, endGame,
   };
 }

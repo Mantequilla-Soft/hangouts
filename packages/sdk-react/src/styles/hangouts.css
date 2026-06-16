@@ -2630,6 +2630,11 @@
   margin: 4px 0;
   color: var(--hh-accent);
 }
+.hh-fastdraw__waiting {
+  font-size: 11px;
+  color: var(--hh-text-muted);
+  margin-top: 4px;
+}
 .hh-fastdraw__scores {
   display: flex;
   flex-direction: column;
