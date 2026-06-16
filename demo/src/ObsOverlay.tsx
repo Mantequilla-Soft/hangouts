@@ -2,6 +2,7 @@ import { useMemo, useEffect, useState } from 'react';
 import {
   LiveKitRoom,
   useRoomInfo,
+  useDataChannel,
 } from '@livekit/components-react';
 import {
   HangoutsProvider,
@@ -10,6 +11,7 @@ import {
   AudienceSection,
   BoostOverlay,
   BoostStoreProvider,
+  GamePanel,
 } from '@snapie/hangouts-react';
 import { useChat } from '@snapie/hangouts-react';
 import '@snapie/hangouts-react/src/styles/hangouts.css';
@@ -70,23 +72,58 @@ function useRoomMeta(): RoomMeta {
 function ObsRoomContent({ roomName, show }: { roomName: string; show: Set<string> }) {
   const meta = useRoomMeta();
   const host = meta.host ?? '';
+  const [activeGameId, setActiveGameId] = useState<string | null>(null);
+
+  // Late-join: check if a game is already running when OBS connects
+  useEffect(() => {
+    if (!show.has('game')) return;
+    const client = new HangoutsApiClient({ baseUrl: API_BASE_URL });
+    client.getActiveGame(roomName)
+      .then(game => { if (game) setActiveGameId(game.gameId); })
+      .catch(() => {});
+  }, [roomName, show]);
+
+  // Listen for game lifecycle events on the 'game' data channel
+  useDataChannel('game', (msg) => {
+    if (!show.has('game')) return;
+    try {
+      const data = JSON.parse(new TextDecoder().decode(msg.payload)) as { type?: string; gameId?: string };
+      if (data.type === 'game:started') setActiveGameId(data.gameId ?? null);
+      if (data.type === 'game:ended') setActiveGameId(null);
+    } catch { /* ignore malformed messages */ }
+  });
+
+  const gameIsCenter = show.has('game') && !!activeGameId;
 
   return (
     <div className="hh-obs">
       {show.has('speakers') && (
-        <div className="hh-room__stage" style={{ flex: show.size > 1 ? '1' : undefined }}>
+        <div
+          className={gameIsCenter ? 'hh-room__game-strip hh-obs__game-strip' : 'hh-room__stage'}
+          style={gameIsCenter ? undefined : { flex: show.size > 1 ? '1' : undefined }}
+        >
           <SpeakerStage
             hostIdentity={host}
             roomName={roomName}
             videoEnabled={true}
+            gameMode={gameIsCenter}
           />
           {show.has('boost') && <BoostOverlay />}
         </div>
       )}
-      {show.has('chat') && (
+      {gameIsCenter && (
+        <div className="hh-room__game-area hh-obs__game-area">
+          <GamePanel
+            roomName={roomName}
+            isHost={false}
+            activeGameId={activeGameId}
+          />
+        </div>
+      )}
+      {!gameIsCenter && show.has('chat') && (
         <ObsChatFeed />
       )}
-      {show.has('audience') && (
+      {!gameIsCenter && show.has('audience') && (
         <AudienceSection
           hostIdentity={host}
           roomName={roomName}

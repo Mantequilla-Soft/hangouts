@@ -2954,6 +2954,24 @@
   min-height: 0;
 }
 
+/* Game-active OBS layout */
+.hh-obs__game-strip {
+  flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.hh-obs__game-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 12px;
+}
+.hh-obs__game-area .hh-game-panel {
+  border-left: none;
+}
+
 
 .hh-boost-overlay {
   position: absolute;
