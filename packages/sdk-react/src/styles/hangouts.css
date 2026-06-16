@@ -2405,12 +2405,12 @@
 /* Right column: status, move history, action buttons */
 .hh-chess__side {
   flex: 0 0 auto;
-  width: min(150px, 30%);
-  min-width: 90px;
+  width: min(160px, 30%);
+  min-width: 100px;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  overflow-y: auto;
+  overflow: hidden;
   padding-right: 0.125rem;
 }
 
@@ -2440,7 +2440,11 @@
   padding: 0.375rem 0;
   border-top: 1px solid var(--hh-border-light);
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   align-content: flex-start;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
 }
 
 .hh-chess__move-pair {
@@ -2464,6 +2468,7 @@
   gap: 0.5rem;
   flex-wrap: wrap;
   padding: 0.25rem 0;
+  flex-shrink: 0;
 }
 
 /* === Fast Draw === */

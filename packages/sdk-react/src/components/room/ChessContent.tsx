@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Chessboard } from 'react-chessboard';
 import type { PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard';
 import { useChess } from '../../hooks/useChess.js';
@@ -36,11 +36,17 @@ function formatMoveHistory(history: string[]): Array<{ n: number; w: string; b?:
 export function ChessContent({ roomName, isHost }: ChessContentProps) {
   const game = useChess({ roomName });
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
+  const historyBottomRef = useRef<HTMLDivElement>(null);
 
   // Clear selection when the turn changes (move was accepted) or game ends
   useEffect(() => {
     setSelectedSquare(null);
   }, [game.turn, game.status]);
+
+  // Auto-scroll move history to latest move
+  useEffect(() => {
+    historyBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [game.moveHistory.length]);
 
   const orientation = game.myColor === 'b' ? 'black' : 'white';
   const opponent = game.players
@@ -139,6 +145,7 @@ export function ChessContent({ roomName, isHost }: ChessContentProps) {
                 {b && <span className="hh-chess__move">{b}</span>}
               </span>
             ))}
+            <div ref={historyBottomRef} />
           </div>
         )}
 
