@@ -233,11 +233,20 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
           setWord(payload.word);
           setCurrentDrawer(identity);
           setIsSpectator(false);
+          // game:state for a new round — clear reveal state even if broadcast hasn't arrived
+          setPhase('drawing');
+          setRevealedWord(null);
+          setGuesser(null);
+          setStrokeSnapshot([]);
         }
         if (payload.role === 'guesser') {
           setWord(null);
           setWordLength(payload.wordLength ?? 0);
           setIsSpectator(false);
+          setPhase('drawing');
+          setRevealedWord(null);
+          setGuesser(null);
+          setStrokeSnapshot([]);
         }
         setRoundStartedAt(payload.roundStartedAt);
         setRoundDuration(payload.roundDuration);
