@@ -23,6 +23,8 @@ type FastDrawState = {
   wordQueue: string[];
   roundStartedAt: number;
   roundDuration: number;
+  guessDuration: number;
+  guessPhaseStartedAt: number | null;
   revealEndsAt: number | null;
   scores: Record<string, number>;
   winThreshold: number;
@@ -107,6 +109,17 @@ describe('fastDrawPlugin.onStart', () => {
     const { state } = await start({ roundDuration: 30 });
     expect(state.roundDuration).toBe(30);
   });
+
+  it('guessDuration defaults to roundDuration', async () => {
+    const { state } = await start({ roundDuration: 45 });
+    expect(state.guessDuration).toBe(45);
+  });
+
+  it('respects custom guessDuration config independent of roundDuration', async () => {
+    const { state } = await start({ roundDuration: 60, guessDuration: 20 });
+    expect(state.roundDuration).toBe(60);
+    expect(state.guessDuration).toBe(20);
+  });
 });
 
 describe('fastDrawPlugin.onAction — guess', () => {
@@ -178,6 +191,32 @@ describe('fastDrawPlugin.onAction — guess', () => {
     expect(newState.winners).toContain(drawer);
     expect(newState.winners).toContain(guesser);
   });
+
+  it('accepts a correct guess during the guessing phase (after drawing time is up)', async () => {
+    const { state } = await start();
+    const drawer = state.drawerOrder[0]!;
+    const guesser = PLAYERS.find((p) => p !== drawer)!;
+    const guessingState: FastDrawState = { ...state, phase: 'guessing', guessPhaseStartedAt: Date.now() };
+    const r = fastDrawPlugin.onAction({ from: guesser, action: { type: 'guess', word: state.currentWord }, state: guessingState, participants: PLAYERS });
+    const newState = r.state as FastDrawState;
+    expect(newState.phase).toBe('reveal');
+    expect(newState.scores[guesser]).toBe(1);
+    expect(newState.revealEndsAt).not.toBeNull();
+  });
+
+  it('rejects a guess once the guessing window itself has expired', async () => {
+    const { state } = await start();
+    const drawer = state.drawerOrder[0]!;
+    const guesser = PLAYERS.find((p) => p !== drawer)!;
+    const expiredGuessingState: FastDrawState = {
+      ...state,
+      phase: 'guessing',
+      guessPhaseStartedAt: Date.now() - (state.guessDuration + 1) * 1000,
+    };
+    const r = fastDrawPlugin.onAction({ from: guesser, action: { type: 'guess', word: state.currentWord }, state: expiredGuessingState, participants: PLAYERS });
+    expect(r.feedback?.to).toBe(guesser);
+    expect((r.state as FastDrawState).phase).toBe('guessing');
+  });
 });
 
 describe('fastDrawPlugin.onAction — advance_round', () => {
@@ -188,12 +227,39 @@ describe('fastDrawPlugin.onAction — advance_round', () => {
     expect((r.state as FastDrawState).phase).toBe('drawing');
   });
 
-  it('moves to reveal when time has expired', async () => {
+  it('moves to guessing phase (not reveal) when drawing time has expired', async () => {
     const { state } = await start();
     const expiredState: FastDrawState = { ...state, roundStartedAt: Date.now() - (state.roundDuration + 1) * 1000 };
     const r = fastDrawPlugin.onAction({ from: PLAYERS[0]!, action: { type: 'advance_round' }, state: expiredState, participants: PLAYERS });
-    expect((r.state as FastDrawState).phase).toBe('reveal');
-    expect(r.broadcast).toMatchObject({ type: 'fast_draw_time_expired', word: expiredState.currentWord });
+    const newState = r.state as FastDrawState;
+    expect(newState.phase).toBe('guessing');
+    expect(newState.guessPhaseStartedAt).not.toBeNull();
+    expect(r.broadcast).toMatchObject({ type: 'fast_draw_drawing_ended', guessDuration: state.guessDuration });
+    expect((r.broadcast as { word?: string }).word).toBeUndefined();
+    const spec = r.spectatorState as { revealedWord: string | null };
+    expect(spec.revealedWord).toBeNull();
+  });
+
+  it('rejects advance_round while the guessing window is still active', async () => {
+    const { state } = await start();
+    const guessingState: FastDrawState = { ...state, phase: 'guessing', guessPhaseStartedAt: Date.now() };
+    const r = fastDrawPlugin.onAction({ from: PLAYERS[0]!, action: { type: 'advance_round' }, state: guessingState, participants: PLAYERS });
+    expect(r.feedback?.to).toBe(PLAYERS[0]);
+    expect((r.state as FastDrawState).phase).toBe('guessing');
+  });
+
+  it('moves to reveal when the guessing window has also expired', async () => {
+    const { state } = await start();
+    const expiredGuessingState: FastDrawState = {
+      ...state,
+      phase: 'guessing',
+      guessPhaseStartedAt: Date.now() - (state.guessDuration + 1) * 1000,
+    };
+    const r = fastDrawPlugin.onAction({ from: PLAYERS[0]!, action: { type: 'advance_round' }, state: expiredGuessingState, participants: PLAYERS });
+    const newState = r.state as FastDrawState;
+    expect(newState.phase).toBe('reveal');
+    expect(newState.revealEndsAt).not.toBeNull();
+    expect(r.broadcast).toMatchObject({ type: 'fast_draw_time_expired', word: expiredGuessingState.currentWord });
   });
 
   it('advances to next round from reveal when reveal has ended', async () => {
@@ -246,6 +312,14 @@ describe('fastDrawPlugin.onAction — canvas_sync', () => {
     const nonDrawer = PLAYERS.find((p) => p !== state.drawerOrder[0])!;
     const r = fastDrawPlugin.onAction({ from: nonDrawer, action: { type: 'canvas_sync', strokes: [] }, state, participants: PLAYERS });
     expect(r.feedback?.to).toBe(nonDrawer);
+  });
+
+  it('rejects canvas_sync once drawing time is up, even from the drawer', async () => {
+    const { state } = await start();
+    const drawer = state.drawerOrder[0]!;
+    const guessingState: FastDrawState = { ...state, phase: 'guessing', guessPhaseStartedAt: Date.now() };
+    const r = fastDrawPlugin.onAction({ from: drawer, action: { type: 'canvas_sync', strokes: [] }, state: guessingState, participants: PLAYERS });
+    expect(r.feedback?.to).toBe(drawer);
   });
 
   it('updates spectatorState with new strokeSnapshot', async () => {

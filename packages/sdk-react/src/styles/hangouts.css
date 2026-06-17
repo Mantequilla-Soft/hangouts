@@ -2573,17 +2573,17 @@
   gap: 4px;
 }
 .hh-fastdraw__word {
-  font-size: 14px;
-  letter-spacing: 3px;
+  font-size: 22px;
+  letter-spacing: 6px;
   font-family: monospace;
-  font-weight: 600;
+  font-weight: 700;
 }
 .hh-fastdraw__word--revealed {
   color: var(--hh-accent);
 }
 .hh-fastdraw__dash {
   display: inline-block;
-  margin: 0 1px;
+  margin: 0 2px;
 }
 .hh-fastdraw__timer {
   font-size: 18px;
@@ -2591,6 +2591,18 @@
   font-weight: 700;
 }
 .hh-fastdraw__timer--urgent {
+  color: #e53e3e;
+  animation: hh-pulse 0.6s ease-in-out infinite;
+}
+.hh-fastdraw__banner {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: var(--hh-accent);
+  margin: 4px 0;
+}
+.hh-fastdraw__banner--urgent {
   color: #e53e3e;
   animation: hh-pulse 0.6s ease-in-out infinite;
 }

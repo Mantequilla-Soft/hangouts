@@ -30,13 +30,15 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
     if (!game.active || game.phase === 'game_over') return;
     const target = game.phase === 'drawing'
       ? game.roundStartedAt + game.roundDuration * 1000
+      : game.phase === 'guessing'
+      ? (game.guessPhaseStartedAt ?? Date.now()) + game.guessDuration * 1000
       : (game.revealEndsAt ?? 0);
 
     const tick = () => setTimeLeft(Math.max(0, target - Date.now()));
     tick();
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
-  }, [game.active, game.phase, game.roundStartedAt, game.roundDuration, game.revealEndsAt]);
+  }, [game.active, game.phase, game.roundStartedAt, game.roundDuration, game.guessPhaseStartedAt, game.guessDuration, game.revealEndsAt]);
 
   const handleGuess = (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,9 +50,11 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
   if (!game.active) return null;
 
   const isDrawingPhase = game.phase === 'drawing';
+  const isGuessingPhase = game.phase === 'guessing';
   const isRevealPhase = game.phase === 'reveal';
   const isGameOver = game.phase === 'game_over';
-  const urgent = timeLeft < 10000 && isDrawingPhase;
+  const urgent = timeLeft < 10000 && !isGameOver;
+  const bannerText = isDrawingPhase ? 'DRAW!' : isGuessingPhase ? 'LAST CHANCE TO GUESS!' : null;
 
   return (
     <div className="hh-fastdraw">
@@ -67,8 +71,14 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
       <div className="hh-fastdraw__side">
         <div className="hh-fastdraw__header">
           <span>Round {game.roundNumber}</span>
-          <span>{game.isDrawer ? 'Your turn to draw!' : `${game.currentDrawer} is drawing`}</span>
+          <span>{game.isDrawer ? (isGuessingPhase ? "Time's up — guesses still open!" : 'Your turn to draw!') : (isGuessingPhase ? 'Last chance to guess!' : `${game.currentDrawer} is drawing`)}</span>
         </div>
+
+        {bannerText && (
+          <div className={`hh-fastdraw__banner${urgent ? ' hh-fastdraw__banner--urgent' : ''}`}>
+            {bannerText}
+          </div>
+        )}
 
         <div className="hh-fastdraw__scores">
           {Object.entries(game.scores)
@@ -88,14 +98,14 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
             phase={game.phase}
             revealedWord={game.revealedWord}
           />
-          {isDrawingPhase && (
+          {(isDrawingPhase || isGuessingPhase) && (
             <span className={`hh-fastdraw__timer${urgent ? ' hh-fastdraw__timer--urgent' : ''}`}>
               {formatTime(timeLeft)}
             </span>
           )}
         </div>
 
-        {!game.isDrawer && !game.isSpectator && isDrawingPhase && (
+        {!game.isDrawer && !game.isSpectator && (isDrawingPhase || isGuessingPhase) && (
           <form className="hh-fastdraw__guess-row" onSubmit={handleGuess}>
             <input
               className="hh-fastdraw__guess-input"
@@ -120,6 +130,9 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
               ? <button className="hh-btn hh-btn--primary hh-btn--small" onClick={() => void game.nextRound()}>Next Round</button>
               : <div className="hh-fastdraw__waiting">Waiting for host…</div>
             }
+            <span className={`hh-fastdraw__timer${urgent ? ' hh-fastdraw__timer--urgent' : ''}`}>
+              Next round in {formatTime(timeLeft)}
+            </span>
           </div>
         )}
 

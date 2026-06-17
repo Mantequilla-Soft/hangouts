@@ -9,13 +9,15 @@ export interface Stroke {
 }
 
 interface FastDrawState {
-  phase: 'drawing' | 'reveal' | 'game_over';
+  phase: 'drawing' | 'guessing' | 'reveal' | 'game_over';
   drawerOrder: string[];
   currentDrawerIndex: number;
   currentWord: string;
   wordQueue: string[];
   roundStartedAt: number;
   roundDuration: number;
+  guessDuration: number;
+  guessPhaseStartedAt: number | null;
   revealEndsAt: number | null;
   scores: Record<string, number>;
   winThreshold: number;
@@ -30,8 +32,11 @@ interface FastDrawConfig {
   theme?: string;
   customWords?: string[];
   roundDuration?: number;
+  guessDuration?: number;
   winThreshold?: number;
 }
+
+const REVEAL_DURATION_MS = 10_000;
 
 const FALLBACK_WORDS = [
   'elephant', 'rhinoceros', 'crocodile', 'giraffe', 'penguin',
@@ -54,12 +59,14 @@ function buildSpectatorState(state: FastDrawState) {
     phase: state.phase,
     drawer: state.drawerOrder[state.currentDrawerIndex],
     wordLength: state.currentWord.length,
-    revealedWord: state.phase !== 'drawing' ? state.currentWord : null,
+    revealedWord: (state.phase === 'reveal' || state.phase === 'game_over') ? state.currentWord : null,
     scores: state.scores,
     winners: state.winners,
     roundNumber: state.roundNumber,
     roundStartedAt: state.roundStartedAt,
     roundDuration: state.roundDuration,
+    guessPhaseStartedAt: state.guessPhaseStartedAt,
+    guessDuration: state.guessDuration,
     revealEndsAt: state.revealEndsAt,
     guesser: state.guesser,
     strokeSnapshot: state.strokeSnapshot,
@@ -77,6 +84,7 @@ export const fastDrawPlugin: GamePlugin = {
     const config = (params.config ?? {}) as FastDrawConfig;
     const theme = config.theme ?? 'animals';
     const roundDuration = config.roundDuration ?? 60;
+    const guessDuration = config.guessDuration ?? roundDuration;
     const winThreshold = config.winThreshold ?? 5;
 
     let words: string[];
@@ -102,6 +110,8 @@ export const fastDrawPlugin: GamePlugin = {
       wordQueue,
       roundStartedAt: Date.now(),
       roundDuration,
+      guessDuration,
+      guessPhaseStartedAt: null,
       revealEndsAt: null,
       scores,
       winThreshold,
@@ -116,8 +126,8 @@ export const fastDrawPlugin: GamePlugin = {
     const payloads: Record<string, unknown> = {};
     for (const p of params.participants) {
       payloads[p] = p === drawer
-        ? { role: 'drawer', word: currentWord, roundDuration, roundStartedAt: state.roundStartedAt }
-        : { role: 'guesser', wordLength: currentWord.length, roundDuration, roundStartedAt: state.roundStartedAt };
+        ? { role: 'drawer', word: currentWord, roundDuration, guessDuration, roundStartedAt: state.roundStartedAt }
+        : { role: 'guesser', wordLength: currentWord.length, roundDuration, guessDuration, roundStartedAt: state.roundStartedAt };
     }
 
     return {
@@ -129,6 +139,7 @@ export const fastDrawPlugin: GamePlugin = {
         wordLength: currentWord.length,
         roundStartedAt: state.roundStartedAt,
         roundDuration,
+        guessDuration,
         roundNumber: 1,
         scores,
       },
@@ -147,6 +158,9 @@ export const fastDrawPlugin: GamePlugin = {
       if (from !== currentDrawer) {
         return { state, feedback: { to: from, message: 'Only the drawer can sync the canvas' } };
       }
+      if (state.phase !== 'drawing') {
+        return { state, feedback: { to: from, message: 'Drawing time is over' } };
+      }
       const newState: FastDrawState = { ...state, strokeSnapshot: (action.strokes ?? []) };
       return { state: newState, spectatorState: buildSpectatorState(newState) };
     }
@@ -155,10 +169,13 @@ export const fastDrawPlugin: GamePlugin = {
       if (from === currentDrawer) {
         return { state, feedback: { to: from, message: 'The drawer cannot guess' } };
       }
-      if (state.phase !== 'drawing') {
+      if (state.phase !== 'drawing' && state.phase !== 'guessing') {
         return { state, feedback: { to: from, message: 'Round is not active' } };
       }
-      if (Date.now() >= state.roundStartedAt + state.roundDuration * 1000) {
+      const deadline = state.phase === 'drawing'
+        ? state.roundStartedAt + state.roundDuration * 1000
+        : state.guessPhaseStartedAt! + state.guessDuration * 1000;
+      if (Date.now() >= deadline) {
         return { state, feedback: { to: from, message: 'Time has expired' } };
       }
 
@@ -169,9 +186,10 @@ export const fastDrawPlugin: GamePlugin = {
         return { state, feedback: { to: from, message: 'Not quite!' } };
       }
 
-      // Correct guess — go to reveal and wait for host to advance
+      // Correct guess — go to reveal and wait for host to advance (or auto-advance fallback)
       const newScores = { ...state.scores, [from]: state.scores[from]! + 1, [currentDrawer]: state.scores[currentDrawer]! + 1 };
-      const newState: FastDrawState = { ...state, phase: 'reveal', guesser: from, scores: newScores, revealEndsAt: null };
+      const revealEndsAt = Date.now() + REVEAL_DURATION_MS;
+      const newState: FastDrawState = { ...state, phase: 'reveal', guesser: from, scores: newScores, revealEndsAt };
 
       const winners = Object.entries(newScores)
         .filter(([, s]) => s >= state.winThreshold)
@@ -190,7 +208,7 @@ export const fastDrawPlugin: GamePlugin = {
       return {
         state: newState,
         spectatorState: buildSpectatorState(newState),
-        broadcast: { type: 'fast_draw_correct', guesser: from, word: state.currentWord, scores: newScores, revealEndsAt: null },
+        broadcast: { type: 'fast_draw_correct', guesser: from, word: state.currentWord, scores: newScores, revealEndsAt },
       };
     }
 
@@ -201,12 +219,27 @@ export const fastDrawPlugin: GamePlugin = {
         if (Date.now() < state.roundStartedAt + state.roundDuration * 1000) {
           return { state, feedback: { to: from, message: 'Round is still active' } };
         }
-        // Time expired — go to reveal and wait for host to start next round
-        const newState: FastDrawState = { ...state, phase: 'reveal', revealEndsAt: null };
+        // Drawing time expired — canvas freezes, but guessing keeps going for one more window
+        const guessPhaseStartedAt = Date.now();
+        const newState: FastDrawState = { ...state, phase: 'guessing', guessPhaseStartedAt };
         return {
           state: newState,
           spectatorState: buildSpectatorState(newState),
-          broadcast: { type: 'fast_draw_time_expired', word: state.currentWord, scores: state.scores, revealEndsAt: null },
+          broadcast: { type: 'fast_draw_drawing_ended', guessPhaseStartedAt, guessDuration: state.guessDuration, scores: state.scores },
+        };
+      }
+
+      if (state.phase === 'guessing') {
+        if (Date.now() < state.guessPhaseStartedAt! + state.guessDuration * 1000) {
+          return { state, feedback: { to: from, message: 'Guessing window is still active' } };
+        }
+        // Guessing time also expired with no correct guess — reveal and wait for host (or auto-advance)
+        const revealEndsAt = Date.now() + REVEAL_DURATION_MS;
+        const newState: FastDrawState = { ...state, phase: 'reveal', revealEndsAt };
+        return {
+          state: newState,
+          spectatorState: buildSpectatorState(newState),
+          broadcast: { type: 'fast_draw_time_expired', word: state.currentWord, scores: state.scores, revealEndsAt },
         };
       }
 
@@ -227,6 +260,7 @@ export const fastDrawPlugin: GamePlugin = {
           currentWord: nextWord,
           wordQueue,
           roundStartedAt,
+          guessPhaseStartedAt: null,
           revealEndsAt: null,
           guesser: null,
           strokeSnapshot: [],
@@ -236,8 +270,8 @@ export const fastDrawPlugin: GamePlugin = {
         const payloads: Record<string, unknown> = {};
         for (const p of state.drawerOrder) {
           payloads[p] = p === nextDrawer
-            ? { role: 'drawer', word: nextWord, roundDuration: state.roundDuration, roundStartedAt }
-            : { role: 'guesser', wordLength: nextWord.length, roundDuration: state.roundDuration, roundStartedAt };
+            ? { role: 'drawer', word: nextWord, roundDuration: state.roundDuration, guessDuration: state.guessDuration, roundStartedAt }
+            : { role: 'guesser', wordLength: nextWord.length, roundDuration: state.roundDuration, guessDuration: state.guessDuration, roundStartedAt };
         }
 
         return {
@@ -250,6 +284,7 @@ export const fastDrawPlugin: GamePlugin = {
             wordLength: nextWord.length,
             roundStartedAt,
             roundDuration: state.roundDuration,
+            guessDuration: state.guessDuration,
             roundNumber,
             scores: state.scores,
           },

@@ -9,12 +9,13 @@ export interface Stroke {
   width: number;
 }
 
-export type FastDrawPhase = 'drawing' | 'reveal' | 'game_over';
+export type FastDrawPhase = 'drawing' | 'guessing' | 'reveal' | 'game_over';
 
 export interface FastDrawConfig {
   theme?: string;
   customWords?: string[];
   roundDuration?: number;
+  guessDuration?: number;
   winThreshold?: number;
 }
 
@@ -35,6 +36,8 @@ export interface UseFastDrawResult {
   roundNumber: number;
   roundStartedAt: number;
   roundDuration: number;
+  guessPhaseStartedAt: number | null;
+  guessDuration: number;
   revealEndsAt: number | null;
   guesser: string | null;
   revealedWord: string | null;
@@ -55,7 +58,15 @@ interface RoundStartBroadcast {
   wordLength: number;
   roundStartedAt: number;
   roundDuration: number;
+  guessDuration: number;
   roundNumber: number;
+  scores: Record<string, number>;
+}
+
+interface DrawingEndedBroadcast {
+  type: 'fast_draw_drawing_ended';
+  guessPhaseStartedAt: number;
+  guessDuration: number;
   scores: Record<string, number>;
 }
 
@@ -81,13 +92,14 @@ interface GameOverBroadcast {
   word: string;
 }
 
-type FastDrawBroadcast = RoundStartBroadcast | CorrectBroadcast | TimeExpiredBroadcast | GameOverBroadcast;
+type FastDrawBroadcast = RoundStartBroadcast | DrawingEndedBroadcast | CorrectBroadcast | TimeExpiredBroadcast | GameOverBroadcast;
 
 interface PlayerPayload {
   role: 'drawer' | 'guesser';
   word?: string;
   wordLength?: number;
   roundDuration: number;
+  guessDuration: number;
   roundStartedAt: number;
 }
 
@@ -101,6 +113,8 @@ interface SpectatorState {
   roundNumber: number;
   roundStartedAt: number;
   roundDuration: number;
+  guessPhaseStartedAt: number | null;
+  guessDuration: number;
   revealEndsAt: number | null;
   guesser: string | null;
   strokeSnapshot: Stroke[];
@@ -121,6 +135,8 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
   const [roundNumber, setRoundNumber] = useState(1);
   const [roundStartedAt, setRoundStartedAt] = useState(0);
   const [roundDuration, setRoundDuration] = useState(60);
+  const [guessPhaseStartedAt, setGuessPhaseStartedAt] = useState<number | null>(null);
+  const [guessDuration, setGuessDuration] = useState(60);
   const [revealEndsAt, setRevealEndsAt] = useState<number | null>(null);
   const [guesser, setGuesser] = useState<string | null>(null);
   const [revealedWord, setRevealedWord] = useState<string | null>(null);
@@ -142,6 +158,8 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
     setRoundNumber(1);
     setRoundStartedAt(0);
     setRoundDuration(60);
+    setGuessPhaseStartedAt(null);
+    setGuessDuration(60);
     setRevealEndsAt(null);
     setGuesser(null);
     setRevealedWord(null);
@@ -169,6 +187,8 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
           setRoundNumber(s.roundNumber);
           setRoundStartedAt(s.roundStartedAt);
           setRoundDuration(s.roundDuration);
+          setGuessPhaseStartedAt(s.guessPhaseStartedAt);
+          setGuessDuration(s.guessDuration);
           setRevealEndsAt(s.revealEndsAt);
           setGuesser(s.guesser);
           setStrokeSnapshot(s.strokeSnapshot ?? []);
@@ -186,6 +206,8 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
           setRoundNumber(board.roundNumber);
           setRoundStartedAt(board.roundStartedAt);
           setRoundDuration(board.roundDuration);
+          setGuessPhaseStartedAt(board.guessPhaseStartedAt);
+          setGuessDuration(board.guessDuration);
           setRevealEndsAt(board.revealEndsAt);
           setGuesser(board.guesser);
           setStrokeSnapshot(board.strokeSnapshot ?? []);
@@ -196,6 +218,7 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
           if (!board) {
             setRoundStartedAt(payload.roundStartedAt);
             setRoundDuration(payload.roundDuration);
+            setGuessDuration(payload.guessDuration);
           }
         }
       }
@@ -204,17 +227,23 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
 
   useEffect(() => { void hydrate(); }, [hydrate]);
 
-  // Auto-advance timer: fires advance_round only when drawing time expires.
-  // Reveal phase is host-controlled — host presses "Next Round" to advance.
+  // Auto-advance timer: every client races to fire advance_round once the current
+  // phase's clock runs out (drawing -> guessing -> reveal -> next round). This is safe
+  // even with multiple clients firing at once — the server's phase guard makes
+  // stale/duplicate calls no-ops once the phase has already moved on.
   useEffect(() => {
-    if (!active || phase !== 'drawing' || !api) return;
-    const target = roundStartedAt + roundDuration * 1000;
+    if (!active || !api) return;
+    let target: number;
+    if (phase === 'drawing') target = roundStartedAt + roundDuration * 1000;
+    else if (phase === 'guessing') target = (guessPhaseStartedAt ?? Date.now()) + guessDuration * 1000;
+    else if (phase === 'reveal') target = revealEndsAt ?? Date.now();
+    else return;
     const ms = target - Date.now();
     const send = () => void api.sendGameAction(roomName, { type: 'advance_round' }).catch(() => {});
     if (ms <= 0) { send(); return; }
     const t = setTimeout(send, ms);
     return () => clearTimeout(t);
-  }, [active, phase, roundStartedAt, roundDuration, api, roomName]);
+  }, [active, phase, roundStartedAt, roundDuration, guessPhaseStartedAt, guessDuration, revealEndsAt, api, roomName]);
 
   const onMessage = useCallback((msg: { payload: Uint8Array }) => {
     try {
@@ -250,6 +279,8 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
         }
         setRoundStartedAt(payload.roundStartedAt);
         setRoundDuration(payload.roundDuration);
+        setGuessDuration(payload.guessDuration);
+        setGuessPhaseStartedAt(null);
         return;
       }
 
@@ -266,10 +297,20 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
           setRoundNumber(p.roundNumber);
           setRoundStartedAt(p.roundStartedAt);
           setRoundDuration(p.roundDuration);
+          setGuessDuration(p.guessDuration);
+          setGuessPhaseStartedAt(null);
           setRevealEndsAt(null);
           setGuesser(null);
           setStrokeSnapshot([]);
           if (p.drawer !== identity) setWord(null);
+          return;
+        }
+
+        if (p.type === 'fast_draw_drawing_ended') {
+          setPhase('guessing');
+          setGuessPhaseStartedAt(p.guessPhaseStartedAt);
+          setGuessDuration(p.guessDuration);
+          setScores(p.scores);
           return;
         }
 
@@ -361,6 +402,7 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
   return {
     active, phase, isDrawer, currentDrawer, word, wordLength,
     scores, myScore, winners, roundNumber, roundStartedAt, roundDuration,
+    guessPhaseStartedAt, guessDuration,
     revealEndsAt, guesser, revealedWord, strokeSnapshot, isSpectator,
     error, isLoading, startGame, submitGuess, syncCanvas, nextRound, endGame,
   };
