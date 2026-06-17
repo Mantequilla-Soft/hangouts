@@ -39,6 +39,7 @@ export interface UseFastDrawResult {
   guessPhaseStartedAt: number | null;
   guessDuration: number;
   revealEndsAt: number | null;
+  serverTimeOffset: number;
   guesser: string | null;
   revealedWord: string | null;
   strokeSnapshot: Stroke[];
@@ -144,6 +145,10 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
   const [isSpectator, setIsSpectator] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // Server clock minus local clock (ms). All game timers use absolute server
+  // timestamps; add this offset to Date.now() to get the server's "now" and
+  // avoid skewed countdowns when the browser and server clocks disagree.
+  const [serverTimeOffset, setServerTimeOffset] = useState(0);
 
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -172,6 +177,7 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
     try {
       const game = await api.getActiveGame(roomName);
       if (!game || game.gameId !== 'fast-draw') { resetState(); return; }
+      if (typeof game.serverTime === 'number') setServerTimeOffset(game.serverTime - Date.now());
       setActive(true);
       const spectator = game.isSpectator ?? false;
       setIsSpectator(spectator);
@@ -233,21 +239,24 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
   // stale/duplicate calls no-ops once the phase has already moved on.
   useEffect(() => {
     if (!active || !api) return;
+    const serverNow = Date.now() + serverTimeOffset;
     let target: number;
     if (phase === 'drawing') target = roundStartedAt + roundDuration * 1000;
-    else if (phase === 'guessing') target = (guessPhaseStartedAt ?? Date.now()) + guessDuration * 1000;
-    else if (phase === 'reveal') target = revealEndsAt ?? Date.now();
+    else if (phase === 'guessing') target = (guessPhaseStartedAt ?? serverNow) + guessDuration * 1000;
+    else if (phase === 'reveal') target = revealEndsAt ?? serverNow;
     else return;
-    const ms = target - Date.now();
+    const ms = target - serverNow;
     const send = () => void api.sendGameAction(roomName, { type: 'advance_round' }).catch(() => {});
     if (ms <= 0) { send(); return; }
     const t = setTimeout(send, ms);
     return () => clearTimeout(t);
-  }, [active, phase, roundStartedAt, roundDuration, guessPhaseStartedAt, guessDuration, revealEndsAt, api, roomName]);
+  }, [active, phase, roundStartedAt, roundDuration, guessPhaseStartedAt, guessDuration, revealEndsAt, serverTimeOffset, api, roomName]);
 
   const onMessage = useCallback((msg: { payload: Uint8Array }) => {
     try {
-      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as { type: string; [k: string]: unknown };
+      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as { type: string; serverTime?: number; [k: string]: unknown };
+
+      if (typeof parsed.serverTime === 'number') setServerTimeOffset(parsed.serverTime - Date.now());
 
       if (parsed.type === 'game:started' && parsed.gameId === 'fast-draw') {
         setActive(true);
@@ -402,7 +411,7 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
   return {
     active, phase, isDrawer, currentDrawer, word, wordLength,
     scores, myScore, winners, roundNumber, roundStartedAt, roundDuration,
-    guessPhaseStartedAt, guessDuration,
+    guessPhaseStartedAt, guessDuration, serverTimeOffset,
     revealEndsAt, guesser, revealedWord, strokeSnapshot, isSpectator,
     error, isLoading, startGame, submitGuess, syncCanvas, nextRound, endGame,
   };

@@ -31,14 +31,15 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
     const target = game.phase === 'drawing'
       ? game.roundStartedAt + game.roundDuration * 1000
       : game.phase === 'guessing'
-      ? (game.guessPhaseStartedAt ?? Date.now()) + game.guessDuration * 1000
+      ? (game.guessPhaseStartedAt ?? 0) + game.guessDuration * 1000
       : (game.revealEndsAt ?? 0);
 
-    const tick = () => setTimeLeft(Math.max(0, target - Date.now()));
+    // Compare against the server's clock, not the browser's, to avoid skewed countdowns.
+    const tick = () => setTimeLeft(Math.max(0, target - (Date.now() + game.serverTimeOffset)));
     tick();
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
-  }, [game.active, game.phase, game.roundStartedAt, game.roundDuration, game.guessPhaseStartedAt, game.guessDuration, game.revealEndsAt]);
+  }, [game.active, game.phase, game.roundStartedAt, game.roundDuration, game.guessPhaseStartedAt, game.guessDuration, game.revealEndsAt, game.serverTimeOffset]);
 
   const handleGuess = (e: React.FormEvent) => {
     e.preventDefault();

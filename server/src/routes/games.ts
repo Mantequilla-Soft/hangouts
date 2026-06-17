@@ -16,8 +16,18 @@ async function verifyHost(roomName: string, username: string) {
   return { error: null };
 }
 
+// Stamp the server's wall-clock onto every outgoing game message so clients can
+// correct for clock skew between their browser and this server. Game timers send
+// absolute timestamps (e.g. roundStartedAt); without this, a client whose clock
+// disagrees with the server shows wrong countdowns (e.g. a 60s round reading 3:22).
+function stampServerTime(msg: unknown): unknown {
+  return msg && typeof msg === 'object'
+    ? { ...(msg as Record<string, unknown>), serverTime: Date.now() }
+    : msg;
+}
+
 async function sendToParticipant(roomName: string, identity: string, msg: unknown): Promise<void> {
-  const payload = new TextEncoder().encode(JSON.stringify(msg));
+  const payload = new TextEncoder().encode(JSON.stringify(stampServerTime(msg)));
   await roomService.sendData(roomName, payload, DataPacket_Kind.RELIABLE, {
     topic: 'game',
     destinationIdentities: [identity],
@@ -25,7 +35,7 @@ async function sendToParticipant(roomName: string, identity: string, msg: unknow
 }
 
 async function broadcastToRoom(roomName: string, msg: unknown): Promise<void> {
-  const payload = new TextEncoder().encode(JSON.stringify(msg));
+  const payload = new TextEncoder().encode(JSON.stringify(stampServerTime(msg)));
   await roomService.sendData(roomName, payload, DataPacket_Kind.RELIABLE, { topic: 'game' });
 }
 
@@ -62,6 +72,7 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       state: isParticipant ? (session.payloads[request.username] ?? null) : (session.spectatorState ?? null),
       boardState: isParticipant ? (session.spectatorState ?? null) : null,
       isSpectator: !isParticipant,
+      serverTime: Date.now(),
     });
   });
 

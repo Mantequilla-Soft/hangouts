@@ -158,6 +158,8 @@ describe('GET /rooms/:name/game', () => {
     expect(res.json().gameId).toBe('word-guess');
     expect(res.json().participants).toEqual(['alice', 'bob']);
     expect(res.json().state).toMatchObject({ myWord: null });
+    // Hydrate response carries server clock so late joiners can correct for skew
+    expect(typeof res.json().serverTime).toBe('number');
   });
 
   it('returns null state for a participant not in the session', async () => {
@@ -280,6 +282,8 @@ describe('POST /rooms/:name/game/start', () => {
     const decoded = calls.map(([, data]) => JSON.parse(new TextDecoder().decode(data)));
     expect(decoded.some((m) => m.type === 'game:started')).toBe(true);
     expect(decoded.filter((m) => m.type === 'game:state')).toHaveLength(2);
+    // Every outgoing game message is stamped with the server clock for skew correction
+    expect(decoded.every((m) => typeof m.serverTime === 'number')).toBe(true);
   });
 
   it('filters out guest- and obs- identities from the participant list', async () => {

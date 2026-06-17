@@ -246,6 +246,8 @@ export interface ActiveGame {
   state: unknown;
   boardState?: unknown;
   isSpectator?: boolean;
+  /** Server wall-clock at response time, for client clock-skew correction. */
+  serverTime?: number;
 }
 
 export interface GameStartResponse {
