@@ -191,7 +191,7 @@ export function DrawingCanvas({ isDrawer, currentDrawer, strokeSnapshot, disable
             />
           ))}
           <button
-            className={`hh-btn hh-btn--sm${eraser ? ' hh-btn--active' : ''}`}
+            className={`hh-btn hh-btn--small${eraser ? ' hh-btn--active' : ''}`}
             onClick={() => setEraser((v) => !v)}
           >
             Eraser
@@ -203,7 +203,7 @@ export function DrawingCanvas({ isDrawer, currentDrawer, strokeSnapshot, disable
           >
             {SIZES.map((s) => <option key={s} value={s}>{s === 4 ? 'Thin' : 'Thick'}</option>)}
           </select>
-          <button className="hh-btn hh-btn--sm hh-btn--danger" onClick={handleClear}>
+          <button className="hh-btn hh-btn--small hh-btn--danger" onClick={handleClear}>
             Clear
           </button>
         </div>

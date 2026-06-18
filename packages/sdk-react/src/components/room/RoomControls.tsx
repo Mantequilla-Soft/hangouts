@@ -4,6 +4,7 @@ import type { BoostConfig, StreamPlatform } from '@snapie/hangouts-core';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { useChat } from '../../hooks/useChat.js';
 import { usePushToTalk } from '../../hooks/usePushToTalk.js';
+import { usePttPreference } from '../../hooks/usePttPreference.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
 import { RecordingControls } from './RecordingControls.js';
@@ -12,6 +13,7 @@ import { BoostHistoryPanel } from './BoostHistoryPanel.js';
 import { BoostSettingsPanel } from './BoostSettingsPanel.js';
 import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
 import { ObsPanel } from './ObsPanel.js';
+import { MicIcon } from '../icons/MicIcon.js';
 
 export interface RoomControlsProps {
   isHost: boolean;
@@ -52,9 +54,12 @@ export interface RoomControlsProps {
   /** Boost config from room metadata. When present and enabled, shows a Boost button for authenticated non-guests. */
   boostConfig?: BoostConfig;
   /**
-   * When true, replaces the mute toggle with a push-to-talk button.
-   * Hold the button (or spacebar) to speak — release to mute again.
-   * Has no effect for listeners (canPublish=false).
+   * Default push-to-talk mode for first-time visitors on this device only —
+   * once someone toggles the mode switch next to the mic button, their own
+   * choice is remembered (localStorage) and takes over from this default.
+   * This is a per-user preference, not a per-room setting: it intentionally
+   * doesn't affect any other participant. Has no effect for listeners
+   * (canPublish=false).
    */
   pushToTalk?: boolean;
 }
@@ -95,7 +100,8 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
   const isCameraOn = localParticipant?.isCameraEnabled ?? false;
   const isScreenSharing = localParticipant?.isScreenShareEnabled ?? false;
   const { isRaised, raiseHand, lowerHand } = useHandRaise();
-  const ptt = usePushToTalk({ enabled: pushToTalk && canPublish });
+  const { pttEnabled, togglePtt } = usePttPreference(pushToTalk);
+  const ptt = usePushToTalk({ enabled: pttEnabled && canPublish });
   const prevCanPublish = useRef(canPublish);
   const [showStreaming, setShowStreaming] = useState(false);
   const [showObsPanel, setShowObsPanel] = useState(false);
@@ -192,24 +198,36 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
       {/* Left: share/self actions — hidden entirely for listen-only
           guests since they can't publish, chat, or raise their hand. */}
       <div className="hh-controls__group hh-controls__group--left">
-        {canPublish && !pushToTalk && (
+        {canPublish && !pttEnabled && (
           <button
             className={`hh-btn hh-btn--icon ${isMuted ? 'hh-btn--danger' : 'hh-btn--secondary'}`}
             onClick={toggleMute}
             title={isMuted ? 'Unmute' : 'Mute'}
           >
-            {isMuted ? '🔇' : '🎙️'}
+            <MicIcon size={18} muted={isMuted} title={isMuted ? 'Muted' : 'Mic on'} />
           </button>
         )}
 
-        {canPublish && pushToTalk && (
+        {canPublish && pttEnabled && (
           <button
             className={`hh-btn hh-btn--ptt ${ptt.isActive ? 'hh-btn--ptt-active' : ''}`}
             title={ptt.isActive ? 'Speaking…' : 'Hold to talk (Space)'}
             aria-label={ptt.isActive ? 'Speaking' : 'Push to talk'}
             {...ptt.bind}
           >
-            {ptt.isActive ? '🎙️ Speaking…' : '🎙️ Hold to Talk'}
+            <MicIcon size={16} muted={!ptt.isActive} title={ptt.isActive ? 'Speaking' : 'Push to talk'} />
+            {ptt.isActive ? 'Speaking…' : 'Hold to Talk'}
+          </button>
+        )}
+
+        {canPublish && (
+          <button
+            className="hh-btn hh-btn--icon hh-btn--ghost"
+            onClick={togglePtt}
+            title={pttEnabled ? 'Switch to mute toggle' : 'Switch to push-to-talk'}
+            aria-label={pttEnabled ? 'Switch to mute toggle mode' : 'Switch to push-to-talk mode'}
+          >
+            ⇄
           </button>
         )}
 

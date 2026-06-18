@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useWordGuess } from '../../hooks/useWordGuess.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { ChessContent } from './ChessContent.js';
@@ -21,102 +21,6 @@ interface GameOption {
   id: string;
   name: string;
   description: string;
-}
-
-// ─── Word Guess active content ─────────────────────────────────────────────
-
-function WordGuessContent({ roomName, isHost }: { roomName: string; isHost: boolean }) {
-  const game = useWordGuess({ roomName });
-  const [guessInput, setGuessInput] = useState('');
-  const eventsBottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    eventsBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [game.events.length]);
-
-  const handleGuess = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!guessInput.trim()) return;
-    void game.guess(guessInput);
-    setGuessInput('');
-  };
-
-  return (
-    <div className="hh-game-panel__body">
-      <div className="hh-game-panel__my-word">
-        <span className="hh-game-panel__my-word-label">Your word</span>
-        <span className="hh-game-panel__my-word-value">
-          {game.hasGuessed ? '✅ Guessed!' : '???'}
-        </span>
-      </div>
-
-      <div className="hh-game-panel__others">
-        <div className="hh-game-panel__others-label">Others' words</div>
-        {game.others.map(({ identity, word }) => (
-          <div
-            key={identity}
-            className={`hh-game-panel__other-row${game.guessed.has(identity) ? ' hh-game-panel__other-row--guessed' : ''}`}
-          >
-            <span className="hh-game-panel__other-identity">{identity}</span>
-            <span className="hh-game-panel__other-word">{word.toUpperCase()}</span>
-            {game.guessed.has(identity) && (
-              <span className="hh-game-panel__guessed-badge">✅</span>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {!game.hasGuessed && (
-        <form className="hh-game-panel__guess-form" onSubmit={handleGuess}>
-          <input
-            className="hh-game-panel__guess-input"
-            type="text"
-            placeholder="Your guess…"
-            value={guessInput}
-            onChange={(e) => setGuessInput(e.target.value)}
-            autoComplete="off"
-          />
-          <button
-            className="hh-btn hh-btn--primary hh-btn--small"
-            type="submit"
-            disabled={game.isLoading || !guessInput.trim()}
-          >
-            Guess
-          </button>
-        </form>
-      )}
-
-      {game.error && <p className="hh-game-panel__error">{game.error}</p>}
-
-      {game.events.length > 0 && (
-        <div className="hh-game-panel__events">
-          {game.events.map((ev, i) => (
-            <div
-              key={i}
-              className={`hh-game-panel__event ${ev.correct ? 'hh-game-panel__event--correct' : 'hh-game-panel__event--wrong'}`}
-            >
-              {ev.correct
-                ? `✅ ${ev.identity} guessed ${ev.word ? ev.word.toUpperCase() : 'correctly'}!`
-                : `❌ ${ev.identity} guessed wrong`}
-            </div>
-          ))}
-          <div ref={eventsBottomRef} />
-        </div>
-      )}
-
-      {isHost && (
-        <div className="hh-game-panel__footer">
-          <button
-            className="hh-btn hh-btn--danger hh-btn--small"
-            onClick={() => void game.endGame()}
-            disabled={game.isLoading}
-          >
-            End Game
-          </button>
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ─── Idle content (game picker) ────────────────────────────────────────────
@@ -316,7 +220,7 @@ function IdleContent({ roomName, isHost }: { roomName: string; isHost: boolean }
         {wordGame.isLoading ? 'Starting…' : `Start ${games.find((g) => g.id === selectedGame)?.name ?? selectedGame}`}
       </button>
 
-      {wordGame.error && <p className="hh-game-panel__error">{wordGame.error}</p>}
+      {wordGame.error && <p className="hh-game-feedback">{wordGame.error}</p>}
     </>
   );
 }
@@ -352,9 +256,7 @@ export function GamePanel({ roomName, isHost, onClose, activeGameId }: GamePanel
         <ChessContent roomName={roomName} isHost={isHost} />
       ) : activeGameId === 'fast-draw' ? (
         <FastDrawContent roomName={roomName} isHost={isHost} />
-      ) : (
-        <WordGuessContent roomName={roomName} isHost={isHost} />
-      )}
+      ) : null}
     </div>
   );
 }

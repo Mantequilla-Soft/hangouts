@@ -7,6 +7,7 @@ import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
 import { useParticipantVolumes } from '../../hooks/useParticipantVolumes.js';
 import { HostControlsPanel } from './HostControlsPanel.js';
 import { HeadphonesIcon } from '../icons/HeadphonesIcon.js';
+import { MicIcon } from '../icons/MicIcon.js';
 
 export interface ParticipantTileProps {
   participant: Participant;
@@ -191,7 +192,11 @@ export function ParticipantTile({
             {wordBadge.toUpperCase()}
           </span>
         )}
-        {isMuted && <span className="hh-tile__mute" title="Muted">🔇</span>}
+        {isMuted && (
+          <span className="hh-tile__mute">
+            <MicIcon size={14} muted title="Muted" />
+          </span>
+        )}
         <span className="hh-tile__name">{displayName}</span>
         {role === 'host' && <span className="hh-tile__role">Host</span>}
         {isGuest && <span className="hh-tile__guest-badge">Guest</span>}

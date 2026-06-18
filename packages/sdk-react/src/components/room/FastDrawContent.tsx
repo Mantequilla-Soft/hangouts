@@ -17,8 +17,10 @@ function formatTime(ms: number): string {
 function WordHint({ word, wordLength, phase, revealedWord }: { word: string | null; wordLength: number; phase: string; revealedWord: string | null }) {
   if (word) return <span className="hh-fastdraw__word">{word}</span>;
   if (phase !== 'drawing' && revealedWord) return <span className="hh-fastdraw__word hh-fastdraw__word--revealed">{revealedWord}</span>;
-  const dashes = Array.from({ length: wordLength }, (_, i) => <span key={i} className="hh-fastdraw__dash">_</span>);
-  return <span className="hh-fastdraw__word">{dashes}</span>;
+  // Fixed-width blocks with explicit gap, not letter-spaced underscores — guarantees
+  // distinct blanks at any zoom/font instead of relying on glyph spacing to not merge.
+  const dashes = Array.from({ length: wordLength }, (_, i) => <span key={i} className="hh-fastdraw__dash" />);
+  return <span className="hh-fastdraw__word hh-fastdraw__word--dashes">{dashes}</span>;
 }
 
 export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
@@ -76,7 +78,7 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
         </div>
 
         {bannerText && (
-          <div className={`hh-fastdraw__banner${urgent ? ' hh-fastdraw__banner--urgent' : ''}`}>
+          <div className={`hh-game-banner${urgent ? ' hh-game-banner--urgent' : ''}`}>
             {bannerText}
           </div>
         )}
@@ -100,7 +102,7 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
             revealedWord={game.revealedWord}
           />
           {(isDrawingPhase || isGuessingPhase) && (
-            <span className={`hh-fastdraw__timer${urgent ? ' hh-fastdraw__timer--urgent' : ''}`}>
+            <span className={`hh-game-timer${urgent ? ' hh-game-timer--urgent' : ''}`}>
               {formatTime(timeLeft)}
             </span>
           )}
@@ -119,7 +121,7 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
           </form>
         )}
 
-        {game.error && <div className="hh-fastdraw__feedback">{game.error}</div>}
+        {game.error && <div className="hh-game-feedback">{game.error}</div>}
 
         {isRevealPhase && (
           <div className="hh-fastdraw__reveal">
@@ -131,9 +133,10 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
               ? <button className="hh-btn hh-btn--primary hh-btn--small" onClick={() => void game.nextRound()}>Next Round</button>
               : <div className="hh-fastdraw__waiting">Waiting for host…</div>
             }
-            <span className={`hh-fastdraw__timer${urgent ? ' hh-fastdraw__timer--urgent' : ''}`}>
+            {/* Own block-level line — must not crowd the button on the same row. */}
+            <div className={`hh-fastdraw__reveal-countdown${urgent ? ' hh-game-timer--urgent' : ''}`}>
               Next round in {formatTime(timeLeft)}
-            </span>
+            </div>
           </div>
         )}
 
@@ -143,15 +146,17 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
               {game.winners.length === 1 ? `${game.winners[0]} wins!` : `Tie: ${game.winners.join(' & ')}!`}
             </div>
             {isHost && (
-              <button className="hh-btn hh-btn--sm" onClick={() => void game.endGame()}>
-                End Game
-              </button>
+              <div className="hh-game-actions">
+                <button className="hh-btn hh-btn--danger hh-btn--small" onClick={() => void game.endGame()}>
+                  End Game
+                </button>
+              </div>
             )}
           </div>
         )}
 
         {isHost && !isGameOver && (
-          <div className="hh-fastdraw__host-controls">
+          <div className="hh-fastdraw__host-controls hh-game-actions">
             <button
               className="hh-btn hh-btn--danger hh-btn--small"
               onClick={() => void game.endGame()}
