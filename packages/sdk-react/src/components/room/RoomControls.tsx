@@ -102,6 +102,15 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
   const { isRaised, raiseHand, lowerHand } = useHandRaise();
   const { pttEnabled, togglePtt } = usePttPreference(pushToTalk);
   const ptt = usePushToTalk({ enabled: pttEnabled && canPublish });
+  // Switching into PTT mode only swaps which button renders — it doesn't
+  // touch the mic. If it was left on (continuous/unmuted) from toggle mode,
+  // force it off now so "hold to talk" actually starts from silence instead
+  // of the room hearing you the whole time until you release.
+  useEffect(() => {
+    if (pttEnabled && canPublish && localParticipant) {
+      void localParticipant.setMicrophoneEnabled(false);
+    }
+  }, [pttEnabled, canPublish, localParticipant]);
   const prevCanPublish = useRef(canPublish);
   const [showStreaming, setShowStreaming] = useState(false);
   const [showObsPanel, setShowObsPanel] = useState(false);
