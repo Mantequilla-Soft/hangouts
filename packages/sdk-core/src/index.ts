@@ -7,6 +7,8 @@ export {
   type AiohaLike,
 } from './keychain-auth.js';
 export { HangoutsApiError } from './errors.js';
+export { buildLichessAnalysisUrl } from './chess-utils.js';
+export { formatWordGuessRecap } from './word-guess-utils.js';
 export type {
   Room,
   RoomVisibility,
@@ -47,5 +49,7 @@ export type {
   GameResultPayload,
   ChessGameResult,
   FastDrawGameResult,
+  WordGuessLeaderboardEntry,
+  WordGuessGameResult,
   WordCollection,
 } from './types.js';

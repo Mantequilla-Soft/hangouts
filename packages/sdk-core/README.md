@@ -281,6 +281,71 @@ type StreamPlatform = 'youtube' | 'twitch'
 
 ---
 
+## Game results
+
+`HangoutsRoom`'s `onGameEnd` prop (in `@snapie/hangouts-react`) fires once per
+finished game with a `GameResultPayload`. Cast `result` based on `gameId`:
+
+```ts
+interface GameResultPayload {
+  gameId: string          // 'chess' | 'fast-draw' | 'word-guess'
+  players: string[]
+  startedAt: number
+  endedAt: number
+  duration: number         // seconds
+  result: unknown          // cast based on gameId
+}
+
+interface ChessGameResult {
+  fen: string
+  players: { w: string; b: string }
+  turn: 'w' | 'b' | null
+  status: 'playing' | 'checkmate' | 'resigned' | 'draw' | 'stalemate'
+  winner: string | null
+  moveHistory: string[]    // SAN notation
+}
+
+interface FastDrawGameResult {
+  phase: 'drawing' | 'reveal' | 'game_over'
+  winners: string[]
+  scores: Record<string, number>
+  roundNumber: number
+  drawer: string
+  revealedWord: string | null
+}
+
+interface WordGuessGameResult {
+  theme: string
+  playerCount: number
+  words: Record<string, string>                  // full reveal, every player
+  leaderboard: WordGuessLeaderboardEntry[]        // finishers, in finish order
+}
+
+interface WordGuessLeaderboardEntry {
+  identity: string
+  place: number
+  word: string
+  solveTimeMs: number
+  wrongAttempts: number
+}
+```
+
+Two formatter helpers turn a result into ready-to-post text (e.g. for a Hive
+snap recapping the game — posting itself is up to the integrator, this
+package only formats):
+
+```ts
+buildLichessAnalysisUrl(moveHistory: string[]): string
+// → "https://lichess.org/analysis/pgn/e4_e5_Nf3_..." — opens the full game
+//   in Lichess's analysis board, no API call or auth required.
+
+formatWordGuessRecap(result: WordGuessGameResult): string
+// → a ranked leaderboard + full word reveal, e.g.:
+//   "🏁 Animals Word Guess Race!\n🥇 alice — 8.2s\n🥈 bob — 14.5s (3 tries)\n...\n🔍 Reveal: alice=GIRAFFE, ..."
+```
+
+---
+
 ## API client methods
 
 ```ts

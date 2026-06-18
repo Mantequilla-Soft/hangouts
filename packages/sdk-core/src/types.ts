@@ -304,6 +304,26 @@ export interface FastDrawGameResult {
   revealedWord: string | null;
 }
 
+/** One finisher's row in a Word Guess leaderboard, in finish order. */
+export interface WordGuessLeaderboardEntry {
+  identity: string;
+  /** 1-indexed finish order. */
+  place: number;
+  word: string;
+  solveTimeMs: number;
+  wrongAttempts: number;
+}
+
+/** Word Guess result shape inside GameResultPayload.result when gameId === 'word-guess'. */
+export interface WordGuessGameResult {
+  theme: string;
+  playerCount: number;
+  /** Every participant's word, full reveal — including anyone who never finished if the host ended the round early. */
+  words: Record<string, string>;
+  /** Only participants who finished, in finish order — may be shorter than `words` if the round ended early. */
+  leaderboard: WordGuessLeaderboardEntry[];
+}
+
 export interface WordCollection {
   id: string;
   name: string;
