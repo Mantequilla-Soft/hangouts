@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Chessboard } from 'react-chessboard';
 import type { PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard';
+import { buildLichessAnalysisUrl } from '@snapie/hangouts-core';
 import { useChess } from '../../hooks/useChess.js';
 import type { ChessGameStatus } from '../../hooks/useChess.js';
 
@@ -145,7 +146,7 @@ export function ChessContent({ roomName, isHost }: ChessContentProps) {
         </div>
 
         {game.error && (
-          <div className="hh-chess__error">{game.error}</div>
+          <div className="hh-game-feedback">{game.error}</div>
         )}
 
         {game.timeControl !== null && (
@@ -181,10 +182,10 @@ export function ChessContent({ roomName, isHost }: ChessContentProps) {
           </div>
         )}
 
-        <div className="hh-chess__actions">
+        <div className="hh-game-actions">
           {!game.isSpectator && game.myColor && !gameOver && (
             <button
-              className="hh-btn hh-btn--secondary hh-btn--small"
+              className="hh-btn hh-btn--danger hh-btn--small"
               onClick={() => void game.resign()}
               disabled={game.isLoading}
             >
@@ -209,6 +210,16 @@ export function ChessContent({ roomName, isHost }: ChessContentProps) {
             >
               End Game
             </button>
+          )}
+          {gameOver && game.moveHistory.length > 0 && (
+            <a
+              className="hh-btn hh-btn--secondary hh-btn--small"
+              href={buildLichessAnalysisUrl(game.moveHistory)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Review on Lichess ↗
+            </a>
           )}
         </div>
       </div>

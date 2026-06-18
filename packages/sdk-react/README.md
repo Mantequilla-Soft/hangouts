@@ -149,6 +149,13 @@ The custodial backend signs the challenge with the account's active/posting key 
   maxHeight="80vh"                    // explicit height
   video                               // enable camera + screen share
   guestFallback                       // unauth viewers auto-join via /listen
+  pushToTalk                          // default PTT-vs-mute-toggle for first-time visitors;
+                                       // each user can flip it themselves after that (persisted per-device)
+  onGameEnd={(result) => {
+    // Fires once when a game ends. Cast result based on result.gameId
+    // ('chess' | 'fast-draw' | 'word-guess') — see the game-result types
+    // exported from @snapie/hangouts-core.
+  }}
   getShareUrl={(roomName, origin) => {
     // Build a URL that drops the recipient back into your surface.
     // origin is the hostname captured server-side at room creation.

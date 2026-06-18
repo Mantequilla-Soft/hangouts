@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useDataChannel, useLocalParticipant } from '@livekit/components-react';
+import type { WordGuessGameResult } from '@snapie/hangouts-core';
 import { useHangoutsContext } from '../context/HangoutsContext.js';
 
 export interface UseWordGuessOptions {
@@ -23,6 +24,9 @@ export interface UseWordGuessResult {
   hasGuessed: boolean;
   theme: string | null;
   events: WordGuessEvent[];
+  /** Leaderboard + full word reveal for the round that just ended. Persists
+   *  until the next round starts; null if no round has ended yet. */
+  recap: WordGuessGameResult | null;
   isLoading: boolean;
   error: string | null;
   startGame: (config?: { theme?: string }) => Promise<void>;
@@ -57,6 +61,7 @@ export function useWordGuess({ roomName }: UseWordGuessOptions): UseWordGuessRes
   const [guessed, setGuessed] = useState<Set<string>>(new Set());
   const [theme, setTheme] = useState<string | null>(null);
   const [events, setEvents] = useState<WordGuessEvent[]>([]);
+  const [recap, setRecap] = useState<WordGuessGameResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,6 +113,7 @@ export function useWordGuess({ roomName }: UseWordGuessOptions): UseWordGuessRes
         setParticipants((parsed.participants as string[]) ?? []);
         setGuessed(new Set());
         setEvents([]);
+        setRecap(null);
         void hydrate();
         return;
       }
@@ -147,7 +153,7 @@ export function useWordGuess({ roomName }: UseWordGuessOptions): UseWordGuessRes
         setOthers([]);
         setGuessed(new Set());
         setTheme(null);
-        // Keep events visible briefly so players see the final state
+        setRecap((parsed.result as WordGuessGameResult | null) ?? null);
         return;
       }
     } catch { /* ignore malformed */ }
@@ -207,6 +213,7 @@ export function useWordGuess({ roomName }: UseWordGuessOptions): UseWordGuessRes
     hasGuessed,
     theme,
     events,
+    recap,
     isLoading,
     error,
     startGame,
