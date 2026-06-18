@@ -57,6 +57,7 @@ function shuffle<T>(arr: T[]): T[] {
 function buildSpectatorState(state: FastDrawState) {
   return {
     phase: state.phase,
+    theme: state.theme,
     drawer: state.drawerOrder[state.currentDrawerIndex],
     wordLength: state.currentWord.length,
     revealedWord: (state.phase === 'reveal' || state.phase === 'game_over') ? state.currentWord : null,

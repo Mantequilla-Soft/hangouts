@@ -95,6 +95,12 @@ describe('fastDrawPlugin.onStart', () => {
     expect(typeof spec.wordLength).toBe('number');
   });
 
+  it('spectatorState includes the theme', async () => {
+    const { result } = await start();
+    const spec = result.spectatorState as { theme: string };
+    expect(spec.theme).toBe('animals');
+  });
+
   it('broadcast is fast_draw_round_start', async () => {
     const { result } = await start();
     expect((result.broadcast as { type: string }).type).toBe('fast_draw_round_start');
@@ -179,6 +185,16 @@ describe('fastDrawPlugin.onAction — guess', () => {
     expect(newState.phase).toBe('game_over');
     expect(newState.winners.length).toBeGreaterThan(0);
     expect(r.ended).toBe(true);
+  });
+
+  it('theme survives into the final game_over spectatorState (used for the recap)', async () => {
+    const { state } = await start({ winThreshold: 1 });
+    const drawer = state.drawerOrder[0]!;
+    const guesser = PLAYERS.find((p) => p !== drawer)!;
+    const r = fastDrawPlugin.onAction({ from: guesser, action: { type: 'guess', word: state.currentWord }, state, participants: PLAYERS });
+    const spec = r.spectatorState as { theme: string; phase: string };
+    expect(spec.phase).toBe('game_over');
+    expect(spec.theme).toBe('animals');
   });
 
   it('tie: both drawer and guesser hit threshold simultaneously', async () => {
