@@ -2591,12 +2591,21 @@
    over critical content — this tiering is the actual fix, not a tuned number.) */
 @container hh-game-area (inline-size < 640px) {
   .hh-fastdraw { flex-direction: column; }
-  .hh-fastdraw__draw-block { flex: 2 1 0; width: 100%; min-height: 0; }
+  /* 60/40 instead of the old 2:1 — the guess input matters more than a
+     maximal canvas to anyone who isn't the drawer (drawers don't even see
+     a guess input — see FastDrawContent.tsx). */
+  .hh-fastdraw__draw-block { flex: 3 1 0; width: 100%; min-height: 0; }
   .hh-fastdraw__side {
-    flex: 1 1 0;
+    flex: 2 1 0;
     width: 100%;
     min-height: 0;
-    overflow: hidden;
+    /* Scrollable, not hidden: the rebalance above covers the common case,
+       but pinned content (header+banner+word/timer row) can still exceed
+       this panel's height on a small phone or with long usernames —
+       `overflow: hidden` here used to clip the guess input below the
+       visible area with no way to reach it at all. Scrolling guarantees
+       it's always reachable instead of merely "usually fits." */
+    overflow-y: auto;
   }
   .hh-fastdraw__side > *:not(.hh-fastdraw__scores) {
     flex-shrink: 0;
