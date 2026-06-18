@@ -153,7 +153,8 @@ export function useWordGuess({ roomName }: UseWordGuessOptions): UseWordGuessRes
         setOthers([]);
         setGuessed(new Set());
         setTheme(null);
-        setRecap((parsed.result as WordGuessGameResult | null) ?? null);
+        const result = parsed.result as WordGuessGameResult | null;
+        setRecap(result ? { ...result, theme: result.theme ?? '' } : null);
         return;
       }
     } catch { /* ignore malformed */ }

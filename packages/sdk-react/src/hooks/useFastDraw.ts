@@ -189,7 +189,7 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
         const s = game.state as SpectatorState | null;
         if (s) {
           setPhase(s.phase);
-          setTheme(s.theme);
+          setTheme(s.theme ?? '');
           setCurrentDrawer(s.drawer);
           setWordLength(s.wordLength);
           setRevealedWord(s.revealedWord);
@@ -209,7 +209,7 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
         const payload = game.state as PlayerPayload | null;
         if (board) {
           setPhase(board.phase);
-          setTheme(board.theme);
+          setTheme(board.theme ?? '');
           setCurrentDrawer(board.drawer);
           setWordLength(board.wordLength);
           setRevealedWord(board.revealedWord);

@@ -2454,9 +2454,16 @@
 
 /* Info column (right) */
 .hh-fastdraw__side {
+  /* The canvas is independently capped by its own aspect-ratio math
+     (.hh-fastdraw__canvas-wrap's `min(100cqw, 100cqh * 4/3)`), so it never
+     claims width the side panel gives up — a narrow fixed cap here just
+     wastes screen space rather than handing it to the canvas. 280px gives
+     "CHANCE TO GUESS" / the score list / a long revealed word room to
+     breathe without a cramped scrollbar doing double duty as the only way
+     to see content that should just fit. */
   flex: 0 0 auto;
-  width: min(190px, 30%);
-  min-width: 110px;
+  width: min(280px, 34%);
+  min-width: 150px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2499,10 +2506,17 @@
   gap: 4px;
 }
 .hh-fastdraw__word {
+  /* No letter-spacing here — that was only ever needed to keep the old
+     underscore-style dashes from visually merging, and the dashes now
+     manage their own spacing via flex gap (see --dashes below). Applied
+     to actual word text it just made long words wider than they needed
+     to be. overflow-wrap/min-width:0 let a long word wrap inside the
+     side panel instead of running past its edge uncontained. */
   font-size: 22px;
-  letter-spacing: 6px;
   font-family: monospace;
   font-weight: 700;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .hh-fastdraw__word--revealed {
   color: var(--hh-accent);
