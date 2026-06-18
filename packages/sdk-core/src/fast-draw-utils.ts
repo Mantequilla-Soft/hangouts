@@ -7,7 +7,8 @@ const MEDALS = ['🥇', '🥈', '🥉'];
  *  Posting itself is the embedding app's job; this just formats the data
  *  already on `GameResultPayload.result` into something worth pasting. */
 export function formatFastDrawRecap(result: FastDrawGameResult): string {
-  const theme = result.theme.charAt(0).toUpperCase() + result.theme.slice(1);
+  const rawTheme = result.theme || 'Unknown';
+  const theme = rawTheme.charAt(0).toUpperCase() + rawTheme.slice(1);
   const ranked = Object.entries(result.scores).sort(([, a], [, b]) => b - a);
   const lines: string[] = [`🎨 ${theme} Fast Draw — ${result.roundNumber} round${result.roundNumber === 1 ? '' : 's'}!`];
 

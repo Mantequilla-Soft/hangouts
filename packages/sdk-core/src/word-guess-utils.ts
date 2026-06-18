@@ -8,7 +8,8 @@ const MEDALS = ['🥇', '🥈', '🥉'];
  *  already on `GameResultPayload.result` into something worth pasting. */
 export function formatWordGuessRecap(result: WordGuessGameResult): string {
   // `theme` is the lowercase collection id (e.g. "philosophers"), not a display name.
-  const theme = result.theme.charAt(0).toUpperCase() + result.theme.slice(1);
+  const rawTheme = result.theme || 'Unknown';
+  const theme = rawTheme.charAt(0).toUpperCase() + rawTheme.slice(1);
   const lines: string[] = [`🏁 ${theme} Word Guess Race!`];
 
   result.leaderboard.forEach((entry, i) => {
