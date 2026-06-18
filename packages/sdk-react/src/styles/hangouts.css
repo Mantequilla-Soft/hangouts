@@ -708,6 +708,16 @@
     flex-direction: column;
   }
 
+  /* The rule above (2 classes, specificity 0,2,0) was unconditionally
+     beating the base `.hh-room__sidebar--hidden { display: none; }` (1
+     class, 0,1,0) — so on mobile-embedded the chat/game sidebar rendered
+     as a full-screen overlay even when closed, hiding the whole room
+     behind it. Match its specificity exactly so closed actually means
+     closed here too. */
+  .hh-room--embedded .hh-room__sidebar.hh-room__sidebar--hidden {
+    display: none;
+  }
+
   /* Compact header padding */
   .hh-room--embedded .hh-room__header {
     padding: 0.4rem 0.25rem;
