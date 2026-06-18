@@ -156,6 +156,12 @@ The custodial backend signs the challenge with the account's active/posting key 
     // ('chess' | 'fast-draw' | 'word-guess') — see the game-result types
     // exported from @snapie/hangouts-core.
   }}
+  onActiveGameChange={(gameId) => {
+    // gameId is set when a game starts (or is already running when you
+    // join), null once it ends. Use this to gate your own "confirm before
+    // leaving" prompt on a close/leave button rendered outside this
+    // component — accidentally leaving mid-game is worse than one extra tap.
+  }}
   getShareUrl={(roomName, origin) => {
     // Build a URL that drops the recipient back into your surface.
     // origin is the hostname captured server-side at room creation.

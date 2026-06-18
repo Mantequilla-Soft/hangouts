@@ -166,9 +166,23 @@ export interface HangoutsRoomProps {
    * Not called when the server has no session data (very old server version).
    */
   onGameEnd?: (result: GameResultPayload) => void;
+  /**
+   * Fires whenever the room's active game changes: a game's id when one
+   * starts (or is already running when you join — late joiners get this
+   * from a hydration fetch, not a live event, so it still fires), and
+   * `null` once it ends. Use this to gate a "confirm before leaving" prompt
+   * on your own close/leave button — accidentally leaving mid-game is a
+   * worse experience than one extra confirmation tap.
+   *
+   * Mirrors the SDK's own internal game-tracking state exactly, including
+   * the few-second delay before clearing to `null` after a game ends (so
+   * the signal matches what's still visible on screen, not just the wire
+   * event).
+   */
+  onActiveGameChange?: (gameId: string | null) => void;
 }
 
-export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl = 'https://hangout.3speak.tv', pushToTalk = false, onGameEnd }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl = 'https://hangout.3speak.tv', pushToTalk = false, onGameEnd, onActiveGameChange }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated, apiClient } = useHangoutsContext();
   // Default chat closed on mobile — the stage needs the space more than the sidebar does.
@@ -178,6 +192,10 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
   const [gameOpen, setGameOpen] = useState(false);
   const [activeGameId, setActiveGameId] = useState<string | null>(null);
   const [showGuestModal, setShowGuestModal] = useState(false);
+
+  useEffect(() => {
+    onActiveGameChange?.(activeGameId);
+  }, [activeGameId, onActiveGameChange]);
   // Mirror the host's chat-open state into room metadata so the egress
   // template knows whether to render the chat panel in the recording.
   // Non-hosts toggling their own chat does NOT propagate — recording
