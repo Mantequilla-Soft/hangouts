@@ -220,10 +220,10 @@ describe('fastDrawPlugin.onAction — guess', () => {
 });
 
 describe('fastDrawPlugin.onAction — advance_round', () => {
-  it('rejects advance_round while round is still active', async () => {
+  it('rejects advance_round while round is still active, silently (harmless auto-advance race, not a user mistake)', async () => {
     const { state } = await start();
     const r = fastDrawPlugin.onAction({ from: PLAYERS[0]!, action: { type: 'advance_round' }, state, participants: PLAYERS });
-    expect(r.feedback?.to).toBe(PLAYERS[0]);
+    expect(r.feedback).toBeUndefined();
     expect((r.state as FastDrawState).phase).toBe('drawing');
   });
 
@@ -240,11 +240,11 @@ describe('fastDrawPlugin.onAction — advance_round', () => {
     expect(spec.revealedWord).toBeNull();
   });
 
-  it('rejects advance_round while the guessing window is still active', async () => {
+  it('rejects advance_round while the guessing window is still active, silently (same harmless race)', async () => {
     const { state } = await start();
     const guessingState: FastDrawState = { ...state, phase: 'guessing', guessPhaseStartedAt: Date.now() };
     const r = fastDrawPlugin.onAction({ from: PLAYERS[0]!, action: { type: 'advance_round' }, state: guessingState, participants: PLAYERS });
-    expect(r.feedback?.to).toBe(PLAYERS[0]);
+    expect(r.feedback).toBeUndefined();
     expect((r.state as FastDrawState).phase).toBe('guessing');
   });
 

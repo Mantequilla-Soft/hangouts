@@ -217,7 +217,10 @@ export const fastDrawPlugin: GamePlugin = {
 
       if (state.phase === 'drawing') {
         if (Date.now() < state.roundStartedAt + state.roundDuration * 1000) {
-          return { state, feedback: { to: from, message: 'Round is still active' } };
+          // No feedback: every client's auto-advance timer races to send this when its
+          // local clock hits zero, so this is routinely a harmless no-op, not a mistake
+          // worth surfacing — the UI never exposes a way to trigger this deliberately.
+          return { state };
         }
         // Drawing time expired — canvas freezes, but guessing keeps going for one more window
         const guessPhaseStartedAt = Date.now();
@@ -231,7 +234,8 @@ export const fastDrawPlugin: GamePlugin = {
 
       if (state.phase === 'guessing') {
         if (Date.now() < state.guessPhaseStartedAt! + state.guessDuration * 1000) {
-          return { state, feedback: { to: from, message: 'Guessing window is still active' } };
+          // Same as above — routine race no-op, not user-facing feedback.
+          return { state };
         }
         // Guessing time also expired with no correct guess — reveal and wait for host (or auto-advance)
         const revealEndsAt = Date.now() + REVEAL_DURATION_MS;

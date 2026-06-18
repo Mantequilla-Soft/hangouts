@@ -14,6 +14,38 @@ interface WordGuessState {
   theme: string;
   startedAt: number;
   guessed: string[];
+  guessedAt: Record<string, number>;
+  wrongAttempts: Record<string, number>;
+}
+
+interface WordGuessLeaderboardEntry {
+  identity: string;
+  place: number;
+  word: string;
+  solveTimeMs: number;
+  wrongAttempts: number;
+}
+
+/** Built fresh on every start/action so spectatorState (and therefore the
+ *  GET hydrate response and the final game:ended result) is never stale —
+ *  unlike the old `{theme, playerCount}` shape, which froze at onStart and
+ *  never updated. `words` is the full reveal: every player already sees
+ *  everyone else's word during play via their personalized payload, so
+ *  there's nothing more secret being exposed here than already exists. */
+function buildSpectatorState(state: WordGuessState, participants: string[]) {
+  const leaderboard: WordGuessLeaderboardEntry[] = state.guessed.map((identity, i) => ({
+    identity,
+    place: i + 1,
+    word: state.assignments[identity]!,
+    solveTimeMs: state.guessedAt[identity]! - state.startedAt,
+    wrongAttempts: state.wrongAttempts[identity] ?? 0,
+  }));
+  return {
+    theme: state.theme,
+    playerCount: participants.length,
+    words: state.assignments,
+    leaderboard,
+  };
 }
 
 function shuffle<T>(arr: T[]): T[] {
@@ -59,6 +91,8 @@ export const wordGuessPlugin: GamePlugin = {
       theme: resolvedTheme,
       startedAt: Date.now(),
       guessed: [],
+      guessedAt: {},
+      wrongAttempts: {},
     };
 
     const payloads: Record<string, unknown> = {};
@@ -76,7 +110,7 @@ export const wordGuessPlugin: GamePlugin = {
       state,
       payloads,
       broadcast: { theme: state.theme, playerCount: params.participants.length },
-      spectatorState: { theme: state.theme, playerCount: params.participants.length },
+      spectatorState: buildSpectatorState(state, params.participants),
     };
   },
 
@@ -94,19 +128,25 @@ export const wordGuessPlugin: GamePlugin = {
     const correct = action.word.trim().toLowerCase() === correctWord.toLowerCase();
 
     if (!correct) {
+      const newState: WordGuessState = {
+        ...state,
+        wrongAttempts: { ...state.wrongAttempts, [params.from]: (state.wrongAttempts[params.from] ?? 0) + 1 },
+      };
       return {
-        state,
+        state: newState,
         broadcast: { type: 'guess_result', identity: params.from, correct: false },
+        spectatorState: buildSpectatorState(newState, params.participants),
       };
     }
 
     if (state.guessed.includes(params.from)) {
-      return { state };
+      return { state, spectatorState: buildSpectatorState(state, params.participants) };
     }
 
     const newState: WordGuessState = {
       ...state,
       guessed: [...state.guessed, params.from],
+      guessedAt: { ...state.guessedAt, [params.from]: Date.now() },
     };
     const allGuessed = params.participants.every((p) => newState.guessed.includes(p));
 
@@ -119,6 +159,7 @@ export const wordGuessPlugin: GamePlugin = {
         word: correctWord,
         allGuessed,
       },
+      spectatorState: buildSpectatorState(newState, params.participants),
       ended: allGuessed,
     };
   },
