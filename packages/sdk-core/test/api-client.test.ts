@@ -20,7 +20,7 @@ beforeEach(() => {
 });
 
 describe('listenAsGuest', () => {
-  it('sends POST with no body when displayName is omitted', async () => {
+  it('sends POST with an empty JSON body when displayName is omitted', async () => {
     const fetchSpy = mockFetch(200, { token: 'tok', roomName: 'r', identity: 'guest-1', isGuest: true, isHost: false, isPremium: false });
     vi.stubGlobal('fetch', fetchSpy);
 
@@ -30,7 +30,9 @@ describe('listenAsGuest', () => {
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe(`${BASE_URL}/rooms/room-1/listen`);
     expect(init.method).toBe('POST');
-    expect(init.body).toBeUndefined();
+    // Always a JSON body, even when empty — Fastify's type:'object' schema
+    // rejects a null/missing body (see api-client.ts's listenAsGuest comment).
+    expect(init.body).toBe('{}');
   });
 
   it('sends POST with displayName in the body when provided', async () => {
