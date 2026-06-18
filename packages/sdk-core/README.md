@@ -307,6 +307,7 @@ interface ChessGameResult {
 
 interface FastDrawGameResult {
   phase: 'drawing' | 'reveal' | 'game_over'
+  theme: string
   winners: string[]
   scores: Record<string, number>
   roundNumber: number
@@ -330,8 +331,8 @@ interface WordGuessLeaderboardEntry {
 }
 ```
 
-Two formatter helpers turn a result into ready-to-post text (e.g. for a Hive
-snap recapping the game — posting itself is up to the integrator, this
+Three formatter helpers turn a result into ready-to-post text (e.g. for a
+Hive snap recapping the game — posting itself is up to the integrator, this
 package only formats):
 
 ```ts
@@ -342,6 +343,10 @@ buildLichessAnalysisUrl(moveHistory: string[]): string
 formatWordGuessRecap(result: WordGuessGameResult): string
 // → a ranked leaderboard + full word reveal, e.g.:
 //   "🏁 Animals Word Guess Race!\n🥇 alice — 8.2s\n🥈 bob — 14.5s (3 tries)\n...\n🔍 Reveal: alice=GIRAFFE, ..."
+
+formatFastDrawRecap(result: FastDrawGameResult): string
+// → final scoreboard + winner(s), e.g.:
+//   "🎨 Animals Fast Draw — 9 rounds!\n🏆 alice wins with 5 points!\n🥈 bob — 3\n🥉 carol — 2"
 ```
 
 ---

@@ -7,7 +7,9 @@ const MEDALS = ['🥇', '🥈', '🥉'];
  *  Posting itself is the embedding app's job; this just formats the data
  *  already on `GameResultPayload.result` into something worth pasting. */
 export function formatWordGuessRecap(result: WordGuessGameResult): string {
-  const lines: string[] = [`🏁 ${result.theme} Word Guess Race!`];
+  // `theme` is the lowercase collection id (e.g. "philosophers"), not a display name.
+  const theme = result.theme.charAt(0).toUpperCase() + result.theme.slice(1);
+  const lines: string[] = [`🏁 ${theme} Word Guess Race!`];
 
   result.leaderboard.forEach((entry, i) => {
     const rank = MEDALS[i] ?? `${entry.place}.`;

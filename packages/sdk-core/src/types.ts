@@ -297,6 +297,7 @@ export interface ChessGameResult {
 /** Fast Draw result shape inside GameResultPayload.result when gameId === 'fast-draw'. */
 export interface FastDrawGameResult {
   phase: 'drawing' | 'reveal' | 'game_over';
+  theme: string;
   winners: string[];
   scores: Record<string, number>;
   roundNumber: number;
