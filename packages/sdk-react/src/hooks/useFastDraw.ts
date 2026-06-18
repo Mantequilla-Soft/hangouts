@@ -33,6 +33,7 @@ export interface UseFastDrawResult {
   scores: Record<string, number>;
   myScore: number;
   winners: string[];
+  theme: string;
   roundNumber: number;
   roundStartedAt: number;
   roundDuration: number;
@@ -106,6 +107,7 @@ interface PlayerPayload {
 
 interface SpectatorState {
   phase: FastDrawPhase;
+  theme: string;
   drawer: string;
   wordLength: number;
   revealedWord: string | null;
@@ -133,6 +135,7 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
   const [wordLength, setWordLength] = useState(0);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [winners, setWinners] = useState<string[]>([]);
+  const [theme, setTheme] = useState('');
   const [roundNumber, setRoundNumber] = useState(1);
   const [roundStartedAt, setRoundStartedAt] = useState(0);
   const [roundDuration, setRoundDuration] = useState(60);
@@ -160,6 +163,7 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
     setWordLength(0);
     setScores({});
     setWinners([]);
+    setTheme('');
     setRoundNumber(1);
     setRoundStartedAt(0);
     setRoundDuration(60);
@@ -185,6 +189,7 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
         const s = game.state as SpectatorState | null;
         if (s) {
           setPhase(s.phase);
+          setTheme(s.theme);
           setCurrentDrawer(s.drawer);
           setWordLength(s.wordLength);
           setRevealedWord(s.revealedWord);
@@ -204,6 +209,7 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
         const payload = game.state as PlayerPayload | null;
         if (board) {
           setPhase(board.phase);
+          setTheme(board.theme);
           setCurrentDrawer(board.drawer);
           setWordLength(board.wordLength);
           setRevealedWord(board.revealedWord);
@@ -410,7 +416,7 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
 
   return {
     active, phase, isDrawer, currentDrawer, word, wordLength,
-    scores, myScore, winners, roundNumber, roundStartedAt, roundDuration,
+    scores, myScore, winners, theme, roundNumber, roundStartedAt, roundDuration,
     guessPhaseStartedAt, guessDuration, serverTimeOffset,
     revealEndsAt, guesser, revealedWord, strokeSnapshot, isSpectator,
     error, isLoading, startGame, submitGuess, syncCanvas, nextRound, endGame,

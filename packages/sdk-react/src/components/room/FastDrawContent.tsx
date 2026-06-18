@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatFastDrawRecap } from '@snapie/hangouts-core';
 import { useFastDraw } from '../../hooks/useFastDraw.js';
 import { DrawingCanvas } from './DrawingCanvas.js';
 
@@ -27,6 +28,7 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
   const game = useFastDraw({ roomName });
   const [guess, setGuess] = useState('');
   const [timeLeft, setTimeLeft] = useState(0);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!game.active || game.phase === 'game_over') return;
@@ -48,6 +50,24 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
     if (!guess.trim()) return;
     void game.submitGuess(guess.trim());
     setGuess('');
+  };
+
+  const handleCopyRecap = async () => {
+    try {
+      await navigator.clipboard.writeText(formatFastDrawRecap({
+        phase: 'game_over',
+        theme: game.theme,
+        winners: game.winners,
+        scores: game.scores,
+        roundNumber: game.roundNumber,
+        drawer: game.currentDrawer,
+        revealedWord: game.revealedWord,
+      }));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard permission denied — button just won't show the "Copied!" confirmation
+    }
   };
 
   if (!game.active) return null;
@@ -88,8 +108,12 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
             .sort(([, a], [, b]) => b - a)
             .map(([identity, score]) => (
               <div key={identity} className="hh-fastdraw__score-row">
-                <span>{identity}{identity === game.currentDrawer ? ' ✏️' : ''}</span>
-                <span>{game.winners.length > 0 ? '✓' : score}</span>
+                <span>
+                  {identity}
+                  {identity === game.currentDrawer ? ' ✏️' : ''}
+                  {game.winners.includes(identity) ? ' 🏆' : ''}
+                </span>
+                <span>{score}</span>
               </div>
             ))}
         </div>
@@ -145,13 +169,18 @@ export function FastDrawContent({ roomName, isHost }: FastDrawContentProps) {
             <div className="hh-fastdraw__reveal-word">
               {game.winners.length === 1 ? `${game.winners[0]} wins!` : `Tie: ${game.winners.join(' & ')}!`}
             </div>
-            {isHost && (
-              <div className="hh-game-actions">
+            <div className="hh-game-actions">
+              {isHost && (
+                <button className="hh-btn hh-btn--secondary hh-btn--small" onClick={() => void handleCopyRecap()}>
+                  {copied ? '✅ Copied!' : '📋 Copy Recap'}
+                </button>
+              )}
+              {isHost && (
                 <button className="hh-btn hh-btn--danger hh-btn--small" onClick={() => void game.endGame()}>
                   End Game
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
 
