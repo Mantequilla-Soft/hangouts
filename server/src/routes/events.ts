@@ -9,6 +9,7 @@ import {
   updateEvent,
   setEventStatus,
   toggleAttendance,
+  type EventView,
 } from '../lib/events.js';
 
 const EVENT_VISIBILITIES = ['public', 'unlisted'] as const;
@@ -56,6 +57,35 @@ async function buildPresenceMap(): Promise<Map<string, { roomName: string; roomT
   return presence;
 }
 
+// Events are marked `live` when a host starts them, but LiveKit rooms
+// self-expire (emptyTimeout) once everyone leaves — nothing tells Mongo.
+// A host who never explicitly ends the event leaves a "ghost": status
+// stuck at `live` with a roomName that's long gone, which then 404s for
+// every client that tries to join it. Reconcile lazily on read: whenever
+// we hand back `live` events, confirm their LiveKit room still exists
+// and flip stragglers to `ended`.
+async function reconcileLiveEvents(events: EventView[]): Promise<EventView[]> {
+  const liveWithRoom = events.filter((e) => e.status === 'live' && e.roomName);
+  if (liveWithRoom.length === 0) return events;
+
+  let activeNames: Set<string>;
+  try {
+    const rooms = await roomService.listRooms(liveWithRoom.map((e) => e.roomName!));
+    activeNames = new Set(rooms.map((r) => r.name));
+  } catch {
+    // LiveKit unreachable — leave status as-is rather than guessing.
+    return events;
+  }
+
+  const stale = liveWithRoom.filter((e) => !activeNames.has(e.roomName!));
+  if (stale.length === 0) return events;
+
+  const staleIds = new Set(stale.map((e) => e.id));
+  await Promise.all(stale.map((e) => setEventStatus(e.id, 'ended')));
+
+  return events.map((e) => (staleIds.has(e.id) ? { ...e, status: 'ended' as const } : e));
+}
+
 export const eventRoutes: FastifyPluginAsync = async (fastify) => {
   // List upcoming events — public, no auth required.
   // Query: ?status=scheduled&host=username&limit=20
@@ -77,7 +107,11 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
       limit?: number;
     };
     const events = await listEvents({ status, host, limit });
-    return reply.send(events);
+    const reconciled = await reconcileLiveEvents(events);
+    // Drop stragglers that just got reconciled to `ended` unless the
+    // caller explicitly asked for ended events.
+    const result = status === 'ended' ? reconciled : reconciled.filter((e) => e.status !== 'ended');
+    return reply.send(result);
   });
 
   // Get a single event by ID — public, no auth required.
@@ -93,7 +127,8 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = request.params as { id: string };
     const event = await getEventById(id);
     if (!event) return reply.notFound('Event not found');
-    return reply.send(event);
+    const [reconciled] = await reconcileLiveEvents([event]);
+    return reply.send(reconciled);
   });
 
   // Create a scheduled event (auth required — caller becomes host).
