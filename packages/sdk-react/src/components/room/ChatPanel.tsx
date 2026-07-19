@@ -19,6 +19,16 @@ export interface ChatPanelProps {
    *  blocks data publishing for guest identities anyway, but hiding
    *  the input keeps the UI honest. */
   isGuest?: boolean;
+  /** Force read-only regardless of the LiveKit publish permission. Use for
+   *  watch-page embeds where anonymous viewers may hold a chat-capable guest
+   *  token but shouldn't be able to post (e.g. "sign in to chat"). */
+  readOnly?: boolean;
+  /** Message shown in place of the composer when chat is read-only. */
+  readOnlyNotice?: string;
+  /** Fired after a message is sent, so an integrator can mirror it elsewhere
+   *  (3Speak posts each line as a timecoded Hive comment). Must not throw —
+   *  it is intentionally not awaited, so chat never waits on a network call. */
+  onMessageSent?: (text: string) => void;
 }
 
 function ChatBubble({ identity, name, text, localName }: { identity: string; name: string; text: string; localName: string }) {
@@ -46,12 +56,12 @@ function ChatBubble({ identity, name, text, localName }: { identity: string; nam
   );
 }
 
-export function ChatPanel({ onClose, isGuest = false }: ChatPanelProps = {}) {
+export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnlyNotice, onMessageSent }: ChatPanelProps = {}) {
   const { messages, sendMessage } = useChat();
   const permissions = useLocalParticipantPermissions();
   const { localParticipant } = useLocalParticipant();
   const participants = useParticipants();
-  const canChat = permissions ? (permissions.canPublishData ?? false) : !isGuest;
+  const canChat = readOnly ? false : (permissions ? (permissions.canPublishData ?? false) : !isGuest);
 
   // The name to match against incoming @mentions for highlight
   const localName = localParticipant
@@ -100,9 +110,13 @@ export function ChatPanel({ onClose, isGuest = false }: ChatPanelProps = {}) {
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    const text = input.trim();
+    if (!text) return;
     sendMessage(input);
     setInput('');
+    // Deliberately not awaited: mirroring to Hive is slow and must never hold
+    // up the in-stream message.
+    try { onMessageSent?.(text); } catch { /* integrator's problem, not chat's */ }
   };
 
   return (
@@ -130,9 +144,14 @@ export function ChatPanel({ onClose, isGuest = false }: ChatPanelProps = {}) {
         <div ref={bottomRef} />
       </div>
       {!canChat ? (
-        <div className="hh-chat__guest-prompt">
-          🔒 Sign in with Hive to chat.
-        </div>
+        /* An EMPTY notice means "render nothing" — `??` only falls back on
+           undefined, so passing '' previously produced an empty prompt box
+           that still carried its border and read as an input field. */
+        readOnlyNotice === '' ? null : (
+          <div className="hh-chat__guest-prompt">
+            {readOnlyNotice ?? '🔒 Sign in with Hive to chat.'}
+          </div>
+        )
       ) : (
         <div className="hh-chat__compose">
           {mentionCandidates.length > 0 && (

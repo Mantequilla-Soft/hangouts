@@ -3,6 +3,7 @@ import { useParticipants } from '@livekit/components-react';
 import { useRecording } from '../../hooks/useRecording.js';
 import { RecordingIndicator } from './RecordingControls.js';
 import { HeadphonesIcon } from '../icons/HeadphonesIcon.js';
+import { renderMarkdown, stripMarkdown, truncate } from '../../lib/markdown.js';
 
 export interface RoomHeaderProps {
   title: string;
@@ -23,6 +24,12 @@ export function RoomHeader({ title, description, roomName, isGuest, shareUrl }: 
   const participants = useParticipants();
   const recording = useRecording(roomName ?? null);
   const [copied, setCopied] = useState(false);
+  const [descOpen, setDescOpen] = useState(false);
+
+  // Under the title we show a PLAIN one-liner: markdown syntax stripped and cut
+  // to 50 characters. The full text (rendered) lives behind "Show more".
+  const descPlain = stripMarkdown(description || '');
+  const descPreview = truncate(descPlain, 50);
 
   // Split the participant count into "speaking" vs "listening".
   // Exclude obs- observer identities — they're OBS overlay connections, not real people.
@@ -58,7 +65,16 @@ export function RoomHeader({ title, description, roomName, isGuest, shareUrl }: 
         <h2 className="hh-room__title">
           {title} <RecordingIndicator isRecording={recording.isRecording} elapsed={recording.elapsed} />
         </h2>
-        {description && <p className="hh-room__description">{description}</p>}
+        {descPlain && (
+          <p className="hh-room__description">
+            {descPreview.text}
+            {descPreview.truncated && (
+              <button type="button" className="hh-room__description-more" onClick={() => setDescOpen(true)}>
+                Show more
+              </button>
+            )}
+          </p>
+        )}
         {isGuest && (
           <span className="hh-room__guest-badge" title="You're listening as a guest. Sign in with Hive Keychain to speak or chat.">
             <HeadphonesIcon size={14} />
@@ -83,6 +99,21 @@ export function RoomHeader({ title, description, roomName, isGuest, shareUrl }: 
           </button>
         )}
       </div>
+
+      {descOpen && (
+        <div className="hh-room__desc-overlay" onClick={(e) => { if (e.target === e.currentTarget) setDescOpen(false); }}>
+          <div className="hh-room__desc-modal" role="dialog" aria-label="Room description">
+            <div className="hh-room__desc-head">
+              <span>{title}</span>
+              <button type="button" className="hh-room__desc-close" onClick={() => setDescOpen(false)} title="Close">×</button>
+            </div>
+            <div
+              className="hh-room__desc-body"
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(description || '') }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

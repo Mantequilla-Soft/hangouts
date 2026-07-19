@@ -1,28 +1,48 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Room } from '@snapie/hangouts-core';
 import { useHangoutsAuth } from '../../hooks/useHangoutsAuth.js';
 import { useRoomList } from '../../hooks/useRoomList.js';
 import { RoomCard } from './RoomCard.js';
-import { CreateRoomDialog } from './CreateRoomDialog.js';
+import { CreateRoomDialog, type AnnounceType } from './CreateRoomDialog.js';
 
 export interface RoomLobbyProps {
   onJoinRoom: (roomName: string) => void;
   /** Fired when the user creates a room. The second argument carries
-   *  UI-only options the user picked in the create dialog (e.g.
-   *  whether to announce the room on Hive). Optional second arg
-   *  preserves backwards compatibility with older integrators. */
-  onRoomCreated?: (room: Room, options?: { notifyOnHive: boolean }) => void;
+   *  the announcement preference the user picked in the create dialog
+   *  (whether to post on Hive, and as a snap or a full post). Optional
+   *  second arg preserves backwards compatibility with older integrators. */
+  onRoomCreated?: (room: Room, options?: { notifyOnHive: boolean; announceType: AnnounceType }) => void;
   /** When true, unauthenticated visitors see the room list and can
    *  join as listen-only guests instead of being shown the sign-in
    *  form. Create / host actions stay hidden for guests. Default
    *  false to preserve the original auth-gated behaviour. */
   allowGuestBrowse?: boolean;
+  /** Expose the "Standalone livestream studio" mode in the create dialog.
+   *  Off by default — hides the mode dropdown so all rooms are conferences. */
+  allowStandalone?: boolean;
+  /** Renders integrator-owned Hive announcement controls (payout,
+   *  beneficiaries, community picker) inside the create dialog. Passed
+   *  straight through to CreateRoomDialog. */
+  renderAnnounceOptions?: (announceType: AnnounceType) => ReactNode;
+  /** 3Speak Pro host — passed to CreateRoomDialog to unlock the recording
+   *  options. */
+  isPremium?: boolean;
+  /** Replaces the create dialog's built-in description field with an
+   *  integrator markdown editor (e.g. 3Speak's MarkdownComposer). */
+  renderDescriptionEditor?: (value: string, onChange: (v: string) => void) => ReactNode;
+  /** Open the create-room form immediately on mount — for integrators whose
+   *  "Go live" entry point should land on the form rather than the lobby list.
+   *  Still gated on being signed in, so it appears once auth lands. */
+  defaultCreateOpen?: boolean;
+  /** Override where the room list comes from — e.g. aggregated across several
+   *  OpenPods deployments. Must be stable (useCallback) or the poll restarts. */
+  fetchRooms?: () => Promise<Room[]>;
 }
 
-export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false }: RoomLobbyProps) {
+export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false, allowStandalone = false, defaultCreateOpen = false, renderAnnounceOptions, renderDescriptionEditor, fetchRooms, isPremium = false }: RoomLobbyProps) {
   const auth = useHangoutsAuth();
-  const { rooms, isLoading, error } = useRoomList();
-  const [showCreate, setShowCreate] = useState(false);
+  const { rooms, isLoading, error } = useRoomList(fetchRooms);
+  const [showCreate, setShowCreate] = useState(defaultCreateOpen);
   const [loginUsername, setLoginUsername] = useState('');
 
   // Login screen — skipped when the integrator opted in to guest
@@ -62,7 +82,7 @@ export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false 
     );
   }
 
-  const handleCreated = (room: Room, options: { notifyOnHive: boolean }) => {
+  const handleCreated = (room: Room, options: { notifyOnHive: boolean; announceType: AnnounceType }) => {
     setShowCreate(false);
     onRoomCreated?.(room, options);
     onJoinRoom(room.name);
@@ -93,6 +113,10 @@ export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false 
         <CreateRoomDialog
           onCreated={handleCreated}
           onCancel={() => setShowCreate(false)}
+          allowStandalone={allowStandalone}
+          renderAnnounceOptions={renderAnnounceOptions}
+          isPremium={isPremium}
+          renderDescriptionEditor={renderDescriptionEditor}
         />
       )}
 
