@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { createChallenge, consumeChallenge, verifyHiveSignature } from '../lib/hive.js';
 import { createSessionToken } from '../lib/session.js';
+import { requireAuth } from '../middleware/requireAuth.js';
 
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
   // Step 1: Client requests a challenge nonce to sign
@@ -56,5 +57,14 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     // Issue a session JWT
     const token = await createSessionToken(lowerUsername);
     return reply.send({ token, username: lowerUsername });
+  });
+
+  // Cheap authenticated probe. Lets a client check whether the session token it
+  // restored from storage is still valid BEFORE trying to act on it — a stored
+  // JWT can be unexpired yet unverifiable (e.g. after SESSION_SECRET is
+  // rotated), and without this the client happily reuses it forever and every
+  // action fails with "Invalid or expired session token".
+  fastify.get('/auth/me', { preHandler: [requireAuth] }, async (request) => {
+    return { username: request.username };
   });
 };

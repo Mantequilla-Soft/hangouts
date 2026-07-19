@@ -23,6 +23,9 @@ const envSchema = z.object({
   BOOST_PLATFORM_FEE_PERCENT: z.coerce.number().min(0).max(100).default(5),
   BOOST_HIVE_USD_FALLBACK: z.coerce.number().positive().default(0.25),
   BOOST_HIVE_USD_CACHE_MS: z.coerce.number().int().positive().default(120000),
+  // Public WHIP endpoint for OBS ingest (nginx → livekit/ingress). The stream
+  // key is appended as a path segment: `${INGRESS_WHIP_URL}/<streamKey>`.
+  INGRESS_WHIP_URL: z.string().url().default('https://livekit.okinoko.io/w'),
   PORT: z.coerce.number().default(3002),
 });
 

@@ -9,11 +9,11 @@ async function verifyHost(roomName: string, username: string) {
   const rooms = await roomService.listRooms([roomName]);
   if (rooms.length === 0) return { error: 'not_found' as const };
 
-  let meta: { host?: string } = {};
+  let meta: { host?: string; mode?: string } = {};
   try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
 
   if (meta.host !== username) return { error: 'forbidden' as const };
-  return { error: null };
+  return { error: null, meta };
 }
 
 export const participantRoutes: FastifyPluginAsync = async (fastify) => {
@@ -44,6 +44,12 @@ export const participantRoutes: FastifyPluginAsync = async (fastify) => {
     const check = await verifyHost(name, request.username);
     if (check.error === 'not_found') return reply.notFound('Room not found');
     if (check.error === 'forbidden') return reply.forbidden('Only the host can change permissions');
+
+    // Standalone (one-man livestream) rooms have exactly one publisher —
+    // the host's composited program feed. Nobody can be promoted.
+    if (check.meta?.mode === 'standalone' && canPublish) {
+      return reply.forbidden('Standalone stream rooms have a single broadcaster — viewers cannot be promoted');
+    }
 
     const updated = await roomService.updateParticipant(name, identity, undefined, {
       canPublish,
