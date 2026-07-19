@@ -1,6 +1,13 @@
 /** Visibility / access tier the host picked when creating the room. */
 export type RoomVisibility = 'public' | 'hive-internal' | 'unlisted';
 
+/** Room mode picked at creation:
+ *  - `conference` (default): classic multi-participant hangout.
+ *  - `standalone`: one-man livestream studio — only the host publishes a
+ *    client-composited program feed; everyone else is a watch-only viewer
+ *    with chat. */
+export type RoomMode = 'conference' | 'standalone';
+
 export interface BoostConfig {
   enabled: boolean;
   minBoostUsd: number;
@@ -60,6 +67,20 @@ export interface Room {
   language?: string;
   /** Boost/superchat configuration for this room. */
   boost?: BoostConfig;
+  /** `conference` (default) or `standalone` one-man livestream.
+   *  Optional; pre-existing rooms behave as `conference`. */
+  mode?: RoomMode;
+  /** Feed-post details for a standalone stream (composed in the studio's
+   *  post editor). Title falls back to `title`. */
+  post?: StreamPost;
+}
+
+/** Feed-post details attached to a standalone stream. */
+export interface StreamPost {
+  title?: string;
+  thumbnail?: string;
+  description?: string;
+  tags?: string[];
 }
 
 export interface CreateRoomResponse {

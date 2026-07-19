@@ -1,4 +1,4 @@
-import type { Room, RoomVisibility, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse, GameInfo, ActiveGame, GameStartResponse, GameActionResponse, WordCollection } from './types.js';
+import type { Room, RoomVisibility, RoomMode, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse, GameInfo, ActiveGame, GameStartResponse, GameActionResponse, WordCollection, StreamPost } from './types.js';
 import { HangoutsApiError } from './errors.js';
 
 export interface HangoutsApiClientOptions {
@@ -88,8 +88,9 @@ export class HangoutsApiClient {
     visibility?: RoomVisibility,
     language?: string,
     boost?: BoostConfig,
+    mode?: RoomMode,
   ): Promise<CreateRoomResponse> {
-    return this.request('POST', '/rooms', { title, description, backgroundImage, visibility, language, boost });
+    return this.request('POST', '/rooms', { title, description, backgroundImage, visibility, language, boost, mode });
   }
 
   async joinRoom(roomName: string): Promise<JoinRoomResponse> {
@@ -264,6 +265,22 @@ export class HangoutsApiClient {
     config: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string },
   ): Promise<{ boost: { enabled: boolean; minBoostUsd: number; creatorPayoutAccount?: string } }> {
     return this.request('PATCH', `/rooms/${encodeURIComponent(roomName)}/boost`, config);
+  }
+
+  /** Update the feed-post details (title/thumbnail/description/tags) for a
+   *  standalone stream. Host only. Merges into the stored post. */
+  async updateStreamPost(
+    roomName: string,
+    post: { title?: string; thumbnail?: string; description?: string; tags?: string[] },
+  ): Promise<{ post: StreamPost }> {
+    return this.request('PATCH', `/rooms/${encodeURIComponent(roomName)}/post`, post);
+  }
+
+  /** Set the "broadcasting" flag for a standalone stream (host only). The
+   *  studio calls this on Start/Resume (true) and Pause (false) — it's what
+   *  makes the stream appear in / disappear from the live feeds. */
+  async setBroadcasting(roomName: string, broadcasting: boolean): Promise<{ broadcasting: boolean }> {
+    return this.request('PATCH', `/rooms/${encodeURIComponent(roomName)}/broadcast`, { broadcasting });
   }
 
   // Events

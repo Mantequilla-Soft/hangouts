@@ -13,6 +13,8 @@ export { formatFastDrawRecap } from './fast-draw-utils.js';
 export type {
   Room,
   RoomVisibility,
+  RoomMode,
+  StreamPost,
   BoostConfig,
   BoostEvent,
   BoostRejectReason,
