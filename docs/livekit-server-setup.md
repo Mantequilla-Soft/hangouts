@@ -411,7 +411,7 @@ WHIP ingress lets an external encoder (OBS Studio 30.2+, ffmpeg, GStreamer, a ha
 
 ### Add the ingress service
 
-If you enabled ingress during the `livekit/generate` step, it's already in your `docker-compose.yaml`. If not, add it manually (this is already applied in this repo's `livekit/docker-compose.yaml`):
+If you enabled ingress during the `livekit/generate` step, it's already in your `docker-compose.yaml`. If not, add it manually (this is already applied in this repo's `examples/livekit/docker-compose.yaml`):
 
 ```yaml
 # Add to docker-compose.yaml under services:
@@ -480,7 +480,7 @@ cd /opt/livekit && sudo docker compose restart livekit
 
 ### nginx proxy for `/whip/`
 
-The `livekit.okinoko.io.nginx` config in this repo already proxies `location /whip/` to `127.0.0.1:8082` (match this to whatever `whip_port` you actually picked above), so WHIP traffic rides the same TLS cert/domain as signaling — no separate subdomain or port needed. Re-apply it with `certbot --nginx` (or just reload nginx) if you're deploying this config for the first time.
+The `examples/livekit/livekit.okinoko.io.nginx` config in this repo already proxies `location /whip/` to `127.0.0.1:8082` (match this to whatever `whip_port` you actually picked above), so WHIP traffic rides the same TLS cert/domain as signaling — no separate subdomain or port needed. Re-apply it with `certbot --nginx` (or just reload nginx) if you're deploying this config for the first time.
 
 ### Firewall
 

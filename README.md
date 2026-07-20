@@ -42,6 +42,7 @@ Three components:
 - **Moderation** — host can mute, kick, or end the room
 - **Recording** — start audio or video; on stop the host gets a 3-button dialog (Upload · Download · Dismiss). Upload is callback-driven: the SDK hands the integrator the raw blob and the integrator chooses where to publish (3Speak Studio, podcast uploader, IPFS, etc.). The Upload button is hidden when no callback is wired for that mode.
 - **Live streaming** — stream to YouTube or Twitch directly from the room
+- **WHIP ingress** — external encoders (OBS 30.2+, ffmpeg, hardware encoders) can publish directly into a room as a low-latency WebRTC participant, via `POST /rooms/:name/ingress/whip`. Not yet wrapped in the SDK — a power-user/broadcast-software path, separate from the in-app camera publish flow.
 - **Boost messages (superchat)** — validated HIVE/HBD transfer memos trigger highlighted room + OBS overlay messages with immediate payout split.
 - **Hive avatars** — profile pictures pulled from on-chain metadata
 
@@ -55,6 +56,8 @@ hangouts/
     sdk-react/      @snapie/hangouts-react — React components + hooks
   demo/             Reference integration (Vite + React)
   docs/             LiveKit deployment guide + frontend integration guides
+  examples/         Reference deploy configs (nginx, docker-compose) — see examples/README.md
+  test/             Manual/ad-hoc test scripts (not the vitest suite — that's in server/test/)
 ```
 
 ## SDK Usage
@@ -114,6 +117,9 @@ import '@snapie/hangouts-react/src/styles/hangouts.css';
 | `POST /rooms/:name/stream/start` | Host | Start streaming to YouTube/Twitch |
 | `POST /rooms/:name/stream/stop` | Host | Stop streaming |
 | `GET /rooms/:name/stream/status` | Host | Stream status |
+| `POST /rooms/:name/ingress/whip` | Host | Create a WHIP ingress. Returns `{ ingressId, url, streamKey }` for an external encoder (OBS, ffmpeg) to publish into the room. |
+| `DELETE /rooms/:name/ingress` | Host | Stop the active WHIP ingress |
+| `GET /rooms/:name/ingress/status` | Host | WHIP ingress status |
 | `POST /boosts/ingest` | No (dev spike) | Manual boost ingest endpoint for validated transfer payloads (feature-flagged). |
 | `GET /boosts/ledger` | No | List current boost ledger entries (optional `?room=` filter). |
 
@@ -162,6 +168,11 @@ npm run dev
 | `BOOST_PLATFORM_FEE_PERCENT` | Platform fee percent (default `5`) |
 | `BOOST_HIVE_USD_FALLBACK` | Fallback HIVE/USD rate if CoinGecko is unavailable |
 | `BOOST_HIVE_USD_CACHE_MS` | Cache TTL (ms) for CoinGecko HIVE/USD fetches |
+
+## Docs
+
+- [`docs/livekit-server-setup.md`](docs/livekit-server-setup.md) — deploying the LiveKit SFU (+ egress, ingress) on a VPS
+- [`docs/tiktok-live-frontend-guide.md`](docs/tiktok-live-frontend-guide.md) — for the frontend team building 3speak's TikTok-style live streaming: what already exists in the SDK, what's missing, and where WHIP ingress fits (power-user path, not the default one)
 
 ## Tech Stack
 
