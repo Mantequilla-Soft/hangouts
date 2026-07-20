@@ -16,9 +16,10 @@ Deploy a production-ready LiveKit server on an OVH VPS using Docker Compose + Ca
 8. [Install the LiveKit CLI](#install-the-livekit-cli)
 9. [Testing the Server](#testing-the-server)
 10. [Recording & Egress Setup](#recording--egress-setup)
-11. [Monitoring & Logs](#monitoring--logs)
-12. [Upgrading](#upgrading)
-13. [Troubleshooting](#troubleshooting)
+11. [Ingress Setup](#ingress-setup)
+12. [Monitoring & Logs](#monitoring--logs)
+13. [Upgrading](#upgrading)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -212,6 +213,9 @@ Open these ports in the **OVH Control Panel** firewall and/or via `ufw`:
 | `7881/TCP`         | WebRTC TCP fallback                  |
 | `3478/UDP`         | TURN/STUN UDP                        |
 | `50000–60000/UDP`  | WebRTC media (ICE/UDP)               |
+| `40000–40100/UDP`  | WHIP ingress media (ICE/UDP) — separate range from the SFU's 50000–60000. See [Ingress Setup](#ingress-setup) |
+
+Note: the WHIP ingress **HTTP** port (`whip_port` in `ingress.yaml`, e.g. `8082` — pick whatever's free, see [Ingress Setup](#ingress-setup)) is proxied internally by nginx at `/whip/` on the existing `443/TCP` — it does not need its own firewall rule, same as LiveKit's own `7880` signaling port isn't separately exposed.
 
 ### Using UFW
 
@@ -222,6 +226,7 @@ sudo ufw allow 443/udp
 sudo ufw allow 7881/tcp
 sudo ufw allow 3478/udp
 sudo ufw allow 50000:60000/udp
+sudo ufw allow 40000:40100/udp
 sudo ufw enable
 sudo ufw status
 ```
@@ -396,6 +401,114 @@ lk egress start \
   --room test-room \
   --audio-only \
   --filepath /tmp/livekit-recordings/test-room-{time}.mp3
+```
+
+---
+
+## Ingress Setup
+
+WHIP ingress lets an external encoder (OBS Studio 30.2+, ffmpeg, GStreamer, a hardware encoder) publish directly into a room as a low-latency WebRTC participant — instead of being limited to a browser's mic/cam. This is the inverse of egress: media flows *into* LiveKit rather than out to YouTube/Twitch.
+
+### Add the ingress service
+
+If you enabled ingress during the `livekit/generate` step, it's already in your `docker-compose.yaml`. If not, add it manually (this is already applied in this repo's `livekit/docker-compose.yaml`):
+
+```yaml
+# Add to docker-compose.yaml under services:
+ingress:
+  image: livekit/ingress:latest
+  network_mode: host
+  restart: unless-stopped
+  depends_on: [redis, livekit]
+  environment:
+    - INGRESS_CONFIG_FILE=/etc/ingress.yaml
+  volumes:
+    - ./ingress.yaml:/etc/ingress.yaml:ro
+```
+
+**Before picking `whip_port`, check it's actually free.** `8080` is the obvious default, but it's a common port and may already be bound by something else on the box (that happened on the production VPS — `8080` was taken, `8082` was used instead). Check first:
+
+```bash
+ss -tln | grep ':8080 '   # if this prints anything, 8080 is taken — pick another port
+```
+
+Create `ingress.yaml` alongside your other config files on the VPS (`/opt/livekit/` — same as `egress.yaml`, this file is **not** committed since it holds your API secret):
+
+```yaml
+api_key: YOUR_API_KEY        # same key/secret pair as livekit.yaml
+api_secret: YOUR_API_SECRET
+ws_url: wss://livekit.okinoko.io
+
+redis:
+  address: localhost:6379
+
+whip_port: 8082               # HTTP port WHIP publishers POST to; proxied by nginx at /whip/.
+                               # Confirmed free on the production box — 8080 was already in use
+                               # by another service there. Re-check with `ss -tln` on your own VPS.
+http_relay_port: 9090         # internal relay — doesn't need to be public
+
+rtc_port_range_start: 40000   # separate UDP range from the SFU's 50000-60000
+rtc_port_range_end: 40100
+
+logging:
+  level: info
+```
+
+Restart:
+
+```bash
+cd /opt/livekit && sudo docker compose up -d
+```
+
+### Set `whip_base_url` on the main LiveKit server (not the ingress config)
+
+Without this, `POST /rooms/:name/ingress/whip` will succeed but return an **empty `url`** — the ingress gets created fine, but there's nothing to hand the encoder. This is a separate setting from `ingress.yaml` above: it goes under `ingress:` in the **main server's** `livekit.yaml`:
+
+```yaml
+# livekit.yaml
+keys:
+  YOUR_API_KEY: YOUR_API_SECRET
+ingress:
+  whip_base_url: https://livekit.yourproject.com/whip   # matches the nginx location below
+```
+
+Restarting the `livekit` container to pick this up **drops any rooms with active participants** — LiveKit doesn't persist room state across a restart, only cross-node signaling goes through Redis. Time this for a low-traffic window, not mid-deploy on a whim.
+
+```bash
+cd /opt/livekit && sudo docker compose restart livekit
+```
+
+### nginx proxy for `/whip/`
+
+The `livekit.okinoko.io.nginx` config in this repo already proxies `location /whip/` to `127.0.0.1:8082` (match this to whatever `whip_port` you actually picked above), so WHIP traffic rides the same TLS cert/domain as signaling — no separate subdomain or port needed. Re-apply it with `certbot --nginx` (or just reload nginx) if you're deploying this config for the first time.
+
+### Firewall
+
+Open the ingress media UDP range (see the [Firewall / Port Rules](#firewall--port-rules) table above) — the HTTP side rides through nginx on the port you already opened.
+
+### Create a WHIP ingress from the Hangouts API
+
+The Fastify server exposes host-only routes (`server/src/routes/ingress.ts`) that wrap LiveKit's `IngressClient`:
+
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `POST /rooms/:name/ingress/whip` | Host | Create a WHIP ingress for the room. Returns `{ ingressId, url, streamKey }` — paste `url` into the encoder's "Server" field and `streamKey` into its "Bearer Token"/stream key field. |
+| `DELETE /rooms/:name/ingress` | Host | Stop the active ingress and disconnect the broadcaster. |
+| `GET /rooms/:name/ingress/status` | Host | `{ active, ingressId? }` |
+
+### Test with OBS
+
+1. OBS Studio 30.2+: Settings → Stream → Service: **WHIP**.
+2. Paste the `url` from `POST /rooms/:name/ingress/whip` into **Server**, and `streamKey` into **Bearer Token**.
+3. Start Streaming.
+4. Confirm the broadcaster shows up as a room participant:
+
+```bash
+lk room list-participants \
+  --url wss://livekit.okinoko.io \
+  --api-key YOUR_API_KEY \
+  --api-secret YOUR_API_SECRET \
+  --room test-room
 ```
 
 ---

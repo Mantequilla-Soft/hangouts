@@ -54,7 +54,7 @@ hangouts/
     sdk-core/       @snapie/hangouts-core — API client + TypeScript types
     sdk-react/      @snapie/hangouts-react — React components + hooks
   demo/             Reference integration (Vite + React)
-  docs/             LiveKit deployment guide
+  docs/             LiveKit deployment guide + frontend integration guides
 ```
 
 ## SDK Usage

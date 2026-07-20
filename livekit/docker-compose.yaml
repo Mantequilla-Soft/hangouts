@@ -36,3 +36,13 @@ services:
     volumes:
       - ./egress.yaml:/etc/egress.yaml:ro
       - /tmp/livekit-recordings:/tmp/livekit-recordings
+
+  ingress:
+    image: livekit/ingress:latest
+    network_mode: host
+    restart: unless-stopped
+    depends_on: [redis, livekit]
+    environment:
+      - INGRESS_CONFIG_FILE=/etc/ingress.yaml
+    volumes:
+      - ./ingress.yaml:/etc/ingress.yaml:ro
