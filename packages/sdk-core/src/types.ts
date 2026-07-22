@@ -351,3 +351,25 @@ export interface WordCollection {
   name: string;
   wordCount: number;
 }
+
+/** A WHIP ingress: what OBS / ffmpeg / a hardware encoder needs to publish. */
+export interface WhipIngressInfo {
+  ingressId: string;
+  /** Paste this WHOLE url into OBS's WHIP output — the stream key is the last
+   *  path segment, so no bearer token is needed. */
+  whipUrl: string;
+  streamKey: string;
+  /** The ingress joins the room under this identity (`obs-ingress-<room>`). */
+  participantIdentity: string;
+}
+
+export interface StartWhipIngressOptions {
+  /**
+   * Re-encode the incoming stream to VP8 instead of forwarding OBS's H.264
+   * untouched. Defaults to true on the server, and you almost certainly want
+   * it: plenty of Firefox builds offer only VP8/VP9/AV1, and the SFU then
+   * cannot bind an H.264 track at all — the host sees a permanently black
+   * source. Pass false only if you know every viewer can receive H.264.
+   */
+  transcode?: boolean;
+}

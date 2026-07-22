@@ -1,4 +1,4 @@
-import type { Room, RoomVisibility, RoomMode, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse, GameInfo, ActiveGame, GameStartResponse, GameActionResponse, WordCollection, StreamPost } from './types.js';
+import type { Room, RoomVisibility, RoomMode, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse, GameInfo, ActiveGame, GameStartResponse, GameActionResponse, WordCollection, StreamPost, WhipIngressInfo, StartWhipIngressOptions } from './types.js';
 import { HangoutsApiError } from './errors.js';
 
 export interface HangoutsApiClientOptions {
@@ -284,6 +284,21 @@ export class HangoutsApiClient {
   }
 
   // Events
+
+  /**
+   * Create a WHIP ingress so the host can broadcast from OBS, ffmpeg or a
+   * hardware encoder instead of the in-browser camera. Host only.
+   */
+  async startWhipIngress(roomName: string, options?: StartWhipIngressOptions): Promise<WhipIngressInfo> {
+    return this.request<WhipIngressInfo>('POST', `/rooms/${encodeURIComponent(roomName)}/ingress`, {
+      transcode: options?.transcode !== false,
+    });
+  }
+
+  /** Tear down the room's WHIP ingress. Host only. Safe to call when none exists. */
+  async stopWhipIngress(roomName: string): Promise<void> {
+    await this.request<{ ok: boolean }>('DELETE', `/rooms/${encodeURIComponent(roomName)}/ingress`);
+  }
 
   async listEvents(opts?: { status?: EventStatus; host?: string; limit?: number }): Promise<HangoutsEvent[]> {
     const params = new URLSearchParams();

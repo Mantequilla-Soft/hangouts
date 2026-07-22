@@ -15,6 +15,8 @@ export type {
   RoomVisibility,
   RoomMode,
   StreamPost,
+  WhipIngressInfo,
+  StartWhipIngressOptions,
   BoostConfig,
   BoostEvent,
   BoostRejectReason,
