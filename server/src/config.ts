@@ -17,7 +17,20 @@ const envSchema = z.object({
   VIDEO_UPLOAD_TOKEN: z.string().default(''),
   STUDIO_FRONTEND_URL: z.string().url().default('https://3speak.tv'),
   MONGODB_URI: z.string().default(''),
+  /** Egress template for CONFERENCE recordings (the existing grid/speaker
+   *  layouts). Unchanged — standalone streams use their own, below. */
+  EGRESS_TEMPLATE_URL: z.string().default('https://hangout.3speak.tv/egress-template'),
+  /** Egress template for STANDALONE streams: a chrome-free full-bleed render of
+   *  the broadcaster's program track, served by the 3Speak frontend. Separate
+   *  because the conference template lives on a deployment we don't control. */
+  EGRESS_STANDALONE_TEMPLATE_URL: z.string().default('https://preview.3speak.tv/egress-stream'),
   BOOSTS_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  // Admin secret for the manual /boosts/ingest reconciliation endpoint. That
+  // endpoint drives REAL payouts from a caller-supplied amount and has no
+  // on-chain re-verification, so it must never be reachable unauthenticated.
+  // Fail-closed: empty ⇒ the endpoint is disabled entirely (the on-chain poller
+  // is the production path; nothing else legitimately calls ingest).
+  BOOST_INGEST_KEY: z.string().default(''),
   BOOST_PLATFORM_ACCOUNT: z.string().default(''),
   BOOST_PLATFORM_ACTIVE_KEY: z.string().default(''),
   BOOST_PLATFORM_FEE_PERCENT: z.coerce.number().min(0).max(100).default(5),

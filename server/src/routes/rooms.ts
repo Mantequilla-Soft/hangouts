@@ -5,6 +5,7 @@ import {
 } from 'livekit-server-sdk';
 import { config } from '../config.js';
 import { roomService, generateRoomName, createLivekitToken } from '../lib/livekit.js';
+import { mutateRoomMetadata } from '../lib/roomMeta.js';
 import { verifySessionToken } from '../lib/session.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
@@ -67,6 +68,12 @@ interface RoomMetadata {
   language?: string;
   /** Boost/superchat settings. */
   boost?: BoostConfig;
+  /** True when the broadcast is portrait (a phone). Drives the recorder's
+   *  output dimensions. */
+  portrait?: boolean;
+  /** Identity of the viewer currently holding the stream's single collab slot
+   *  (host-approved co-broadcaster). Set by the permissions route. */
+  collabGuest?: string;
   /** ISO timestamp of the FIRST time the host went live, stamped server-side.
    *  Anchors live-chat timecodes to the recording's timeline — see the
    *  PATCH /rooms/:name/live handler for why neither `createdAt` nor the Hive
@@ -164,36 +171,55 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         post: meta.post,
         liveAt: meta.liveAt,
         willPublishVod: meta.willPublishVod,
+        collabGuest: meta.collabGuest,
+        broadcasting: meta.broadcasting,
+        portrait: meta.portrait,
       };
     }));
 
     return reply.send(result);
   });
 
-  // List active STANDALONE streams for the discover feed (public — no auth).
-  // Includes unlisted rooms for now (the integrator can filter to public
-  // later). `live` reflects whether the streamer is actually connected.
+  // Active OpenPods for the discover feeds (public — no auth). Both standalone
+  // STREAMS and conference ROOMS, each tagged with `mode` so the client can
+  // link a stream to its watch page and a room to the OpenPods room UI.
+  //
+  // UNLISTED rooms are excluded here: they're link-only, so surfacing them in a
+  // discovery feed would defeat the point. Hive-only rooms ARE returned (the
+  // client hides them from signed-out viewers) so a signed-in viewer sees them.
   fastify.get('/streams', async (_request, reply) => {
     const rooms = await roomService.listRooms();
-    const standalone = rooms
+    const active = rooms
       .map((r) => {
         let meta: Partial<RoomMetadata> = {};
         try { meta = JSON.parse(r.metadata || '{}'); } catch { /* ignore */ }
         return { r, meta };
       })
-      .filter(({ meta }) => meta.mode === 'standalone');
+      .filter(({ meta }) => (
+        (meta.mode === 'standalone' || meta.mode === 'conference')
+        && meta.visibility !== 'unlisted'
+      ));
 
-    const result = await Promise.all(standalone.map(async ({ r, meta }) => {
-      // "Live" = the host explicitly hit Start (metadata.broadcasting) AND is
-      // still connected. The broadcasting flag excludes standby/paused; the
-      // presence check guards against a stale flag from a crashed streamer.
+    const result = await Promise.all(active.map(async ({ r, meta }) => {
       let live = false;
-      if (meta.broadcasting) {
-        try {
-          const parts = await roomService.listParticipants(r.name);
-          live = parts.some((p) => p.identity === meta.host);
-        } catch { /* treat as not-live if we can't tell */ }
-      }
+      let viewers = 0;
+      try {
+        const parts = await roomService.listParticipants(r.name);
+        if (meta.mode === 'standalone') {
+          // A stream is live when the host hit Start (broadcasting) AND is still
+          // connected — the flag alone can be stale from a crashed streamer.
+          live = !!meta.broadcasting && parts.some((p) => p.identity === meta.host);
+          // Watchers = everyone but the broadcaster and the OBS ingress, which
+          // joins as its own participant and would inflate the count by one.
+          viewers = parts.filter((p) => (
+            p.identity !== meta.host && !p.identity.startsWith('obs-')
+          )).length;
+        } else {
+          // A room is live simply when someone is in it.
+          viewers = parts.filter((p) => !p.identity.startsWith('obs-')).length;
+          live = viewers > 0;
+        }
+      } catch { /* treat as not-live if we can't tell */ }
       return {
         name: r.name,
         title: meta.post?.title || meta.title || r.name,
@@ -202,8 +228,11 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         thumbnail: meta.post?.thumbnail || meta.backgroundImage,
         tags: meta.post?.tags || [],
         visibility: meta.visibility,
+        mode: meta.mode,
         createdAt: meta.createdAt || new Date(Number(r.creationTime) * 1000).toISOString(),
         live,
+        // Live viewer count for the discovery cards.
+        viewers,
       };
     }));
 
@@ -307,12 +336,20 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       post: meta.post,
       liveAt: meta.liveAt,
       willPublishVod: meta.willPublishVod,
+      collabGuest: meta.collabGuest,
+      portrait: meta.portrait,
+      // So a studio that was discarded and reloaded can tell it is mid-stream
+      // and pick up where it left off instead of sitting in standby.
+      broadcasting: meta.broadcasting,
     });
   });
 
   // Create a room (auth required — caller becomes host)
   fastify.post('/rooms', {
     preHandler: [requireAuth, checkBan],
+    // Cap room-creation so one account can't spam LiveKit rooms (each holds
+    // resources + pollutes /rooms and /streams). Keyed per authed IP.
+    config: { rateLimit: { max: 12, timeWindow: '5 minutes' } },
     schema: {
       body: {
         type: 'object',
@@ -471,9 +508,16 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     let meta: Partial<RoomMetadata> = {};
     try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
     const isHost = meta.host === identity;
+    // The approved collab guest keeps publish rights across a RECONNECT. The
+    // host's promote sets permissions on the LIVE participant only, so a guest
+    // whose phone dropped (airplane mode → page discarded → rejoin) would come
+    // back with a fresh canPublish=false token and get bumped off camera, having
+    // to ask again. `collabGuest` in room metadata persists the approval, so we
+    // re-grant it here and CollabRequest puts them straight back on air.
+    const isApprovedGuest = !!meta.collabGuest && meta.collabGuest === identity;
 
     const token = await createLivekitToken(name, identity, {
-      canPublish: isHost,
+      canPublish: isHost || isApprovedGuest,
       canPublishData: true, // all participants can send data (hand raise, etc.)
       premium,
     });
@@ -516,10 +560,15 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     let meta: Partial<RoomMetadata> = {};
     try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
 
-    // TEMPORARY: standalone streams allow guest viewers regardless of
-    // visibility (so private/internal test streams are watchable end-to-end).
-    // Conference rooms keep the Hive-only gate.
-    if (meta.mode !== 'standalone' && (meta.allowGuests === false || meta.visibility === 'hive-internal')) {
+    // `hive-internal` is the explicit "Hive accounts only" tier the operator
+    // chose deliberately — honor it for EVERY mode. (`unlisted` still permits
+    // link-based guest access; that's the whole point of unlisted.) The softer
+    // allowGuests=false default is still bypassed for standalone so private
+    // test streams stay watchable end-to-end.
+    if (meta.visibility === 'hive-internal') {
+      return reply.forbidden('This room is Hive-only — please sign in with your Hive account to join');
+    }
+    if (meta.mode !== 'standalone' && meta.allowGuests === false) {
       return reply.forbidden('This room is Hive-only — please sign in with your Hive account to join');
     }
 
@@ -743,7 +792,9 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       ...(body.tags !== undefined ? { tags: body.tags.slice(0, 10) } : {}),
     };
 
-    await roomService.updateRoomMetadata(name, JSON.stringify({ ...meta, post }));
+    // Same lock as /live and /broadcast: the studio autosaves the post at the
+    // exact moment the host goes live.
+    await mutateRoomMetadata(name, (current) => ({ ...current, post }));
     return reply.send({ post });
   });
 
@@ -897,26 +948,40 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     preHandler: [requireAuth],
     schema: {
       params: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
-      body: { type: 'object', properties: { willPublishVod: { type: 'boolean' } } },
+      body: {
+        type: 'object',
+        properties: { willPublishVod: { type: 'boolean' }, portrait: { type: 'boolean' } },
+      },
     },
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
-    const { willPublishVod } = (request.body ?? {}) as { willPublishVod?: boolean };
+    const { willPublishVod, portrait } = (request.body ?? {}) as {
+      willPublishVod?: boolean; portrait?: boolean;
+    };
 
-    const rooms = await roomService.listRooms([name]);
-    if (rooms.length === 0) return reply.notFound('Room not found');
-
-    let meta: Record<string, unknown> = {};
-    try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
-    if (meta.host !== request.username) return reply.forbidden('Only the host can start the stream');
-
-    // First go-live wins — a pause/resume must not restart the clock, or every
-    // timecode after the break would be measured from the wrong origin.
-    const liveAt = (typeof meta.liveAt === 'string' && meta.liveAt) || new Date().toISOString();
-    await roomService.updateRoomMetadata(name, JSON.stringify({
-      ...meta, liveAt, willPublishVod: !!willPublishVod,
-    }));
-    return reply.send({ liveAt, willPublishVod: !!willPublishVod });
+    // Serialised: Start fires this alongside /post and /broadcast, and three
+    // concurrent read-modify-writes on one metadata blob lose each other's
+    // fields. This one losing meant no liveAt to anchor chat timecodes to.
+    let liveAt = '';
+    let forbidden = false;
+    let notFound = false;
+    try {
+      await mutateRoomMetadata(name, (meta) => {
+        if (meta.host !== request.username) { forbidden = true; return null; }
+        // First go-live wins — a pause/resume must not restart the clock, or
+        // every timecode after the break is measured from the wrong origin.
+        liveAt = (typeof meta.liveAt === 'string' && meta.liveAt) || new Date().toISOString();
+        return {
+          ...meta, liveAt, willPublishVod: !!willPublishVod,
+          // Which way up the broadcast is. The recorder sizes its output from
+          // this — a phone recorded at 1280x720 gets black pillars baked in.
+          ...(portrait === undefined ? {} : { portrait }),
+        };
+      });
+    } catch { notFound = true; }
+    if (notFound) return reply.notFound('Room not found');
+    if (forbidden) return reply.forbidden('Only the host can start the stream');
+    return reply.send({ liveAt, willPublishVod: !!willPublishVod, portrait: !!portrait });
   });
 
   fastify.patch('/rooms/:name/broadcast', {
@@ -929,14 +994,16 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     const { name } = request.params as { name: string };
     const { broadcasting } = request.body as { broadcasting: boolean };
 
-    const rooms = await roomService.listRooms([name]);
-    if (rooms.length === 0) return reply.notFound('Room not found');
-
-    let meta: Record<string, unknown> = {};
-    try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
-    if (meta.host !== request.username) return reply.forbidden('Only the host can change broadcast state');
-
-    await roomService.updateRoomMetadata(name, JSON.stringify({ ...meta, broadcasting }));
+    let forbidden = false;
+    let notFound = false;
+    try {
+      await mutateRoomMetadata(name, (meta) => {
+        if (meta.host !== request.username) { forbidden = true; return null; }
+        return { ...meta, broadcasting };
+      });
+    } catch { notFound = true; }
+    if (notFound) return reply.notFound('Room not found');
+    if (forbidden) return reply.forbidden('Only the host can change broadcast state');
     return reply.send({ broadcasting });
   });
 

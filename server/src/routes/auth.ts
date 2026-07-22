@@ -6,6 +6,10 @@ import { requireAuth } from '../middleware/requireAuth.js';
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
   // Step 1: Client requests a challenge nonce to sign
   fastify.post('/auth/challenge', {
+    // Unauthenticated + populates the nonce store and (via verify) forces Hive
+    // RPC — rate-limit per IP so it can't be used for memory growth / RPC
+    // amplification. (Meaningful now that trustProxy makes request.ip real.)
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
     schema: {
       body: {
         type: 'object',
@@ -23,6 +27,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Step 2: Client sends signed challenge, server verifies against Hive chain
   fastify.post('/auth/verify', {
+    // Forces outbound Hive getAccount(s) for any caller with a fresh challenge —
+    // rate-limit to blunt amplification/brute-force against us and the RPC node.
+    config: { rateLimit: { max: 15, timeWindow: '1 minute' } },
     schema: {
       body: {
         type: 'object',

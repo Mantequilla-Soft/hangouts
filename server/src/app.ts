@@ -19,7 +19,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   await mkdir('/tmp/livekit-recordings', { recursive: true });
   await seedWordCollections();
 
-  const server = Fastify({ logger: true });
+  // trustProxy: this service runs behind nginx on loopback (proxy_pass
+  // http://127.0.0.1:3002, which sets X-Forwarded-For). Without this, every
+  // request.ip is 127.0.0.1 — which silently breaks guest IP bans (banning one
+  // guest bans ALL of them via 127.0.0.1) and collapses per-IP rate limits into
+  // a single global bucket. Trusting only the loopback proxy means XFF spoofed
+  // by a real client is ignored (nginx appends the true peer to the right).
+  const server = Fastify({ logger: true, trustProxy: '127.0.0.1' });
 
   await server.register(cors, { origin: true });
   await server.register(sensible);
