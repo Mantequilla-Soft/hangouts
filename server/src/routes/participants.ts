@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { roomService } from '../lib/livekit.js';
+import { mutateRoomMetadata } from '../lib/roomMeta.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { banGuestByIdentity } from '../lib/guestBans.js';
@@ -9,11 +10,29 @@ async function verifyHost(roomName: string, username: string) {
   const rooms = await roomService.listRooms([roomName]);
   if (rooms.length === 0) return { error: 'not_found' as const };
 
-  let meta: { host?: string; mode?: string } = {};
+  let meta: { host?: string; mode?: string; collabGuest?: string } = {};
   try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
 
   if (meta.host !== username) return { error: 'forbidden' as const };
-  return { error: null, meta };
+  return { error: null, meta, raw: rooms[0] };
+}
+
+/**
+ * Record (or clear) which viewer currently holds the stream's single collab
+ * slot. Lives in room metadata so the cap survives a host reload and the studio
+ * can tell who is on air without tracking it client-side.
+ */
+async function setCollabGuest(roomName: string, identity: string | null) {
+  // Under the same per-room lock as the go-live/broadcast writes: promoting a
+  // guest happens mid-stream, while the broadcast heartbeat is writing every
+  // 15s, and an unsynchronised read-modify-write here would drop either the
+  // collab slot or the heartbeat's flag.
+  await mutateRoomMetadata(roomName, (meta) => {
+    const next = { ...meta };
+    if (identity) next.collabGuest = identity;
+    else delete next.collabGuest;
+    return next;
+  });
 }
 
 export const participantRoutes: FastifyPluginAsync = async (fastify) => {
@@ -45,10 +64,31 @@ export const participantRoutes: FastifyPluginAsync = async (fastify) => {
     if (check.error === 'not_found') return reply.notFound('Room not found');
     if (check.error === 'forbidden') return reply.forbidden('Only the host can change permissions');
 
-    // Standalone (one-man livestream) rooms have exactly one publisher —
-    // the host's composited program feed. Nobody can be promoted.
-    if (check.meta?.mode === 'standalone' && canPublish) {
-      return reply.forbidden('Standalone stream rooms have a single broadcaster — viewers cannot be promoted');
+    // A standalone stream is normally one broadcaster — the host's composited
+    // program feed. A host-approved collab is the ONE exception, and it is
+    // capped at a single guest: the top/bottom split has room for exactly one,
+    // and the host's phone is already compositing and encoding, so a second
+    // decode is what tips a mobile SoC into dropping frames.
+    if (check.meta?.mode === 'standalone') {
+      if (canPublish) {
+        const current = check.meta.collabGuest;
+        if (current && current !== identity) {
+          // Only refuse if that guest is STILL HERE. A stale name — they closed
+          // the tab, lost signal, were kicked — must not wedge the slot shut,
+          // since nothing clears it when a participant simply disappears.
+          let stillPresent = false;
+          try {
+            const parts = await roomService.listParticipants(name);
+            stillPresent = parts.some((p) => p.identity === current);
+          } catch { /* can't tell — let the new guest in rather than deadlock */ }
+          if (stillPresent) {
+            return reply.conflict('This stream already has a guest. Remove them first.');
+          }
+        }
+        await setCollabGuest(name, identity);
+      } else if (check.meta.collabGuest === identity) {
+        await setCollabGuest(name, null);
+      }
     }
 
     const updated = await roomService.updateParticipant(name, identity, undefined, {

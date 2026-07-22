@@ -31,3 +31,13 @@ export function clearRoomBans(roomName: string): void {
   guestIpRegistry.delete(roomName);
   roomBannedIps.delete(roomName);
 }
+
+/** Drop IP data for rooms that no longer exist. `clearRoomBans` only fires on an
+ *  explicit DELETE /rooms, but LiveKit rooms self-expire via emptyTimeout — so
+ *  without this the guest IP registry (raw IPs = PII) and ban sets grow forever
+ *  and retain addresses indefinitely (GDPR + slow leak). Call periodically with
+ *  the set of currently-live room names. */
+export function sweepEndedRooms(activeRooms: Set<string>): void {
+  for (const room of guestIpRegistry.keys()) if (!activeRooms.has(room)) guestIpRegistry.delete(room);
+  for (const room of roomBannedIps.keys()) if (!activeRooms.has(room)) roomBannedIps.delete(room);
+}

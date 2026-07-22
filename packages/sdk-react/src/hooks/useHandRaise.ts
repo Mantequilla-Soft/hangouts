@@ -66,6 +66,27 @@ export function useHandRaise() {
     });
   }, [localParticipant, send]);
 
+  /**
+   * Lower SOMEONE ELSE's hand — the host clearing a request after accepting or
+   * declining it. The event already carries the identity it refers to, so a
+   * host-sent "lowered" for a viewer is applied by every client exactly like
+   * the viewer sending it themselves; no extra message type is needed.
+   */
+  const lowerHandFor = useCallback((identity: string) => {
+    const event: HandRaiseEvent = {
+      type: 'hand_raise',
+      raised: false,
+      identity,
+      timestamp: Date.now(),
+    };
+    send(new TextEncoder().encode(JSON.stringify(event)), { reliable: true });
+    setRaisedHands((prev) => {
+      const next = new Map(prev);
+      next.delete(identity);
+      return next;
+    });
+  }, [send]);
+
   // Clear hand when participant gets promoted (canPublish changes to true)
   useEffect(() => {
     if (localParticipant?.permissions?.canPublish && isRaised) {
@@ -77,6 +98,7 @@ export function useHandRaise() {
     raisedHands,
     raiseHand,
     lowerHand,
+    lowerHandFor,
     isRaised,
   };
 }
