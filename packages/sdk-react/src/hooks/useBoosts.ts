@@ -23,6 +23,16 @@ export interface BoostEvent {
 }
 
 const TOPIC = 'boost';
+
+/**
+ * How long a boost stays on screen, in ms.
+ *
+ * Lives here because THREE places have to agree on it — the overlay card's
+ * auto-dismiss, the overlay's "is this still fresh" filter, and the compositor
+ * that burns boosts into the program canvas. Three copies of the same number
+ * drift the moment one is tuned.
+ */
+export const BOOST_DISPLAY_MS = 30_000;
 const SUB_PENNY = 0.01;
 
 // sessionStorage key — versioned so old cached data is ignored on schema changes

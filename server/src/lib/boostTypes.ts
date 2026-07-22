@@ -7,6 +7,11 @@ export interface BoostMemoV1 {
   sender: string;
   nonce: string;
   displayName?: string;
+  /** Who the sender picked to receive it, when the stream has a collab guest
+   *  on air. NEVER trusted as-is — the memo is attacker-controlled, so the
+   *  listener only honours it if it matches someone actually broadcasting in
+   *  that room, and otherwise pays the host. */
+  recipient?: string;
 }
 
 export type BoostRejectReason =
@@ -44,7 +49,16 @@ export interface BoostEvent {
 const ROOM_RE = /^[a-z0-9][a-z0-9-]{2,127}$/;
 const USER_RE = /^[a-z][a-z0-9.-]{2,15}$/;
 const NONCE_RE = /^[A-Za-z0-9_-]{6,128}$/;
+/** Hard reject beyond this — a memo this long is garbage, not a message. */
 const MAX_MESSAGE_LENGTH = 280;
+/**
+ * What actually gets shown. Anything longer is TRIMMED, not rejected: the memo
+ * is attacker-controlled (nothing stops someone crafting a transfer by hand
+ * rather than using the dialog), and rejecting would take their money and show
+ * nothing. Trimming keeps the payout honest while stopping one viewer from
+ * covering half the stream.
+ */
+const DISPLAY_MESSAGE_LENGTH = 140;
 
 function asObj(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -85,6 +99,8 @@ export function parseBoostMemo(rawMemo: string): BoostMemoV1 | null {
   const sender = cleanText(senderRaw).toLowerCase();
   const nonce = cleanText(nonceRaw);
   const displayName = isString(displayNameRaw) ? cleanText(displayNameRaw).slice(0, 64) : undefined;
+  const recipientRaw = memo.recipient;
+  const recipient = isString(recipientRaw) ? cleanText(recipientRaw).toLowerCase() : undefined;
 
   if (!ROOM_RE.test(room)) return null;
   if (!USER_RE.test(sender)) return null;
@@ -94,10 +110,13 @@ export function parseBoostMemo(rawMemo: string): BoostMemoV1 | null {
   return {
     version: 1,
     room,
-    message,
+    message: message.slice(0, DISPLAY_MESSAGE_LENGTH),
     sender,
     nonce,
     ...(displayName ? { displayName } : {}),
+    // Shape-checked here; WHO it's allowed to be is decided by the listener,
+    // which is the only place that knows who is on the stream.
+    ...(recipient && USER_RE.test(recipient) ? { recipient } : {}),
   };
 }
 
