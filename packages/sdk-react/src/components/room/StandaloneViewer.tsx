@@ -102,7 +102,7 @@ export function StandaloneViewer({ roomName, title, hostIdentity, onLeave, isGue
           <span className="hh-studio__embed-viewers" title="Viewers watching">👁 {viewerCount}</span>
           {qualitySelect}
           {showBoostButton && (
-            <button className="hh-btn hh-btn--boost hh-btn--small" onClick={() => setBoostDialogOpen(true)}>💸 Boost</button>
+            <button className="hh-btn hh-btn--boost hh-btn--small" onClick={() => setBoostDialogOpen(true)}>🚀 Boost</button>
           )}
         </div>
         <BoostOverlay />
@@ -125,7 +125,7 @@ export function StandaloneViewer({ roomName, title, hostIdentity, onLeave, isGue
           {qualitySelect}
           {showBoostButton && (
             <button className="hh-btn hh-btn--boost hh-btn--small" onClick={() => setBoostDialogOpen(true)}>
-              💸 Boost
+              🚀 Boost
             </button>
           )}
           <button className="hh-btn hh-btn--secondary hh-btn--small" onClick={onLeave}>

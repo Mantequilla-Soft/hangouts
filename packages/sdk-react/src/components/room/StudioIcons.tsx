@@ -136,3 +136,12 @@ export const IconStop = (p: SVGProps<SVGSVGElement>) => (
     <rect x="6" y="6" width="12" height="12" rx="1.5" />
   </Svg>
 );
+
+/** Collab guest / requests to join. */
+export const IconGuest = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M15 20v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20" />
+    <circle cx="8.5" cy="7" r="3.5" />
+    <path d="M19 8v6M22 11h-6" />
+  </Svg>
+);

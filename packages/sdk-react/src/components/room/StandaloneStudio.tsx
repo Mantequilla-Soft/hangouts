@@ -2,8 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConnectionState, useLocalParticipant, useParticipants, useTracks } from '@livekit/components-react';
 import { ConnectionState, Track } from 'livekit-client';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
+import { useWhipIngress } from '../../hooks/useWhipIngress.js';
+import { useHandRaise } from '../../hooks/useHandRaise.js';
+import { useHostControls } from '../../hooks/useHostControls.js';
 import { ChatPanel } from './ChatPanel.js';
 import { AUTO_VOD_KEY, AUTO_DL_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
+import { resolveStreamCap } from '../../lib/streamLimits.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
 import { isChromium } from '../../lib/browser.js';
 import { MOBILE_QUERY, useIsMobile } from '../../hooks/useIsMobile.js';
@@ -12,10 +16,11 @@ import { MOBILE_QUERY, useIsMobile } from '../../hooks/useIsMobile.js';
 import { useChat } from '../../hooks/useChat.js';
 import { MobileSheet } from './MobileSheet.js';
 import {
-  IconAspect, IconAudio, IconBoost, IconChat, IconCheck, IconFlipCamera,
+  IconAspect, IconAudio, IconBoost, IconChat, IconCheck, IconFlipCamera, IconGuest,
   IconLens, IconPause, IconPlay, IconPost, IconShare, IconStop, IconZoomIn, IconZoomOut,
 } from './StudioIcons.js';
 import { BoostOverlay } from './BoostOverlay.js';
+import { useBoostStore, BOOST_DISPLAY_MS } from '../../hooks/useBoosts.js';
 import { BoostHistoryPanel } from './BoostHistoryPanel.js';
 
 /** Program canvas resolution — every scene composites into this fixed
@@ -89,8 +94,35 @@ const STREAM_QUALITY = {
 } as const;
 type StreamQuality = keyof typeof STREAM_QUALITY;
 
+/** Broadcast-quality options for the mobile picker popup — label, a compact
+ *  value for the header button, and a one-line explanation. */
+const QUALITY_OPTIONS: { value: StreamQuality; label: string; short: string; desc: string; pro?: boolean }[] = [
+  { value: 'low', label: 'Low · 360p', short: '360p', desc: 'Lightest on data and battery — best on a weak connection.' },
+  { value: 'medium', label: 'Medium · 480p', short: '480p', desc: 'A balance of clarity and bandwidth. Recommended for most streams.' },
+  { value: 'high', label: 'High · 720p', short: '720p', desc: 'Sharpest picture, but needs the most upload. 3Speak Pro only.', pro: true },
+];
+/** How the encoder gives ground when it can't hold both — the mobile popup. */
+const PRIORITY_OPTIONS: { value: RTCDegradationPreference; label: string; desc: string }[] = [
+  { value: 'maintain-framerate', label: 'Smooth motion', desc: 'Keep movement fluid; let the picture soften if your phone can’t keep up.' },
+  { value: 'balanced', label: 'Balanced', desc: 'Let the encoder trade sharpness against smoothness on its own.' },
+  { value: 'maintain-resolution', label: 'Sharp image', desc: 'Keep the picture crisp; let the frame rate dip under load.' },
+];
+
+/** Audio-mixer key for the collab guest. The one source kept OUT of the guest's
+ *  mix-minus monitor bus, so they don't hear themselves. Mirrors the local
+ *  GUEST_SOURCE_ID (defined inside the component) but is needed up here by the
+ *  audio-graph helpers. */
+const GUEST_SOURCE_KEY = 'guest';
+/** Name of the published mix-minus track the on-air guest listens to. */
+const HOST_MONITOR_TRACK = 'host-monitor';
+/** How long to keep a DISCONNECTED collab guest's slot + grant before giving up
+ *  on them. A phone dropping (airplane mode / tunnel) disconnects them from the
+ *  room, but the approval persists in room metadata so they reconnect straight
+ *  back on air — as long as we haven't demoted them in the meantime. */
+const GUEST_DROP_GRACE_MS = 120_000;
+
 /** Layout scene — independent of which SOURCE is selected. */
-export type StudioSceneId = 'cam' | 'fullscreen' | 'overlay' | 'split';
+export type StudioSceneId = 'cam' | 'fullscreen' | 'overlay' | 'split' | 'splitv';
 /** Camera placement: <vertical><horizontal>, v = t|c|b, h = l|c|r.
  *  'cc' centres it outright. Legacy values (tl/tr/bl/br) still parse. */
 export type PipCorner =
@@ -105,6 +137,10 @@ const SCENES: Array<{ id: StudioSceneId; label: string; hint: string }> = [
   { id: 'fullscreen', label: 'Fullscreen', hint: 'The selected source, fullscreen — switch sources in the list below' },
   { id: 'overlay', label: 'Cam overlay', hint: 'The selected source with your camera on top — drag it to a corner, resize with the handle' },
   { id: 'split', label: 'Split', hint: 'Selected source and camera side by side — drag the spacer' },
+  // Portrait's split: a side-by-side pair in a 9:16 frame gives two slivers,
+  // so a vertical stack is the only usable shape — and it's the natural one
+  // for a guest collab (you on top, them underneath).
+  { id: 'splitv', label: 'Stacked', hint: 'Selected source and camera in equal halves, one above the other' },
 ];
 
 /** How the camera PiP is masked. A square at 50% corner radius IS a circle,
@@ -117,6 +153,10 @@ interface SceneParams {
   pipCorner: PipCorner;
   pipSize: number;
   splitRatio: number;
+  /** Feed labels — only the draw loop needs these, so callers that just want
+   *  geometry (pipRect) can omit them. */
+  hostName?: string;
+  guestName?: string | null;
   camShape: CamShape;
   /** 0-50 — percentage of the short edge used as the corner radius. */
   camRadius: number;
@@ -284,6 +324,131 @@ function drawContain(ctx: CanvasRenderingContext2D, s: Drawable, x: number, y: n
   const dw = vw * scale, dh = vh * scale;
   ctx.drawImage(s, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
 }
+/** Wrap `text` to `maxW`, returning at most `maxLines` lines (last one ellipsed). */
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width <= maxW) { line = next; continue; }
+    if (line) lines.push(line);
+    line = word;
+    if (lines.length >= maxLines) { line = ''; break; }
+  }
+  if (lines.length < maxLines && line) lines.push(line);
+  if (lines.length === maxLines && line && lines[maxLines - 1] !== line) {
+    let last = lines[maxLines - 1];
+    while (last.length > 1 && ctx.measureText(`${last}…`).width > maxW) last = last.slice(0, -1);
+    lines[maxLines - 1] = `${last}…`;
+  }
+  return lines;
+}
+
+/**
+ * A boost, drawn INTO the program canvas.
+ *
+ * Boosts used to exist only as a DOM overlay, which meant they were absent from
+ * the recording and from any player that isn't our own watch page — the person
+ * who paid got nothing in the VOD. Compositing them makes them part of the
+ * picture everywhere the picture goes.
+ */
+function drawBoostCard(
+  ctx: CanvasRenderingContext2D,
+  boost: { displayName?: string; sender: string; message: string; amount: string; asset: string },
+  x: number, y: number, w: number,
+): number {
+  const pad = Math.round(w * 0.022);
+  const titlePx = Math.max(15, Math.round(w * 0.028));
+  const bodyPx = Math.max(14, Math.round(w * 0.025));
+  const innerW = w - pad * 2;
+
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = `600 ${bodyPx}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  // The whole message. Capped at 140 characters by both the dialog and the
+  // server, so the card can't run away — and truncating something someone paid
+  // to say is the one thing this card must not do.
+  const lines = wrapLines(ctx, boost.message, innerW, 6);
+  const boxH = pad * 2 + titlePx + (lines.length ? lines.length * (bodyPx * 1.3) + bodyPx * 0.35 : 0);
+
+  const r = Math.min(14, boxH / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + boxH, r);
+  ctx.arcTo(x + w, y + boxH, x, y + boxH, r);
+  ctx.arcTo(x, y + boxH, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(13, 13, 18, 0.88)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(227, 19, 55, 0.75)';
+  ctx.lineWidth = Math.max(1, Math.round(w * 0.0022));
+  ctx.stroke();
+
+  ctx.font = `800 ${titlePx}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  ctx.fillStyle = '#ff5a6e';
+  const title = `\u{1F680} @${boost.displayName || boost.sender}`;
+  ctx.fillText(title, x + pad, y + pad + titlePx * 0.85);
+  const amount = `${boost.amount} ${boost.asset}`;
+  const amtW = ctx.measureText(amount).width;
+  ctx.fillStyle = '#fff';
+  ctx.fillText(amount, x + w - pad - amtW, y + pad + titlePx * 0.85);
+
+  ctx.font = `600 ${bodyPx}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  lines.forEach((ln, i) => {
+    ctx.fillText(ln, x + pad, y + pad + titlePx + bodyPx * 0.35 + (i + 1) * (bodyPx * 1.3) - bodyPx * 0.3);
+  });
+  ctx.restore();
+  return boxH;
+}
+
+/**
+ * Name chip in the bottom-left of a region, so viewers can tell who is who in a
+ * two-up shot. Sized off the region rather than the canvas: the same tag has to
+ * read in a full-width strip and in half a portrait frame.
+ */
+function drawNameTag(
+  ctx: CanvasRenderingContext2D, name: string,
+  x: number, y: number, w: number, h: number,
+  place: 'top' | 'bottom' = 'bottom',
+) {
+  if (!name || w < 80 || h < 60) return;   // no room — a clipped tag is worse than none
+  const fontPx = Math.max(14, Math.round(Math.min(w, h) * 0.045));
+  const padX = Math.round(fontPx * 0.6);
+  const padY = Math.round(fontPx * 0.38);
+  const margin = Math.round(fontPx * 0.7);
+  ctx.save();
+  ctx.font = `600 ${fontPx}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  // Set BOTH explicitly. drawPlaceholder/drawSlate set textAlign='center' and
+  // never restore it, so inheriting it centred this label on the chip's left
+  // edge — the text sat outside its own background.
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const label = `@${name}`;
+  const textW = ctx.measureText(label).width;
+  const boxW = textW + padX * 2;
+  const boxH = fontPx + padY * 2;
+  // Right side — keeps the name clear of the 3Speak watermark in the top-left.
+  const bx = x + w - margin - boxW;
+  const by = place === 'top' ? y + margin : y + h - margin - boxH;
+  const r = Math.min(boxH / 2, 12);
+  ctx.beginPath();
+  ctx.moveTo(bx + r, by);
+  ctx.arcTo(bx + boxW, by, bx + boxW, by + boxH, r);
+  ctx.arcTo(bx + boxW, by + boxH, bx, by + boxH, r);
+  ctx.arcTo(bx, by + boxH, bx, by, r);
+  ctx.arcTo(bx, by, bx + boxW, by, r);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.fillText(label, bx + padX, by + padY + fontPx * 0.82);
+  ctx.restore();
+}
+
 function drawPlaceholder(ctx: CanvasRenderingContext2D, text: string, sub: string, x: number, y: number, w: number, h: number) {
   ctx.fillStyle = '#101018';
   ctx.fillRect(x, y, w, h);
@@ -409,24 +574,30 @@ function rmsToLevel(rms: number): number {
 /** Free-tier watermark, baked into the composite (top-left). Drawn last so
  *  it sits above everything, and burned into the published pixels so viewers
  *  can't strip it. Scales off the canvas height. */
-function drawWatermark(ctx: CanvasRenderingContext2D, w: number, h: number, logo?: HTMLImageElement | null) {
-  void w;
+function drawWatermark(
+  ctx: CanvasRenderingContext2D, w: number, h: number,
+  logo?: HTMLImageElement | null,
+  opts?: { align?: 'left' | 'right'; scale?: number },
+) {
+  const align = opts?.align ?? 'left';
+  const scale = opts?.scale ?? 1;
   const k = h / 720;
   const margin = Math.round(16 * k);
   // Real logo image (integrator-provided). A tainting/broken image has
   // naturalWidth 0 → skip it and fall through to the text mark.
   if (logo && logo.complete && logo.naturalWidth > 0) {
-    const lh = Math.round(h * 0.06);
+    const lh = Math.round(h * 0.06 * scale);
     const lw = Math.round(lh * (logo.naturalWidth / logo.naturalHeight));
+    const lx = align === 'right' ? w - margin - lw : margin;
     ctx.save();
     ctx.globalAlpha = 0.9;
-    ctx.drawImage(logo, margin, margin, lw, lh);
+    ctx.drawImage(logo, lx, margin, lw, lh);
     ctx.restore();
     return;
   }
-  const font = Math.round(26 * k);
-  const padX = Math.round(14 * k);
-  const padY = Math.round(9 * k);
+  const font = Math.round(26 * k * scale);
+  const padX = Math.round(14 * k * scale);
+  const padY = Math.round(9 * k * scale);
   ctx.save();
   ctx.font = `800 ${font}px system-ui, -apple-system, sans-serif`;
   ctx.textBaseline = 'middle';
@@ -436,7 +607,7 @@ function drawWatermark(ctx: CanvasRenderingContext2D, w: number, h: number, logo
   const textW = ctx.measureText(label).width;
   const boxW = padX * 2 + tri + gap + textW;
   const boxH = font + padY * 2;
-  const x = margin, y = margin;
+  const x = align === 'right' ? w - margin - boxW : margin, y = margin;
   ctx.globalAlpha = 0.5;
   ctx.fillStyle = '#000';
   if (typeof ctx.roundRect === 'function') { ctx.beginPath(); ctx.roundRect(x, y, boxW, boxH, boxH / 2); ctx.fill(); }
@@ -455,11 +626,15 @@ function drawWatermark(ctx: CanvasRenderingContext2D, w: number, h: number, logo
   ctx.fillText(label, tx + tri + gap, cy + k);
   ctx.restore();
 }
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
+function formatDuration(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
+
 function looksLikeId(s: string): boolean {
   if (!s) return true;
   if (s.includes('://')) return true;
@@ -498,6 +673,19 @@ function renderMarkdown(md: string): string {
   return h;
 }
 
+/** What the studio hands the integrator when a recording is ready to publish. */
+export interface StreamVodResult {
+  roomName: string;
+  /** Present when the SERVER is publishing the VOD itself (the normal path):
+   *  the integrator polls this URL for progress instead of getting a blob. */
+  publishStatusUrl?: string;
+  /** Legacy client-side path — the file to publish. Absent for server-side. */
+  blob?: Blob;
+  filename?: string;
+  duration?: number;
+  size?: number;
+}
+
 export interface StandaloneStudioProps {
   roomName: string;
   title: string;
@@ -506,8 +694,9 @@ export interface StandaloneStudioProps {
   /** 3Speak Pro flag from the server (create/join response). Video
    *  recording is Pro-only — same gate the conference egress enforces. */
   isPremium?: boolean;
-  /** Hands the finished recording to the integrator (park in /studio, etc.).
-   *  When omitted, the studio offers a local download instead. */
+  /** @deprecated No longer called. Recording is entirely server-side now; the
+   *  studio no longer captures a file in the browser, so there's nothing to
+   *  hand off. Kept for API compatibility. */
   onVideoHandoff?: (file: { blob: Blob; filename: string; duration: number; size: number }) => void;
   /** Logo image URL burned into non-premium streams (top-left watermark).
    *  Integrator-provided so each site brands its own free tier. MUST be
@@ -537,20 +726,26 @@ export interface StandaloneStudioProps {
   /** Pro only: when the host ticks "Replace stream with a VOD", the studio
    *  records the whole broadcast automatically and hands the finished file
    *  here the moment they end the stream (before the room is torn down), so
-   *  the integrator can publish it as the session's video-on-demand.
-   *  Distinct from `onVideoHandoff`, which is the manual ⏺ Record button. */
-  onStreamVod?: (file: { blob: Blob; filename: string; duration: number; size: number; roomName: string }) => void;
+   *  the integrator can publish it as the session's video-on-demand — now via
+   *  a status URL the server publishes behind, not a blob. */
+  onStreamVod?: (file: StreamVodResult) => void;
   /** False when the integrator has nothing for the VOD to replace (e.g. the
    *  host turned the Hive announcement off). Hides the "replace the stream
    *  with a video" option and stops it taking effect. Default true. */
   canPublishVod?: boolean;
 }
 
-export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium = false, onVideoHandoff, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false }: StandaloneStudioProps) {
+export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium = false, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false }: StandaloneStudioProps) {
   const { localParticipant } = useLocalParticipant();
+  const localParticipantRef = useRef(localParticipant);
+  localParticipantRef.current = localParticipant;
   const connectionState = useConnectionState();
   const participants = useParticipants();
   const { imageServerApiKey, apiClient, apiBaseUrl } = useHangoutsContext();
+  // OBS/WHIP ingest goes through the SDK hook rather than a hand-rolled fetch,
+  // so integrators get the same path we do. The hook keeps the raw-fetch
+  // fallback for older bundled cores.
+  const { start: startWhipIngress, error: whipError } = useWhipIngress(roomName);
   const watermarkLogoRef = useRef<HTMLImageElement | null>(null);
 
   // Raw authed PATCH — used for the stream's post + broadcast endpoints so
@@ -628,6 +823,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [camLookOpen, setCamLookOpen] = useState(false);
   const paramsRef = useRef<SceneParams>({
     scene, source, pipCorner, pipSize, splitRatio, camShape, camRadius, camZoom, camPanX, camPanY,
+    hostName: '', guestName: null,
   });
 
   useEffect(() => {
@@ -640,7 +836,20 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     } catch { /* non-critical */ }
   }, [camShape, camRadius, camZoom, camPanX, camPanY, pipCorner, pipSize]);
 
-  paramsRef.current = { scene, source, pipCorner, pipSize, splitRatio, camShape, camRadius, camZoom, camPanX, camPanY };
+  // Names shown on each feed in a two-up shot. Refs because the draw loop is
+  // bound once and must not re-bind when a guest arrives or leaves.
+  // Boosts are burned into the PROGRAM canvas so they survive into the stream
+  // and the VOD. A ref, because the draw loop binds once.
+  const boostList = useBoostStore();
+  const boostsRef = useRef<typeof boostList>([]);
+  boostsRef.current = boostList;
+  const hostNameRef = useRef('');
+  const guestNameRef = useRef<string | null>(null);
+  hostNameRef.current = localParticipant?.name || localParticipant?.identity || '';
+  paramsRef.current = {
+    scene, source, pipCorner, pipSize, splitRatio, camShape, camRadius, camZoom, camPanX, camPanY,
+    hostName: hostNameRef.current, guestName: guestNameRef.current,
+  };
 
   // ---- stream lifecycle --------------------------------------------------
   const [streamState, setStreamState] = useState<StreamState>('standby');
@@ -690,10 +899,30 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [obsBusy, setObsBusy] = useState(false);
   const [obsError, setObsError] = useState('');
   const [obsLive, setObsLive] = useState(false);
+  // Bumped to force the OBS-detection effect to re-run and re-add the source
+  // after the host removed the tile while OBS is still publishing (the effect
+  // otherwise only wakes on a remoteTracks change, which a steady OBS feed
+  // doesn't produce — so the scene couldn't be brought back).
+  const [obsRestoreTick, setObsRestoreTick] = useState(0);
+  const restoreObs = useCallback(() => setObsRestoreTick((t) => t + 1), []);
   const [streamQuality, setStreamQuality] = useState<StreamQuality>('medium');
   const streamQualityRef = useRef<StreamQuality>('medium');
   streamQualityRef.current = streamQuality;
-  const [recording, setRecording] = useState(false);
+  // How the encoder should give ground when it can't hold both, streamer's
+  // choice, on desktop and mobile alike.
+  //
+  // 'maintain-framerate' (smooth, sheds sharpness), 'maintain-resolution'
+  // (sharp, sheds smoothness), or 'balanced' (encoder decides). The default is
+  // per-platform: desktop starts pinned to resolution — it has the headroom and
+  // a resolution swim looks worse than a framerate dip — while a phone, which
+  // can't always hold both while compositing, starts on 'balanced'. Applied
+  // live via setDegradationPreference — no republish. (matchMedia, not the
+  // useIsMobile hook, because that hook is set up further down.)
+  const [degradePref, setDegradePref] = useState<RTCDegradationPreference>(
+    () => (typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches ? 'balanced' : 'maintain-resolution'),
+  );
+  const degradePrefRef = useRef<RTCDegradationPreference>(degradePref);
+  degradePrefRef.current = degradePref;
   // Pro: record the whole broadcast and publish it as the session's VOD when
   // the host ends the stream. Persisted so the preference sticks per host.
   const [autoVod, setAutoVod] = useState(() => {
@@ -717,18 +946,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   autoDownloadRef.current = autoDownload && isPremium;
   const autoVodRef = useRef(false);
   autoVodRef.current = autoVod && isPremium && canPublishVod;
-  // Resolved by the recorder's onstop so we can finish writing the file before
-  // tearing the room down.
-  const recStopResolveRef = useRef<(() => void) | null>(null);
-  // startRecording is declared much further down; the go-live effect reaches it
-  // through this ref so its dep array never touches a TDZ binding.
-  const startRecordingRef = useRef<() => void>(() => {});
-  const [recElapsed, setRecElapsed] = useState(0);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const recChunksRef = useRef<Blob[]>([]);
-  const recStreamRef = useRef<MediaStream | null>(null);
-  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const recElapsedRef = useRef(0);
 
   // ---- post composer (pre-filled from create-room inputs / saved post) ----
   // Falls back to the host's last-used draft in localStorage, so title,
@@ -759,8 +976,15 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const isMobile = useIsMobile();
   const isMobileRef = useRef(isMobile);
   isMobileRef.current = isMobile;
-  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share';
+  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests';
   const [mobileSheet, setMobileSheet] = useState<MobileSheetId | null>(null);
+  // Mobile header: the quality + priority pickers are icon buttons that open a
+  // small option popup (a dropdown is too tall for the compact live header).
+  const [settingSheet, setSettingSheet] = useState<'quality' | 'priority' | null>(null);
+  // Mobile header starts COLLAPSED to a minimal bar (state + views + close) so
+  // it barely eats into the preview; the ⚠️ toggle expands it to reveal the
+  // quality/priority controls and the "keep the screen on" warning.
+  const [headerOpen, setHeaderOpen] = useState(false);
   // Phones shoot both ways. The whole compositor (preview canvas, program
   // canvas, published track) swaps to 9:16 rather than letterboxing a portrait
   // camera into a landscape frame.
@@ -779,8 +1003,20 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   /** Last good camera frame, painted while a new camera opens so the swap
    *  doesn't flash a "Camera is off" placeholder for 1-2 seconds. */
   const camFreezeRef = useRef<HTMLCanvasElement | null>(null);
-  const canvasW = portrait ? CANVAS_H : CANVAS_W;
-  const canvasH = portrait ? CANVAS_W : CANVAS_H;
+  // The DISPLAY canvas the compositor draws EVERY frame. On desktop it's the
+  // full 1280×720; on a PHONE we composite at the PUBLISHED resolution instead.
+  //
+  // A full 720×1280 canvas-2D composite at 30fps is what a mid-range phone SoC
+  // can't sustain — it falls below 30, so the published stream (and its
+  // recording) stutter for everyone. There's no point drawing more pixels than
+  // we encode: the quality tier already caps the published size (medium =
+  // 480×854 portrait), so matching the display canvas to it roughly halves the
+  // per-frame work AND makes the program mirror a 1:1 copy instead of a scale.
+  const _q = STREAM_QUALITY[streamQuality];
+  const _qShort = Math.min(_q.width, _q.height);
+  const _qLong = Math.max(_q.width, _q.height);
+  const canvasW = isMobile ? (portrait ? _qShort : _qLong) : (portrait ? CANVAS_H : CANVAS_W);
+  const canvasH = isMobile ? (portrait ? _qLong : _qShort) : (portrait ? CANVAS_W : CANVAS_H);
   // Per-sheet heights so resizing chat doesn't shrink the post editor.
   const [sheetH, setSheetH] = useState<Record<MobileSheetId, number>>(() => {
     const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
@@ -790,6 +1026,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     return {
       chat: Math.round(vh * 0.62), post: Math.round(vh * 0.92),
       mic: Math.round(vh * 0.5), lens: Math.round(vh * 0.5), share: Math.round(vh * 0.42),
+      guests: Math.round(vh * 0.45),
     };
   });
 
@@ -799,6 +1036,16 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const programCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const programStreamRef = useRef<MediaStream | null>(null);
   const publishedVideoTrackRef = useRef<MediaStreamTrack | null>(null);
+  // The published studio-mix (program audio) track, kept in a ref so the
+  // unmount teardown can release it without the publish effect owning a cleanup.
+  const publishedAudioTrackRef = useRef<MediaStreamTrack | null>(null);
+  // The published mix-minus track (see preMasterMonitor). Published only while a
+  // collab guest is on air; kept in a ref so the teardown can unpublish it.
+  const monitorTrackRef = useRef<MediaStreamTrack | null>(null);
+  // Serializes monitor publish/unpublish. Both are async; without a chain, a
+  // guest who leaves before publishTrack resolves races unpublish against it and
+  // orphans the track (published, ref null) so no later guest gets a monitor.
+  const monitorOpRef = useRef<Promise<void>>(Promise.resolve());
   const previewRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const camStreamRef = useRef<MediaStream | null>(null);
@@ -814,9 +1061,21 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const micGainNodeRef = useRef<GainNode | null>(null);
   const mediaGainNodeRef = useRef<GainNode | null>(null);
   const auxGainNodeRef = useRef<GainNode | null>(null);
-  const preMasterRef = useRef<GainNode | null>(null);   // all sources → here
+  const preMasterRef = useRef<GainNode | null>(null);   // FULL mix (incl. guest) → here
   const masterGainNodeRef = useRef<GainNode | null>(null); // live gate → published dest
-  const recordDestRef = useRef<MediaStreamAudioDestinationNode | null>(null); // pre-gate tap for recording
+  // Mix-minus bus for the collab guest. Every source EXCEPT the guest sums here;
+  // this bus in turn feeds the full preMaster (so the studio-mix is complete)
+  // AND its own destination, which is published as a second "host-monitor" track
+  // that only the on-air guest listens to — so they hear the host without
+  // hearing their own voice bounced back through the mix.
+  const preMasterMonitorRef = useRef<GainNode | null>(null);
+  // The monitor's own copy of the live gate, kept in lock-step with the master
+  // gate so the guest hears EXACTLY what's being broadcast (minus themselves) —
+  // silence included. Without it the monitor was ungated, so the guest kept
+  // hearing the host after the host had cut their audio at the output/standby
+  // level.
+  const monitorMasterRef = useRef<GainNode | null>(null);
+  const monitorDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const auxStreamRef = useRef<MediaStream | null>(null);
   const auxSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -847,22 +1106,33 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       const ctx = new Ctor();
       audioCtxRef.current = ctx;
       destRef.current = ctx.createMediaStreamDestination();
-      // preMaster carries the full mix; master applies the live gate before
-      // the published dest, while recordDest taps preMaster so a recording
-      // always has audio even during standby/pause.
+      monitorDestRef.current = ctx.createMediaStreamDestination();
+      // preMaster carries the FULL mix; master applies the live gate before the
+      // published dest. preMasterMonitor carries everything EXCEPT the guest —
+      // it feeds preMaster (so the studio-mix stays complete) and, through its
+      // OWN live gate, the guest's mix-minus monitor. Gating the monitor in
+      // lock-step with the master means the guest hears exactly the broadcast
+      // minus themselves: mute the mic, drop a fader, go to standby — whatever
+      // the streamer does to their audio, the guest's monitor follows.
       preMasterRef.current = ctx.createGain();
+      preMasterMonitorRef.current = ctx.createGain();
       masterGainNodeRef.current = ctx.createGain();
-      masterGainNodeRef.current.gain.value = streamStateRef.current === 'live' ? 1 : 0;
+      monitorMasterRef.current = ctx.createGain();
+      const gate = streamStateRef.current === 'live' ? 1 : 0;
+      masterGainNodeRef.current.gain.value = gate;
+      monitorMasterRef.current.gain.value = gate;
+      preMasterMonitorRef.current.connect(preMasterRef.current);
+      preMasterMonitorRef.current.connect(monitorMasterRef.current);
+      monitorMasterRef.current.connect(monitorDestRef.current);
       preMasterRef.current.connect(masterGainNodeRef.current);
       masterGainNodeRef.current.connect(destRef.current);
-      recordDestRef.current = ctx.createMediaStreamDestination();
-      preMasterRef.current.connect(recordDestRef.current);
       micGainNodeRef.current = ctx.createGain();
       mediaGainNodeRef.current = ctx.createGain();
       auxGainNodeRef.current = ctx.createGain();
-      micGainNodeRef.current.connect(preMasterRef.current);
-      mediaGainNodeRef.current.connect(preMasterRef.current);
-      auxGainNodeRef.current.connect(preMasterRef.current);
+      // Connect via the per-track auto limiter (default ON).
+      connectAudioTrack('mic', micGainNodeRef.current);
+      connectAudioTrack('media', mediaGainNodeRef.current);
+      connectAudioTrack('aux', auxGainNodeRef.current);
       mediaGainNodeRef.current.connect(ctx.destination);
       const gains: Record<string, GainNode> = {
         mic: micGainNodeRef.current, aux: auxGainNodeRef.current, media: mediaGainNodeRef.current,
@@ -877,6 +1147,77 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     void audioCtxRef.current.resume().catch(() => { /* needs a gesture */ });
     return audioCtxRef.current;
   }, []);
+
+  // --- per-track auto limiter --------------------------------------------
+  // "Auto" caps a track's peaks at a ceiling so one loud source (a hot mic, a
+  // clipping share) can't blow out the mix — on both desktop and mobile. Default
+  // ON for every track. Implemented as a DynamicsCompressor patched between the
+  // track's gain node and the preMaster bus; the meter's analyser edge is left
+  // alone (disconnect(dest) cuts only that one edge).
+  const LIMITER_CEILING_DB = -3;
+  const limiterMapRef = useRef<Map<string, DynamicsCompressorNode>>(new Map());
+  const [autoLimit, setAutoLimit] = useState<Record<string, boolean>>({});
+  const autoLimitRef = useRef<Record<string, boolean>>({});
+  autoLimitRef.current = autoLimit;
+  const isLimited = useCallback((key: string) => autoLimitRef.current[key] !== false, []);
+
+  const makeLimiter = useCallback((ctx: AudioContext) => {
+    const c = ctx.createDynamicsCompressor();
+    c.threshold.value = LIMITER_CEILING_DB;
+    c.knee.value = 0;      // hard knee → brick-wall-ish limiting, not gentle compression
+    c.ratio.value = 20;
+    c.attack.value = 0.003;
+    c.release.value = 0.25;
+    return c;
+  }, []);
+
+  /** The bus a source feeds: the guest goes straight to the FULL mix; everyone
+   *  else feeds the mix-minus monitor bus (which itself feeds the full mix), so
+   *  the monitor the guest hears carries every source but their own. */
+  const busFor = useCallback((key: string): GainNode | null =>
+    (key === GUEST_SOURCE_KEY ? preMasterRef.current : preMasterMonitorRef.current), []);
+
+  /** Connect a track's gain node to its bus, through its limiter when Auto is
+   *  on. Call this INSTEAD OF gainNode.connect(preMaster). */
+  const connectAudioTrack = useCallback((key: string, gainNode: GainNode) => {
+    const ctx = audioCtxRef.current, pre = busFor(key);
+    if (!ctx || !pre) { try { gainNode.connect(busFor(key)!); } catch { /* not ready */ } return; }
+    if (isLimited(key)) {
+      let comp = limiterMapRef.current.get(key);
+      if (!comp) { comp = makeLimiter(ctx); limiterMapRef.current.set(key, comp); }
+      gainNode.connect(comp);
+      comp.connect(pre);
+    } else {
+      gainNode.connect(pre);
+    }
+  }, [isLimited, makeLimiter, busFor]);
+
+  const gainNodeFor = useCallback((key: string): GainNode | null => {
+    if (key === 'mic') return micGainNodeRef.current;
+    if (key === 'media') return mediaGainNodeRef.current;
+    if (key === 'aux') return auxGainNodeRef.current;
+    return sharesMapRef.current.get(key)?.gainNode ?? soundsMapRef.current.get(key)?.gainNode ?? null;
+  }, []);
+
+  /** Flip Auto for one track, re-patching its live audio graph. */
+  const toggleAutoLimit = useCallback((key: string) => {
+    const on = !isLimited(key);
+    setAutoLimit((prev) => ({ ...prev, [key]: on }));
+    autoLimitRef.current = { ...autoLimitRef.current, [key]: on };
+    const gn = gainNodeFor(key), pre = busFor(key), ctx = audioCtxRef.current;
+    if (!gn || !pre || !ctx) return;
+    let comp = limiterMapRef.current.get(key);
+    try {
+      if (on) {
+        gn.disconnect(pre);                       // cut the direct edge only
+        if (!comp) { comp = makeLimiter(ctx); limiterMapRef.current.set(key, comp); }
+        gn.connect(comp); comp.connect(pre);
+      } else if (comp) {
+        gn.disconnect(comp); comp.disconnect(pre);
+        gn.connect(pre);
+      }
+    } catch { /* edge already in the desired state */ }
+  }, [isLimited, gainNodeFor, makeLimiter, busFor]);
 
   useEffect(() => { if (micGainNodeRef.current) micGainNodeRef.current.gain.value = micMuted ? 0 : micGain; }, [micGain, micMuted]);
   useEffect(() => { if (mediaGainNodeRef.current) mediaGainNodeRef.current.gain.value = mediaMuted ? 0 : mediaGain; }, [mediaGain, mediaMuted]);
@@ -941,7 +1282,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
 
   useEffect(() => {
     streamStateRef.current = streamState;
-    if (masterGainNodeRef.current) masterGainNodeRef.current.gain.value = streamState === 'live' ? 1 : 0;
+    const gate = streamState === 'live' ? 1 : 0;
+    if (masterGainNodeRef.current) masterGainNodeRef.current.gain.value = gate;
+    // Keep the guest's monitor gate in lock-step — see monitorMasterRef.
+    if (monitorMasterRef.current) monitorMasterRef.current.gain.value = gate;
   }, [streamState]);
 
   // Fire onStreamStart exactly once — the first time the host goes live —
@@ -968,20 +1312,185 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     const t = setTimeout(() => { void savePost(); }, 900);
     return () => clearTimeout(t);
   }, [postTitle, postDesc, postThumb, postTags]);
+  /**
+   * Server-side recording (LiveKit egress) for BOTH the published VOD and the
+   * host's download. There is no client-side recorder anymore — one egress
+   * recording serves both, so the host's device never runs a second encode.
+   *
+   * (The browser's MediaRecorder could not survive the page being discarded — the
+   * recorder and its buffered chunks live in that page's heap — so a host who
+   * switched apps lost the recording, and restarting it produced a video whose
+   * timeline no longer matched the chat comments (those are timecoded from
+   * go-live). Egress runs on the server and keeps rolling regardless of what
+   * the host's phone does.)
+   */
+  const egressStartedRef = useRef(false);
+  const startVodEgressRef = useRef<() => Promise<void>>(async () => {});
+  const stopVodEgressRef = useRef<() => Promise<void>>(async () => {});
+  const startVodEgress = useCallback(async () => {
+    if (egressStartedRef.current) return;
+    // Record on the SERVER (egress) whenever the host wants EITHER a published
+    // VOD or a local download. One recording covers both — the download is just
+    // the same file streamed back — so there is never a second encode on the
+    // host's device.
+    const publish = autoVodRef.current && !!onStreamVod;
+    const download = autoDownloadRef.current;
+    if (!publish && !download) return;
+    egressStartedRef.current = true;
+    try {
+      await authedPost(`/rooms/${encodeURIComponent(roomName)}/record/start`, {
+        mode: 'video', layout: 'single', publish, download,
+      });
+    } catch (err) {
+      egressStartedRef.current = false;
+      // Non-fatal: the stream itself is unaffected, but say so — silently
+      // ending up with no replay is the worst outcome.
+      setMediaError(`Could not start the recording: ${err instanceof Error ? err.message : String(err)}. The stream is live, but there will be no video afterwards.`);
+    }
+  }, [authedPost, roomName, onStreamVod]);
+
+  const stopVodEgress = useCallback(async () => {
+    if (!egressStartedRef.current) return;
+    egressStartedRef.current = false;
+    try {
+      // The server now uploads the recording itself, straight from disk — no
+      // multi-GB round-trip through the browser, and it survives the studio
+      // closing. We just hand the integrator the status URL to poll.
+      const res = await authedPost(`/rooms/${encodeURIComponent(roomName)}/record/stop`, {}) as {
+        publishStatusUrl?: string; downloadUrl?: string;
+      };
+      const abs = (u?: string) => (u ? `${apiBaseUrl.replace(/\/$/, '')}${u}` : undefined);
+
+      // Server publishes the VOD itself — hand the integrator the status URL to
+      // poll for toasts.
+      if (res?.publishStatusUrl && onStreamVod) {
+        onStreamVod({ roomName, publishStatusUrl: abs(res.publishStatusUrl) });
+      }
+
+      // Download: stream the SERVER's file straight to the host's disk via a
+      // plain link (the token is the auth), so nothing loads into a Blob. Fired
+      // now, while the page is still alive — the browser's download manager
+      // carries on after the studio closes.
+      if (res?.downloadUrl) {
+        const a = document.createElement('a');
+        a.href = abs(res.downloadUrl)!;
+        a.download = `${roomName}.mp4`;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => a.remove(), 0);
+      }
+    } catch (err) {
+      setMediaError(`The recording finished but could not be collected: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [authedPost, apiBaseUrl, onStreamVod, roomName]);
+  startVodEgressRef.current = startVodEgress;
+  stopVodEgressRef.current = stopVodEgress;
+
   const streamStartFiredRef = useRef(false);
+  // First go-live timestamp (ms) for the free-stream cap; null until live.
+  const streamStartedAtRef = useRef<number | null>(null);
+  // A dismissible banner shown as the free cap approaches, and the fired marks.
+  const [timeWarning, setTimeWarning] = useState('');
+  const warnedRemainingRef = useRef<Set<number>>(new Set());
+  // Redraw the elapsed/remaining counter every second while broadcasting.
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    if (streamState !== 'live' && streamState !== 'paused') return undefined;
+    const id = window.setInterval(() => setClockTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [streamState]);
+
+  // BOTH tiers are time-capped (free short, Pro long — a safety ceiling under
+  // the egress janitor's 6h kill). Warn as the cap nears, then stop exactly like
+  // the host hitting Stop, so the VOD is saved either way.
+  useEffect(() => {
+    const cap = resolveStreamCap(isPremium);
+    const tick = () => {
+      const startedAt = streamStartedAtRef.current;
+      if (startedAt == null || streamStateRef.current !== 'live') return;
+      const remaining = cap.capMs - (Date.now() - startedAt);
+      if (remaining <= 0) {
+        setTimeWarning(cap.isPro
+          ? `Your stream reached the ${cap.label} limit and has ended.`
+          : `Your free stream reached the ${cap.label} limit and has ended. Upgrade to 3Speak Pro for longer streams.`);
+        void finishStreamRef.current();
+        return;
+      }
+      // Fire each remaining-time mark once, as the countdown crosses it.
+      for (const mark of cap.warnMs) {
+        if (remaining <= mark && !warnedRemainingRef.current.has(mark)) {
+          warnedRemainingRef.current.add(mark);
+          const mins = Math.max(1, Math.round(mark / 60000));
+          setTimeWarning(cap.isPro
+            ? `Heads up — your stream ends in about ${mins} minute${mins === 1 ? '' : 's'} (${cap.label} max).`
+            : `Heads up — your free stream ends in about ${mins} minute${mins === 1 ? '' : 's'}. Upgrade to 3Speak Pro for longer streams.`);
+        }
+      }
+    };
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [isPremium]);
+
+
+  /**
+   * Pick a stream back up after the page was thrown away.
+   *
+   * Switching apps can make a mobile browser discard the page; it reloads and
+   * the studio mounts in `standby`, so viewers get "Starting soon" over a
+   * stream the host believes is still running — and the host has to press Start
+   * again. The SERVER knows better: `broadcasting` stays true until the host
+   * pauses or ends, so trust it and resume.
+   *
+   * Crucially this also sets streamStartFiredRef, so onStreamStart does NOT
+   * fire again — otherwise every recovery would publish a second Hive
+   * announcement for the same stream.
+   */
+  const resumeCheckedRef = useRef(false);
+  useEffect(() => {
+    if (resumeCheckedRef.current || !roomName || !apiBaseUrl) return;
+    resumeCheckedRef.current = true;
+    let alive = true;
+    fetch(`${apiBaseUrl.replace(/\/$/, '')}/rooms/${encodeURIComponent(roomName)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((room: { broadcasting?: boolean; liveAt?: string; willPublishVod?: boolean } | null) => {
+        if (!alive || !room?.broadcasting) return;
+        streamStartFiredRef.current = true;   // already announced — don't post again
+        // Anchor the cap to the ORIGINAL go-live from the server, not now — a
+        // reload mustn't reset a free streamer's clock.
+        if (streamStartedAtRef.current == null) {
+          const t = typeof room.liveAt === 'string' ? Date.parse(room.liveAt) : NaN;
+          streamStartedAtRef.current = Number.isFinite(t) ? t : Date.now();
+        }
+        setStreamState('live');
+        // The recording is server-side egress and kept rolling the whole time —
+        // nothing to restart. BUT this fresh mount doesn't know it's running, so
+        // mark it started; otherwise End would skip stopVodEgress and the VOD
+        // would be orphaned to the 6h janitor instead of published.
+        if (room.willPublishVod) egressStartedRef.current = true;
+      })
+      .catch(() => { /* offline or gone — leave the host in standby */ });
+    return () => { alive = false; };
+  }, [roomName, apiBaseUrl]);
   useEffect(() => {
     if (streamState === 'live' && !streamStartFiredRef.current) {
       streamStartFiredRef.current = true;
+      // Anchor the free-stream cap to the first go-live. Wall-clock from here,
+      // so pausing doesn't buy extra time — the cap is on how long the stream
+      // has been up, not on active broadcasting minutes.
+      if (streamStartedAtRef.current == null) streamStartedAtRef.current = Date.now();
       onStreamStart?.({ ...postRef.current });
       // Tell the server we're live so it can stamp the moment (viewers anchor
       // chat timecodes to it) and record whether a VOD is coming. Fire-and-
       // forget: a failure here must never block going live.
       void authedPatch(`/rooms/${encodeURIComponent(roomName)}/live`, {
         willPublishVod: autoVodRef.current && !!onStreamVod,
+        portrait: portraitRef.current,
       }).catch(() => { /* timecodes fall back to the post's timestamp */ });
-      // Auto-VOD: start capturing the moment we go live, so the published
-      // video covers the whole broadcast without the host doing anything.
-      if ((autoVodRef.current || autoDownloadRef.current) && !recorderRef.current) startRecordingRef.current();
+      // Start server-side recording the moment we go live, if the host wants a
+      // published VOD and/or a download. startVodEgress decides from the prefs
+      // and records once for both.
+      void startVodEgressRef.current();
     }
   }, [streamState, onStreamStart, authedPatch, roomName, onStreamVod]);
 
@@ -1496,8 +2005,306 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // rule). We attach its video track to a hidden <video> and register it as a
   // normal source, so every scene — fullscreen, PiP overlay, split — works
   // with it exactly like a screen share.
+  // --- collab guest -------------------------------------------------------
+  // A viewer the host promoted. Exactly one at a time (enforced server-side):
+  // the stacked scene has room for one, and a second remote decode on top of
+  // compositing + encoding is what tips a phone into dropping frames.
+  //
+  // Deliberately identified by "a remote participant publishing video that
+  // isn't the OBS ingress" rather than by reading room metadata: the track
+  // arriving IS the thing we need, and keying off it means the source appears
+  // and disappears exactly when there are frames to show.
+  const GUEST_SOURCE_ID = 'guest';
+  const { raisedHands, lowerHandFor } = useHandRaise();
+  const { promote, demote, pending: modPending } = useHostControls(roomName);
+  const [collabError, setCollabError] = useState('');
+
   const OBS_SOURCE_ID = 'obs';
   const remoteTracks = useTracks([Track.Source.Camera, Track.Source.Microphone], { onlySubscribed: false });
+
+  // One collab guest at a time. The button also disables on `guestIdentity`,
+  // but that state only lands once the guest's track ARRIVES — so two quick taps
+  // on different raised hands would promote both before it populates. Gate
+  // synchronously on a ref, and stays claimed until the guest actually leaves
+  // (reset in the teardown) so the window between promote and track-arrival is
+  // covered too.
+  const pendingGuestRef = useRef(false);
+  const [accepting, setAccepting] = useState(false);
+  const acceptGuest = useCallback(async (identity: string) => {
+    if (pendingGuestRef.current || guestIdentityRef.current) return;
+    pendingGuestRef.current = true;
+    setAccepting(true);
+    setCollabError('');
+    try {
+      await promote(identity);
+      lowerHandFor(identity);
+      // Straight to the mixer. The first thing that matters after a guest joins
+      // is their level, and they arrive at whatever gain their mic happens to
+      // have — leaving the host to find the audio sheet themselves while a
+      // stranger is already talking over them.
+      setMobileSheet('mic');
+      // The scene switch happens when their track actually ARRIVES, not here —
+      // flipping to a stacked layout before there are frames shows a dead half.
+    } catch (err) {
+      pendingGuestRef.current = false;   // failed — free the slot for a retry
+      setCollabError(err instanceof Error ? err.message : 'Could not bring them on');
+    } finally {
+      setAccepting(false);
+    }
+  }, [promote, lowerHandFor]);
+
+  const declineGuest = useCallback((identity: string) => {
+    lowerHandFor(identity);
+  }, [lowerHandFor]);
+
+  const removeGuest = useCallback((_identity: string) => {
+    // Immediate, full teardown (demotes + clears the source + slot + monitor).
+    // Not just demote(): with the drop-grace in place, a demoted-but-still-
+    // connected guest would otherwise be "held" rather than removed.
+    setCollabError('');
+    tearDownGuestRef.current();
+  }, []);
+
+  const guestVideoElRef = useRef<HTMLVideoElement | null>(null);
+  const [guestIdentity, setGuestIdentity] = useState<string | null>(null);
+  // Mirrors guestIdentity for the track effect, which must not re-run (and
+  // re-subscribe) every time the identity state changes.
+  const guestIdentityRef = useRef<string | null>(null);
+  // True while we've collapsed the split because the guest's camera went muted
+  // (backgrounded / toggled off) but they're STILL connected — so the next tick
+  // that sees their video again knows to restore the split rather than leaving
+  // it on the host's camera.
+  const guestSceneHeldRef = useRef(false);
+  // Pending "the guest disconnected" timer. Started on a drop, cancelled if they
+  // reconnect within GUEST_DROP_GRACE_MS; only on expiry do we actually demote
+  // and free the slot.
+  const guestDropTimerRef = useRef<number | null>(null);
+
+  // Publish/unpublish the mix-minus monitor, SERIALIZED through monitorOpRef so
+  // rapid guest churn can't race the two async LiveKit calls into an orphaned
+  // track. Each op re-checks the current ref, so back-to-back publish or
+  // unpublish is idempotent.
+  const publishMonitor = useCallback(() => {
+    monitorOpRef.current = monitorOpRef.current.then(async () => {
+      const lp = localParticipantRef.current;
+      const mt = monitorDestRef.current?.stream.getAudioTracks()[0];
+      if (!lp || !mt || monitorTrackRef.current) return;
+      try {
+        await lp.publishTrack(mt, { source: Track.Source.Microphone, name: HOST_MONITOR_TRACK });
+        monitorTrackRef.current = mt;
+      } catch { /* leave ref null — retried when the next guest comes on */ }
+    });
+  }, []);
+  const unpublishMonitor = useCallback(() => {
+    monitorOpRef.current = monitorOpRef.current.then(async () => {
+      const lp = localParticipantRef.current;
+      const mt = monitorTrackRef.current;
+      if (!mt) return;
+      // Keep the track alive (stopTrack=false): it belongs to the persistent
+      // audio graph and is re-published for the next guest.
+      try { await lp?.unpublishTrack(mt, false); } catch { /* already gone */ }
+      monitorTrackRef.current = null;
+    });
+  }, []);
+
+  // Fully release the collab guest: revoke the grant (which also clears the
+  // room's `collabGuest` approval server-side, freeing the single slot), drop
+  // their mixer source, and stop the monitor. Called on an explicit Remove or
+  // when the drop-grace expires — NOT on a transient mute/reconnect.
+  const tearDownGuest = useCallback(() => {
+    if (guestDropTimerRef.current !== null) { clearTimeout(guestDropTimerRef.current); guestDropTimerRef.current = null; }
+    guestSceneHeldRef.current = false;
+    pendingGuestRef.current = false;
+    const leaving = guestIdentityRef.current;
+    if (leaving) {
+      guestIdentityRef.current = null;
+      void demote(leaving).catch(() => { /* host can still Remove manually */ });
+    }
+    if (sharesMapRef.current.has(GUEST_SOURCE_ID)) {
+      const gone = sharesMapRef.current.get(GUEST_SOURCE_ID);
+      try { gone?.audioSrc?.disconnect(); gone?.gainNode?.disconnect(); } catch { /* already torn down */ }
+      delete analysersRef.current[GUEST_SOURCE_ID];
+      sharesMapRef.current.delete(GUEST_SOURCE_ID);
+      setShares((prev) => prev.filter((x) => x.id !== GUEST_SOURCE_ID));
+      setSource((prev) => (prev === `share:${GUEST_SOURCE_ID}` ? null : prev));
+    }
+    unpublishMonitor();
+    guestNameRef.current = null;
+    setGuestIdentity(null);
+  }, [demote, unpublishMonitor]);
+  const tearDownGuestRef = useRef(tearDownGuest);
+  tearDownGuestRef.current = tearDownGuest;
+
+  useEffect(() => {
+    // A collab guest is a REMOTE participant publishing video that isn't the
+    // OBS ingress.
+    //
+    // `!t.participant.isLocal` is load-bearing: useTracks returns the local
+    // participant's tracks too, so without it the studio matched its OWN
+    // published program feed, registered itself as a guest source and flipped
+    // to the stacked scene — the program composited into itself. (The OBS
+    // effect never hit this because `obs-ingress-` can't match a local
+    // identity.)
+    // `!isMuted` is what makes LEAVING work. setCameraEnabled(false) on the
+    // guest's side mutes the publication rather than removing it, so matching
+    // on the publication alone left the studio believing a guest was still on
+    // air: the stacked scene stayed, and the host was left as a cropped strip
+    // in the top half with a dead region underneath.
+    const guestPub = remoteTracks.find(
+      (t) => !t.participant.isLocal
+        && !t.participant.identity.startsWith('obs-')
+        && t.publication?.kind === 'video'
+        && t.publication?.isMuted !== true,
+    );
+
+    if (!guestPub) {
+      // Was a guest ACTUALLY on air? This effect re-runs on every remoteTracks
+      // tick — and most of the time there is no guest at all. Only react when
+      // the thing that went away was the guest.
+      const hadGuest = !!guestIdentityRef.current || sharesMapRef.current.has(GUEST_SOURCE_ID);
+      if (!hadGuest) return;
+
+      // Collapse the split — a muted or absent guest leaves a dead half.
+      setScene((prev) => (prev === 'splitv' || prev === 'split' ? 'cam' : prev));
+      guestSceneHeldRef.current = true;
+
+      // MUTE vs DROP. `guestPub` requires an UNMUTED video, so a guest who
+      // backgrounds their phone (LiveKit auto-mutes the track) or toggles their
+      // camera off lands here alongside one who fully disconnected.
+      const stillConnected = !!guestIdentityRef.current
+        && participants.some((p) => p.identity === guestIdentityRef.current);
+      if (stillConnected) {
+        // Muted but present — hold indefinitely; cancel any pending drop timer.
+        if (guestDropTimerRef.current !== null) { clearTimeout(guestDropTimerRef.current); guestDropTimerRef.current = null; }
+        return;
+      }
+
+      // Disconnected. This is a phone dropping (airplane mode / tunnel) as often
+      // as a real leave. DON'T demote yet: the approval lives in room metadata
+      // (`collabGuest`) so a reconnecting guest is re-granted publish and comes
+      // straight back on air — demoting here would revoke that and force them to
+      // ask again. Give them a grace window; only tear down if they don't
+      // return. (An explicit host Remove tears down immediately.)
+      if (guestDropTimerRef.current === null) {
+        guestDropTimerRef.current = window.setTimeout(() => {
+          guestDropTimerRef.current = null;
+          tearDownGuestRef.current();
+        }, GUEST_DROP_GRACE_MS);
+      }
+      return;
+    }
+
+    // Guest video is present → they're here (or just reconnected). Cancel any
+    // pending drop timer so a returning guest keeps their slot + grant.
+    if (guestDropTimerRef.current !== null) { clearTimeout(guestDropTimerRef.current); guestDropTimerRef.current = null; }
+
+    const identity = guestPub.participant.identity;
+    // Prefer the display NAME the server attached to the token. /listen sets it
+    // to the signed-in Hive username, so this shows "@alice" rather than the
+    // raw participant id — and for a genuine anonymous viewer it falls back to
+    // the identity, which is all there is.
+    const displayName = guestPub.participant.name || identity;
+    const pub = guestPub.publication;
+    if (pub && !pub.isSubscribed && 'setSubscribed' in pub) {
+      (pub as { setSubscribed(v: boolean): void }).setSubscribed(true);
+    }
+    const track = pub?.track?.mediaStreamTrack;
+    if (!track) return;
+
+    let el = guestVideoElRef.current;
+    if (!el) {
+      el = document.createElement('video');
+      el.muted = true;
+      el.playsInline = true;
+      guestVideoElRef.current = el;
+    }
+    const attachTo = (target: HTMLVideoElement) => {
+      target.srcObject = new MediaStream([track]);
+      void target.play().catch(() => { /* autoplay of a muted el rarely fails */ });
+    };
+
+    // Wire the guest's mic into the studio mixer: a fader for the host, behind
+    // the live/standby gate, and INTO studio-mix (so viewers + the recording get
+    // it). This MUST be retried on later ticks: goOnAir() enables camera then
+    // mic, so the audio publication usually lands a tick AFTER the video — on
+    // the first pass there's no audio track yet. Missing this left the guest
+    // unmixed: no fader, ungated, and (now that RoomAudio no longer plays raw
+    // guest mics) inaudible. Returns true the tick it succeeds.
+    const wireGuestAudio = (entry: ShareEntry): boolean => {
+      if (entry.hasAudio) return false;
+      const audioPub = remoteTracks.find(
+        (t) => !t.participant.isLocal
+          && t.participant.identity === identity
+          && t.publication?.kind === 'audio',
+      )?.publication;
+      if (audioPub && !audioPub.isSubscribed && 'setSubscribed' in audioPub) {
+        (audioPub as { setSubscribed(v: boolean): void }).setSubscribed(true);
+      }
+      const audioTrack = audioPub?.track?.mediaStreamTrack;
+      if (!audioTrack) return false;
+      const ctx = ensureAudioGraph();
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = 1;
+      connectAudioTrack(GUEST_SOURCE_ID, gainNode);
+      entry.audioSrc = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
+      entry.audioSrc.connect(gainNode);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      gainNode.connect(analyser);
+      entry.gainNode = gainNode;
+      entry.analyser = analyser;
+      analysersRef.current[GUEST_SOURCE_ID] = analyser;
+      entry.hasAudio = true;
+      return true;
+    };
+
+    // Re-attach rather than bail — same StrictMode/remount trap as OBS, where
+    // a stale <video> with no srcObject sat in the compositor forever.
+    const existing = sharesMapRef.current.get(GUEST_SOURCE_ID);
+    if (existing) {
+      if (existing.video !== el || !el.srcObject) { existing.video = el; attachTo(el); }
+      // Audio commonly arrives after the video — wire it now if it just landed,
+      // and surface the fader (renders only when hasAudio).
+      if (wireGuestAudio(existing)) {
+        setShares((prev) => prev.map((x) => (x.id === GUEST_SOURCE_ID ? { ...x, hasAudio: true } : x)));
+      }
+      // Their camera is back after a mute-hold — restore the split we collapsed.
+      if (guestSceneHeldRef.current) {
+        guestSceneHeldRef.current = false;
+        setScene((prev) => (prev === 'cam' ? 'splitv' : prev));
+      }
+      guestNameRef.current = displayName;
+      guestIdentityRef.current = identity;
+      setGuestIdentity(identity);
+      return;
+    }
+
+    attachTo(el);
+
+    const entry: ShareEntry = {
+      id: GUEST_SOURCE_ID,
+      label: displayName,
+      stream: new MediaStream(),
+      video: el,
+      hasAudio: false,
+      reattach: attachTo,
+    };
+    wireGuestAudio(entry);
+
+    sharesMapRef.current.set(GUEST_SOURCE_ID, entry);
+    setShares((prev) => [...prev, { id: GUEST_SOURCE_ID, label: displayName, hasAudio: entry.hasAudio, gain: 1, muted: false }]);
+    setSource(`share:${GUEST_SOURCE_ID}`);
+    setScene('splitv');
+    guestNameRef.current = displayName;
+    guestIdentityRef.current = identity;
+    setGuestIdentity(identity);
+
+    // Publish the mix-minus monitor now that there's a guest to hear it (a
+    // second Microphone track named HOST_MONITOR_TRACK — the on-air guest
+    // subscribes to THIS instead of studio-mix, so they hear the room minus
+    // their own bounced-back voice). Serialized against unpublish.
+    publishMonitor();
+  }, [remoteTracks, participants, ensureAudioGraph, demote, localParticipant, publishMonitor, unpublishMonitor]);
 
   const openObsSetup = useCallback(async () => {
     setObsBusy(true);
@@ -1517,10 +2324,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       // what is an uncommon path. It buys nothing in quality either way: the
       // studio composites this into its canvas and re-encodes before viewers
       // ever see it.
-      const info = await authedPost(
-        `/rooms/${encodeURIComponent(roomName)}/ingress`,
-        { transcode: true },
-      ) as { whipUrl: string };
+      const info = await startWhipIngress({ transcode: true });
+      if (!info) throw new Error(whipError || 'Could not set up OBS ingest');
       setObsInfo(info);
       setObsOpen(true);
     } catch (err) {
@@ -1529,7 +2334,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     } finally {
       setObsBusy(false);
     }
-  }, [authedPost, roomName]);
+  }, [startWhipIngress, whipError, roomName]);
 
   useEffect(() => {
     // Match on the PUBLICATION only — deliberately NOT on `publication.track`,
@@ -1625,7 +2430,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       const ctx = ensureAudioGraph();
       const gainNode = ctx.createGain();
       gainNode.gain.value = 1;
-      gainNode.connect(preMasterRef.current!);
+      connectAudioTrack(OBS_SOURCE_ID, gainNode);
       entry.audioSrc = ctx.createMediaStreamSource(new MediaStream([obsAudioTrack]));
       entry.audioSrc.connect(gainNode);
       const analyser = ctx.createAnalyser();
@@ -1643,7 +2448,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     setScene((prev) => (prev === 'cam' ? 'fullscreen' : prev));
     setObsLive(true);
     setObsOpen(false); // setup done — close the instructions
-  }, [remoteTracks]);
+  }, [remoteTracks, obsRestoreTick]);
 
   const removeShare = useCallback((id: string) => {
     const entry = sharesMapRef.current.get(id);
@@ -1689,7 +2494,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         const ctx = ensureAudioGraph();
         const gainNode = ctx.createGain();
         gainNode.gain.value = 1;
-        gainNode.connect(preMasterRef.current!);
+        connectAudioTrack(id, gainNode);
         entry.audioSrc = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
         entry.audioSrc.connect(gainNode);
         const analyser = ctx.createAnalyser();
@@ -1793,7 +2598,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       const ctx = ensureAudioGraph();
       const gainNode = ctx.createGain();
       gainNode.gain.value = 1;
-      gainNode.connect(preMasterRef.current!);
+      connectAudioTrack(id, gainNode);
       gainNode.connect(ctx.destination); // local monitor
       const node = ctx.createMediaElementSource(el);
       node.connect(gainNode);
@@ -1824,99 +2629,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     setSounds((prev) => prev.map((s) => (s.id === id ? { ...s, loop: e.el.loop } : s)));
   }, []);
 
-  // ---- recording (client-side, Pro-gated) --------------------------------
-  // Records the actual composited content (the display canvas) plus the full
-  // pre-gate audio mix — so it captures your show even during standby/pause,
-  // WYSIWYG. Video recording is 3Speak Pro only, matching the conference
-  // egress gate (enforced server-side there; here we gate on the server's
-  // isPremium flag).
-  const stopRecording = useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop();
-    recorderRef.current = null;
-    if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null; }
-    setRecording(false);
-  }, []);
-
-  /** Stop and RESOLVE once the file has been built + handed off, so the host's
-   *  End-stream can finish saving the VOD before the room is torn down. */
-  const stopRecordingAndWait = useCallback(() => new Promise<void>((resolve) => {
-    const rec = recorderRef.current;
-    if (!rec || rec.state === 'inactive') { resolve(); return; }
-    recStopResolveRef.current = resolve;
-    // Never hang the End-stream flow if onstop somehow never fires.
-    setTimeout(() => { recStopResolveRef.current?.(); recStopResolveRef.current = null; }, 15000);
-    stopRecording();
-  }), [stopRecording]);
-
-  const startRecording = useCallback(() => {
-    if (!isPremium || recorderRef.current) return;
-    const canvas = canvasRef.current;
-    if (!canvas || typeof canvas.captureStream !== 'function' || typeof MediaRecorder === 'undefined') {
-      setMediaError('Recording is not supported in this browser.');
-      return;
-    }
-    ensureAudioGraph();
-    const vStream = canvas.captureStream(30);
-    const vTrack = vStream.getVideoTracks()[0];
-    if (!vTrack) return;
-    const aTrack = recordDestRef.current?.stream.getAudioTracks()[0];
-    const stream = new MediaStream(aTrack ? [vTrack, aTrack] : [vTrack]);
-    recStreamRef.current = stream;
-    const mime = ['video/mp4;codecs=h264,aac', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
-      .find((t) => { try { return MediaRecorder.isTypeSupported(t); } catch { return false; } }) || '';
-    let rec: MediaRecorder;
-    try {
-      rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 4_000_000 } : undefined);
-    } catch {
-      setMediaError('Recording could not start.');
-      return;
-    }
-    recChunksRef.current = [];
-    rec.ondataavailable = (e) => { if (e.data.size) recChunksRef.current.push(e.data); };
-    rec.onstop = () => {
-      const type = rec.mimeType || 'video/webm';
-      const blob = new Blob(recChunksRef.current, { type });
-      recChunksRef.current = [];
-      recStreamRef.current?.getTracks().forEach((t) => { if (t.kind === 'video') t.stop(); });
-      recStreamRef.current = null;
-      const ext = type.includes('mp4') ? 'mp4' : 'webm';
-      const filename = `stream-${roomName}-${Math.round(recElapsedRef.current)}s.${ext}`;
-      const file = { blob, filename, duration: recElapsedRef.current, size: blob.size };
-      const saveLocally = () => {
-        const url = URL.createObjectURL(blob);
-        const a = Object.assign(document.createElement('a'), { href: url, download: filename });
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-      };
-
-      try {
-        // The two end-of-stream options are independent — a host can publish
-        // the VOD, keep a local copy, or both.
-        const wantsVod = autoVodRef.current && !!onStreamVod;
-        const wantsDownload = autoDownloadRef.current;
-        if (wantsDownload) saveLocally();
-        if (wantsVod) onStreamVod!({ ...file, roomName });
-        if (!wantsVod && !wantsDownload) {
-          // Manual ⏺ Record: hand off to the integrator, else just download.
-          if (onVideoHandoff) onVideoHandoff(file);
-          else saveLocally();
-        }
-      } finally {
-        recStopResolveRef.current?.();
-        recStopResolveRef.current = null;
-      }
-    };
-    rec.start(1000);
-    recorderRef.current = rec;
-    recElapsedRef.current = 0;
-    setRecElapsed(0);
-    setRecording(true);
-    recTimerRef.current = setInterval(() => {
-      recElapsedRef.current += 1;
-      setRecElapsed((e) => e + 1);
-    }, 1000);
-  }, [isPremium, ensureAudioGraph, onVideoHandoff, onStreamVod, roomName]);
-  startRecordingRef.current = startRecording;
 
   // Media video playback follows the active source.
   useEffect(() => {
@@ -1948,7 +2660,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       setSource(next);
       if (!next && scene !== 'cam') setScene('cam');
     }
-    if ((scene === 'split' || scene === 'overlay') && !camOn) setScene(source ? 'fullscreen' : 'cam');
+    if ((scene === 'split' || scene === 'splitv' || scene === 'overlay') && !camOn) setScene(source ? 'fullscreen' : 'cam');
   }, [shares, mediaItems, source, scene, camOn]);
 
   useEffect(() => {
@@ -2114,22 +2826,102 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           else drawPlaceholder(ctx, 'Camera is off', '', rightX, 0, rightW, CH);
           ctx.fillStyle = '#2c2c3a';
           ctx.fillRect(x - SPLIT_BAR / 2, 0, SPLIT_BAR, CH);
+          if (p.guestName) {
+            drawNameTag(ctx, p.guestName, 0, 0, leftW2, CH, 'top');
+            drawNameTag(ctx, p.hostName ?? '', rightX, 0, rightW, CH, 'bottom');
+          }
+          break;
+        }
+        case 'splitv': {
+          // Fixed 50/50, deliberately not resizable. The program swaps the two
+          // strips so viewers see the host first, and an uneven split put the
+          // divider at a different height for them than for the host — the
+          // layout looked wrong to whoever wasn't dragging it. Equal halves
+          // make the swap symmetric, and two people on camera want equal
+          // billing anyway.
+          // Camera on TOP, source underneath — the host stays in the position
+          // a viewer's eye goes to first, and a guest reads as joining them.
+          const y = CH / 2;
+          const topH = Math.max(0, y - SPLIT_BAR / 2);
+          const botY = y + SPLIT_BAR / 2;
+          const botH = Math.max(0, CH - botY);
+          // GUEST on top, host underneath — on the host's own screen. The
+          // program swaps the two strips back (host first) for viewers; see
+          // the mirror below. The host is looking at their guest, not at
+          // themselves, so they get the better half.
+          if (p.guestName) {
+            drawSourceInto(p.source, 0, 0, CW, topH, now);
+            if (ready(cam)) drawCover(ctx, cam, 0, botY, CW, botH);
+            else drawPlaceholder(ctx, 'Camera is off', '', 0, botY, CW, botH);
+            drawNameTag(ctx, p.guestName, 0, 0, CW, topH, 'top');
+            drawNameTag(ctx, p.hostName ?? '', 0, botY, CW, botH, 'bottom');
+          } else {
+            if (ready(cam)) drawCover(ctx, cam, 0, 0, CW, topH);
+            else drawPlaceholder(ctx, 'Camera is off', '', 0, 0, CW, topH);
+            drawSourceInto(p.source, 0, botY, CW, botH, now);
+          }
+          ctx.fillStyle = '#2c2c3a';
+          ctx.fillRect(0, y - SPLIT_BAR / 2, CW, SPLIT_BAR);
           break;
         }
       }
-      // Free-tier watermark on the DISPLAY canvas — shows in the preview and
-      // (during live) rides into the program via the mirror below.
-      if (showWatermarkRef.current) drawWatermark(ctx, CW, CH, watermarkLogoRef.current);
 
       // Program output — scaled into the (resolution-capped) program canvas.
       const state = streamStateRef.current;
       const pw = program.width, ph = program.height;
       if (state === 'live') {
-        pctx.drawImage(canvas, 0, 0, pw, ph);
+        if (p.scene === 'splitv' && p.guestName) {
+          // The host's canvas has the guest on top; viewers want the host on
+          // top. Rather than compositing the whole scene a second time — a
+          // second full draw per frame is exactly what tips a phone into
+          // dropping frames — blit the two finished strips in the other order.
+          // Each keeps its own height, so nothing is stretched, and the name
+          // tags travel with their strip.
+          const sy = ph / CH;
+          const yb = CH / 2;   // fixed 50/50 — see the splitv case
+          const guestH = Math.max(0, yb - SPLIT_BAR / 2);
+          const hostY = yb + SPLIT_BAR / 2;
+          const hostH = Math.max(0, CH - hostY);
+          const hostDstH = hostH * sy;
+          pctx.drawImage(canvas, 0, hostY, CW, hostH, 0, 0, pw, hostDstH);
+          pctx.fillStyle = '#2c2c3a';
+          pctx.fillRect(0, hostDstH, pw, SPLIT_BAR * sy);
+          pctx.drawImage(canvas, 0, 0, CW, guestH, 0, hostDstH + SPLIT_BAR * sy, pw, guestH * sy);
+        } else {
+          pctx.drawImage(canvas, 0, 0, pw, ph);
+        }
+
+        // Boosts ride on the PROGRAM only. The host already has the DOM
+        // overlay as their monitor, and drawing here keeps them clear of the
+        // stacked-scene strip swap above.
+        const cardW = Math.min(pw * 0.62, pw - 24);
+        let cardY = Math.round(ph * 0.04);
+        // WALL CLOCK, not `now`. `now` here is performance.now() — ms since page
+        // load — while a boost's timestamp is a Unix epoch. Subtracting them
+        // gives a huge negative number that is always under the window, so the
+        // card never expired and sat burned into the stream forever.
+        const boostNow = Date.now();
+        const live = boostsRef.current
+          .filter((b) => !b.belowMinimum && boostNow - b.timestamp < BOOST_DISPLAY_MS)
+          .slice(-2);
+        for (const b of live) {
+          cardY += drawBoostCard(pctx, b, Math.round((pw - cardW) / 2), cardY, cardW) + 10;
+        }
       } else {
         drawSlate(pctx, pw, ph, titleRef.current, now, state === 'standby' ? 'soon' : 'brb');
-        // Slates don't mirror the display canvas — stamp the watermark here too.
-        if (showWatermarkRef.current) drawWatermark(pctx, pw, ph, watermarkLogoRef.current);
+      }
+
+      // Watermark LAST, stamped onto EACH canvas at its OWN top-left. Stamping
+      // it on the display BEFORE the program's stacked-scene strip swap made it
+      // ride down with the guest strip into the program's BOTTOM half — landing
+      // over the guest's name for viewers. Independent stamps keep it in the
+      // true top-left of both the host's preview and the published program.
+      if (showWatermarkRef.current) {
+        // Top-LEFT on both, with the name tags moved to the right so they don't
+        // collide. Mobile keeps it a touch smaller.
+        const wmOpts = isMobileRef.current ? { scale: 0.82 } : undefined;
+        drawWatermark(pctx, pw, ph, watermarkLogoRef.current, wmOpts);
+        drawWatermark(ctx, CW, CH, watermarkLogoRef.current, wmOpts);
       }
     };
     // Cap compositing at ~30fps (the capture rate). rAF fires at the display
@@ -2195,16 +2987,41 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       // single layer there and let viewers take it as-is.
       simulcast: !isMobileRef.current,
       videoEncoding: { maxBitrate: q.maxBitrate, maxFramerate: q.maxFramerate },
+      // DESKTOP ONLY: keep the resolution NAILED, drop framerate instead if
+      // pushed.
+      //
+      // LiveKit defaults a sub-1080p Camera-source track to 'balanced', under
+      // which Chrome "aggressively resizes stating quality-limitation:bandwidth
+      // even when BW isn't an issue" (their words). For a composited studio
+      // program — a shared screen, text, a face — a smaller-then-larger
+      // resolution swim is far more offensive than a momentary framerate dip,
+      // and it was landing in the RECORDING as a stretch of soft footage on
+      // stable connections. 'maintain-resolution' pins the frame size; the
+      // encoder sheds framerate under pressure rather than sharpness.
+      //
+      // The streamer's choice (degradePref) — defaulting to resolution on
+      // desktop and 'balanced' on a phone, where pinning resolution and giving
+      // up framerate is what makes it skip frames. A live change goes through
+      // the effect below via setDegradationPreference, not a republish.
+      degradationPreference: degradePrefRef.current,
     });
     publishedVideoTrackRef.current = track;
   }, [localParticipant, ensureProgramCanvas, ensureProgramStream]);
 
+  // Publish the program exactly ONCE, on the first Connected.
+  //
+  // Deliberately no teardown here. This used to unpublish + STOP the program
+  // video and studio-mix tracks in its cleanup — but the cleanup fires on every
+  // dep change, and connectionState flaps Connected→Reconnecting→Connected on a
+  // routine network blip. That stopped the canvas-capture and dest tracks
+  // (which are created once and never rebuilt), so the re-run republished
+  // dead tracks → frozen frame + silence for the rest of the session. LiveKit
+  // already auto-republishes across a reconnect, so we simply hold. Teardown is
+  // unmount-only (the effect below).
   useEffect(() => {
     if (publishedRef.current) return;
     if (connectionState !== ConnectionState.Connected || !localParticipant) return;
     publishedRef.current = true;
-    let cancelled = false;
-    const published: MediaStreamTrack[] = [];
     (async () => {
       try {
         // publishVideo owns the program video track (it may swap it on a
@@ -2212,8 +3029,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         await publishVideo();
         ensureAudioGraph();
         const audioTrack = destRef.current?.stream.getAudioTracks()[0];
-        if (audioTrack) { await localParticipant.publishTrack(audioTrack, { source: Track.Source.Microphone, name: 'studio-mix' }); published.push(audioTrack); }
-        if (cancelled) for (const t of published) void localParticipant.unpublishTrack(t);
+        if (audioTrack) {
+          await localParticipant.publishTrack(audioTrack, { source: Track.Source.Microphone, name: 'studio-mix' });
+          publishedAudioTrackRef.current = audioTrack;
+        }
       } catch (err) {
         publishedRef.current = false;
         // eslint-disable-next-line no-console
@@ -2221,20 +3040,39 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         setMediaError('Could not publish the stream — please leave and rejoin.');
       }
     })();
-    return () => {
-      cancelled = true;
-      publishedRef.current = false;
-      for (const t of published) void localParticipant.unpublishTrack(t);
-      const vt = publishedVideoTrackRef.current;
-      if (vt) { try { void localParticipant.unpublishTrack(vt, true); } catch { /* gone */ } publishedVideoTrackRef.current = null; }
-    };
-  }, [connectionState, localParticipant, ensureAudioGraph, ensureProgramStream, publishVideo]);
+  }, [connectionState, localParticipant, ensureAudioGraph, publishVideo]);
+
+  // Unmount ONLY: release the published program + monitor tracks. Uses refs and
+  // empty deps so it can never fire on a reconnect. stopTrack=true is correct
+  // here — the studio is actually closing.
+  useEffect(() => () => {
+    const lp = localParticipantRef.current;
+    for (const ref of [publishedAudioTrackRef, publishedVideoTrackRef, monitorTrackRef]) {
+      const t = ref.current;
+      if (t) { try { void lp?.unpublishTrack(t, true); } catch { /* already gone */ } ref.current = null; }
+    }
+    if (guestDropTimerRef.current !== null) { clearTimeout(guestDropTimerRef.current); guestDropTimerRef.current = null; }
+  }, []);
 
   // Republish when the streamer changes quality (only after initial publish).
   useEffect(() => {
     if (!publishedRef.current) return;
     void publishVideo();
   }, [streamQuality, portrait, publishVideo]);
+
+  // Apply a degradation-preference change LIVE — mid-broadcast, no republish.
+  //
+  // setDegradationPreference just re-runs sender.setParameters() on the already
+  // negotiated RTP sender, so the switch is seamless: no reconnect, no track
+  // swap, no black frame, and the recording keeps rolling. Runs on the initial
+  // publish too, which is harmless (it re-asserts what publishVideo just set).
+  useEffect(() => {
+    if (!publishedRef.current || !localParticipant) return;
+    const pub = [...localParticipant.videoTrackPublications.values()]
+      .find((p) => p.source === Track.Source.Camera);
+    const vt = pub?.track as { setDegradationPreference?(p: RTCDegradationPreference): Promise<void> } | undefined;
+    void vt?.setDegradationPreference?.(degradePref).catch(() => { /* sender gone / not renegotiable */ });
+  }, [degradePref, localParticipant]);
 
   // Non-premium streamers are capped at Medium.
   useEffect(() => {
@@ -2247,8 +3085,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     const sharesMap = sharesMapRef.current;
     const soundsMap = soundsMapRef.current;
     return () => {
-      if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop();
-      if (recTimerRef.current) clearInterval(recTimerRef.current);
       programStreamRef.current?.getTracks().forEach((t) => t.stop());
       camStreamRef.current?.getTracks().forEach((t) => t.stop());
       micStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -2373,10 +3209,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
 
   const showPipOverlay = scene === 'overlay' && camOn;
   const stateBadge = streamState === 'live'
-    ? { cls: '', label: '● LIVE', tip: 'Live to viewers' }
+    ? { cls: '', symbol: '●', word: 'LIVE', tip: 'Live to viewers' }
     : streamState === 'paused'
-      ? { cls: ' hh-studio__live--paused', label: '❚❚ PAUSED', tip: 'Viewers see "We\'ll be right back"' }
-      : { cls: ' hh-studio__live--standby', label: '◌ STANDBY', tip: 'Viewers see the "Starting soon" slate' };
+      ? { cls: ' hh-studio__live--paused', symbol: '❚❚', word: 'PAUSED', tip: 'Viewers see "We\'ll be right back"' }
+      : { cls: ' hh-studio__live--standby', symbol: '◌', word: 'STANDBY', tip: 'Viewers see the "Starting soon" slate' };
   const previewTag = streamState === 'standby' ? 'Preview — viewers see “Starting soon”'
     : streamState === 'paused' ? 'Paused — viewers see “We\'ll be right back”' : null;
 
@@ -2443,6 +3279,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         {renderMeter(key, active && !muted)}
       </div>
       {extra && <div className="hh-studio__fader-extra">{extra}</div>}
+      <label className="hh-studio__fader-auto" title="Auto-limit: cap peaks so this source can't blow out the mix">
+        <input type="checkbox" checked={isLimited(key)} onChange={() => toggleAutoLimit(key)} />
+        <span>Auto</span>
+      </label>
       <button className={`hh-studio__fader-mute${muted || !active ? ' hh-studio__fader-mute--off' : ''}`} onClick={onMute} title={muteTitle}>{icon}</button>
       <span className="hh-studio__fader-label" title={labelTitle ?? label}>{label}</span>
       {onRemove && <button className="hh-studio__fader-remove" onClick={onRemove} title={`Remove ${label}`}>×</button>}
@@ -2625,6 +3465,70 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // Screen Wake Lock: the real fix for "locking the phone stops the stream".
   // Re-requested on visibility change because the lock is dropped whenever the
   // page is hidden, and would otherwise not come back.
+  // ---- backgrounding: pause deliberately, don't rot ----------------------
+  //
+  // rAF stops dead when the phone locks or the host switches apps. The timer
+  // fallback in the compositor keeps SOMETHING flowing, but mobile throttles
+  // background timers hard enough that the broadcast degrades into a stuttering
+  // mess rather than surviving.
+  //
+  // So pause on purpose instead: viewers get the "we'll be right back" slate,
+  // audio drops out (master gain already follows streamState) and — the point
+  // of the exercise — the LiveKit connection and published tracks stay up, so
+  // coming back is instant with no renegotiation. Held for five minutes; past
+  // that the stream stops on its own rather than sitting on a slate forever.
+  const BACKGROUND_GRACE_MS = 5 * 60 * 1000;
+  const autoPausedRef = useRef(false);
+  useEffect(() => {
+    let timer: number | null = null;
+    const clearTimer = () => { if (timer !== null) { window.clearTimeout(timer); timer = null; } };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        // MOBILE ONLY. A phone throttles/kills the rAF compositor when it locks
+        // or backgrounds, so the program feed freezes and the broadcast has to
+        // be paused deliberately. A desktop keeps rendering a background tab
+        // fine, so switching tabs there must NOT interrupt the stream.
+        if (!isMobileRef.current) return;
+        // Only OUR pause is auto-resumable. A host who hit Pause themselves and
+        // then locked the phone must come back to a paused stream, not a live one.
+        if (streamStateRef.current !== 'live') return;
+        autoPausedRef.current = true;
+        setStreamState('paused');
+        clearTimer();
+        timer = window.setTimeout(() => {
+          autoPausedRef.current = false;
+          void (async () => {
+            // Stop + publish the recording BEFORE dropping to standby. Without
+            // this the server-side egress keeps rolling on the "be right back"
+            // slate until the 6h janitor kills it — the host's VOD is orphaned
+            // (and truncated), exactly what the graceful End flow prevents.
+            if (egressStartedRef.current) {
+              setSavingVod(true);
+              try { await stopVodEgressRef.current(); } finally { setSavingVod(false); }
+              egressStartedRef.current = false;
+            }
+            setStreamState('standby');
+            setMediaError('Your stream was paused for 5 minutes while the app was in the background, so it has been stopped. Hit Start to go live again.');
+          })();
+        }, BACKGROUND_GRACE_MS);
+        return;
+      }
+
+      clearTimer();
+      if (autoPausedRef.current) {
+        autoPausedRef.current = false;
+        setStreamState('live');
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      clearTimer();
+    };
+  }, []);
+
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
   useEffect(() => {
     if (!isMobile) return;
@@ -2674,20 +3578,34 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     } catch { /* lock unsupported or refused — nothing lost */ }
   }, [stopCam]);
 
+  // The actual teardown — no confirm. Used by the Stop button (after its
+  // prompt) AND by the free-stream time cap, which must stop without asking.
+  const finishingRef = useRef(false);
+  const finishStream = useCallback(async () => {
+    // Idempotent. finishStream doesn't flip streamState, so the 1s cap tick
+    // keeps satisfying `remaining <= 0` and would call this (and onEndRoom /
+    // room.endRoom) repeatedly; the manual and ✕-close paths can also overlap.
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    // One server-side recording covers both the published VOD and the download,
+    // and stopping it needs the room to still exist — so do it BEFORE teardown.
+    if (egressStartedRef.current) {
+      setSavingVod(true);
+      try { await stopVodEgressRef.current(); } finally { setSavingVod(false); }
+    }
+    onEndRoom();
+  }, [onEndRoom]);
+  const finishStreamRef = useRef(finishStream);
+  finishStreamRef.current = finishStream;
+
   const endStream = useCallback(async () => {
-    const willSave = (autoVodRef.current || autoDownloadRef.current) && !!recorderRef.current;
-    const msg = willSave
+    const willPublish = egressStartedRef.current;
+    const msg = willPublish
       ? 'End the stream? All viewers will be disconnected, and the recording will be published as this session\'s video.'
       : 'End the stream? All viewers will be disconnected.';
     if (!window.confirm(msg)) return;
-    if (willSave) {
-      // Finish writing + hand off the file BEFORE the room is torn down,
-      // otherwise the recording is lost.
-      setSavingVod(true);
-      try { await stopRecordingAndWait(); } finally { setSavingVod(false); }
-    }
-    onEndRoom();
-  }, [stopRecordingAndWait, onEndRoom]);
+    await finishStream();
+  }, [finishStream]);
 
   // Shared by both layouts — the desktop rail/mixer shell and the mobile
   // cam-only shell render the identical preview surface.
@@ -2726,9 +3644,15 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); dragKindRef.current = 'pip-resize'; }} title="Drag to resize" />
         </div>
       )}
+      {/* Only the side-by-side split is resizable — the stacked collab view is
+          locked to equal halves. */}
       {scene === 'split' && (
-        <div className="hh-studio__split-handle" style={{ left: `${splitRatio * 100}%` }}
-          onPointerDown={(e) => { e.preventDefault(); dragKindRef.current = 'split'; }} title="Drag to resize the split"><span /></div>
+        <div
+          className="hh-studio__split-handle"
+          style={{ left: `${splitRatio * 100}%` }}
+          onPointerDown={(e) => { e.preventDefault(); dragKindRef.current = 'split'; }}
+          title="Drag to resize the split"
+        ><span /></div>
       )}
       <BoostOverlay />
     </div>
@@ -2737,30 +3661,114 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
 
   return (
     <div className="hh-studio">
-      <header className="hh-studio__header">
-        <span className={`hh-studio__live${stateBadge.cls}`} title={stateBadge.tip}>{stateBadge.label}</span>
-        <h2 className="hh-studio__title">{title}</h2>
-        {/* Always visible, never dismissible: browsers throttle timers and
-            rAF in hidden/minimised tabs, which stalls the canvas compositor
-            (~2fps) and starves the encoder. The host has to know. */}
-        <span className="hh-studio__warn" role="alert">
-          <span className="hh-studio__warn-icon" aria-hidden="true">⚠️</span>
-          <span className="hh-studio__warn-text">
-            {isMobile
-              ? 'Keep this screen on and stay in the app — locking the phone or switching apps stops your stream.'
-              : 'Keep this window visible at all times — a hidden or minimised tab gets throttled by the browser, which lowers quality and skips frames.'}
-          </span>
+      <header className={`hh-studio__header${isMobile ? ' hh-studio__header--mobile' : ''}${isMobile && !headerOpen ? ' hh-studio__header--collapsed' : ''}`}>
+        {/* Mobile: just the dot/symbol — no word — to keep the header slim. */}
+        <span className={`hh-studio__live${stateBadge.cls}`} title={stateBadge.tip}>
+          {stateBadge.symbol}{!isMobile && ` ${stateBadge.word}`}
         </span>
+        {/* Title eats a whole row on a phone and isn't needed there (the host
+            knows their own stream) — desktop keeps it. */}
+        {!isMobile && <h2 className="hh-studio__title">{title}</h2>}
+        {/* Browsers throttle timers/rAF in hidden tabs, stalling the compositor
+            — the host has to know. Always up on desktop; on mobile it lives
+            inside the expandable header (the ⚠️ toggle is the persistent cue). */}
+        {(!isMobile || headerOpen) && (
+          <span className="hh-studio__warn" role="alert">
+            <span className="hh-studio__warn-icon" aria-hidden="true">⚠️</span>
+            <span className="hh-studio__warn-text">
+              {isMobile
+                ? 'Keep this screen on and stay in the app — locking the phone or switching apps stops your stream.'
+                : 'Keep this window visible at all times — a hidden or minimised tab gets throttled by the browser, which lowers quality and skips frames.'}
+            </span>
+          </span>
+        )}
         <div className="hh-studio__header-actions">
-          <span className="hh-studio__viewers" title="Viewers watching">👁 {viewerCount}</span>
-          <label className="hh-studio__quality" title={isPremium ? 'Broadcast quality' : 'Broadcast quality — High needs 3Speak Pro'}>
-            <span aria-hidden="true">📶</span>
-            <select value={streamQuality} onChange={(e) => setStreamQuality(e.target.value as StreamQuality)} aria-label="Broadcast quality">
-              <option value="low">Low · 360p</option>
-              <option value="medium">Medium · 480p</option>
-              <option value="high" disabled={!isPremium}>High · 720p{isPremium ? '' : ' 🔒'}</option>
-            </select>
-          </label>
+          {(streamState === 'live' || streamState === 'paused') && streamStartedAtRef.current != null && (() => {
+            const cap = resolveStreamCap(isPremium);
+            const elapsed = Date.now() - streamStartedAtRef.current;
+            const remaining = Math.max(0, cap.capMs - elapsed);
+            return (
+              <span
+                className={`hh-studio__timer${remaining <= 60_000 ? ' hh-studio__timer--low' : ''}`}
+                title={`Streamed ${formatDuration(elapsed)} — ${formatDuration(remaining)} left (${cap.label} max)`}
+              >
+                ⏱ {formatDuration(elapsed)}
+                <span className="hh-studio__timer-left"> · {formatDuration(remaining)} left</span>
+              </span>
+            );
+          })()}
+          {isMobile ? (
+            /* Compact icon buttons — a full dropdown makes the live header too
+               tall on a phone. The buttons stay put; collapsing only tucks away
+               the "keep the screen on" warning row. Each picker opens a bottom
+               popup with explanations. */
+            <>
+              <button
+                className="hh-studio__hbtn"
+                onClick={() => setSettingSheet('quality')}
+                title="Broadcast quality"
+                aria-label="Broadcast quality"
+              >
+                📶<span className="hh-studio__hbtn-val">{QUALITY_OPTIONS.find((o) => o.value === streamQuality)?.short}</span>
+              </button>
+              <button
+                className="hh-studio__hbtn"
+                onClick={() => setSettingSheet('priority')}
+                title="Quality priority under load"
+                aria-label="Quality priority under load"
+              >
+                🎚️
+              </button>
+              {/* Viewer count — a button for visual consistency; tapping does
+                  nothing (there's no viewer list to open here). */}
+              <button className="hh-studio__hbtn hh-studio__hbtn--static" type="button" title="Viewers watching" aria-label={`${viewerCount} watching`}>
+                👁<span className="hh-studio__hbtn-val">{viewerCount}</span>
+              </button>
+              {/* Persistent ⚠️ cue while collapsed — also expands the warning. */}
+              {!headerOpen && (
+                <button
+                  className="hh-studio__hbtn"
+                  onClick={() => setHeaderOpen(true)}
+                  title="Show the stream warning"
+                  aria-label="Show the stream warning"
+                >
+                  ⚠️
+                </button>
+              )}
+              {/* Expand/collapse the warning row. */}
+              <button
+                className="hh-studio__hbtn"
+                onClick={() => setHeaderOpen((v) => !v)}
+                title={headerOpen ? 'Hide the warning' : 'Show the warning'}
+                aria-label={headerOpen ? 'Collapse header' : 'Expand header'}
+                aria-expanded={headerOpen}
+              >
+                {headerOpen ? '▴' : '▾'}
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="hh-studio__viewers" title="Viewers watching">👁 {viewerCount}</span>
+              <label className="hh-studio__quality" title={isPremium ? 'Broadcast quality' : 'Broadcast quality — High needs 3Speak Pro'}>
+                <span aria-hidden="true">📶</span>
+                <select value={streamQuality} onChange={(e) => setStreamQuality(e.target.value as StreamQuality)} aria-label="Broadcast quality">
+                  <option value="low">Low · 360p</option>
+                  <option value="medium">Medium · 480p</option>
+                  <option value="high" disabled={!isPremium}>High · 720p{isPremium ? '' : ' 🔒'}</option>
+                </select>
+              </label>
+              {/* Which way the encoder gives ground when it can't hold both.
+                  Changing it while live is applied on the fly (no republish). */}
+              <label className="hh-studio__quality" title="When the encoder can't keep up: keep motion smooth, or keep the picture sharp">
+                <span aria-hidden="true">🎚️</span>
+                <select value={degradePref} onChange={(e) => setDegradePref(e.target.value as RTCDegradationPreference)} aria-label="Priority when the encoder can't keep up">
+                  <option value="maintain-framerate">Smooth motion</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="maintain-resolution">Sharp image</option>
+                </select>
+              </label>
+            </>
+          )}
           {!isMobile && shareUrl && <button className="hh-btn hh-btn--secondary hh-btn--small" onClick={copyShareUrl}>{copied ? '✓ Copied' : '🔗 Share'}</button>}
           {!isMobile && <button className={`hh-btn hh-btn--small ${boostHistoryOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`} onClick={() => setBoostHistoryOpen((v) => !v)} title="Boost history">💰</button>}
           {onClose && (
@@ -2768,18 +3776,88 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               className="hh-studio__close"
               aria-label="Close the stream studio"
               title="Close the stream studio"
-              onClick={() => {
-                const msg = streamState === 'standby'
-                  ? 'Close the stream studio? Your setup will be lost — the session stays open and you can come back to it.'
-                  : 'Close the stream studio? You are LIVE — closing stops your broadcast for viewers.';
-                if (window.confirm(msg)) onClose();
+              onClick={async () => {
+                // Standby: just leave the setup. LIVE: closing is ENDING — run
+                // the full end flow so the recording is published as the VOD
+                // (and any download saved) instead of being abandoned to the
+                // crash watchdog. Without this, closing via ✕ while "replace
+                // the stream with a video" was on left the post with no VOD.
+                if (streamState === 'standby') {
+                  if (window.confirm('Close the stream studio? Your setup will be lost — the session stays open and you can come back to it.')) onClose();
+                  return;
+                }
+                if (!window.confirm('Close the stream studio? You are LIVE — this ends your broadcast and publishes the recording.')) return;
+                await finishStream();
               }}
             >
-              ✕
+              Close
             </button>
           )}
         </div>
       </header>
+
+      {/* Free-stream time cap countdown — a dismissible popup shown in BOTH the
+          desktop and mobile studio, since the cap applies to whoever is live. */}
+      {timeWarning && (
+        <div className="hh-studio__timecap" role="alertdialog" aria-label="Streaming time limit">
+          <div className="hh-studio__timecap-card">
+            <span className="hh-studio__timecap-icon" aria-hidden="true">⏳</span>
+            <p className="hh-studio__timecap-text">{timeWarning}</p>
+            <button className="hh-studio__timecap-close" onClick={() => setTimeWarning('')} aria-label="Dismiss">✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile value-picker popup for the quality / priority header buttons. */}
+      {settingSheet && (
+        <div className="hh-optsheet-backdrop" onClick={() => setSettingSheet(null)}>
+          <div
+            className="hh-optsheet"
+            role="dialog"
+            aria-label={settingSheet === 'quality' ? 'Broadcast quality' : 'Quality priority'}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="hh-optsheet__head">
+              <span className="hh-optsheet__title">
+                {settingSheet === 'quality' ? '📶 Broadcast quality' : '🎚️ Quality priority'}
+              </span>
+              <button className="hh-optsheet__close" onClick={() => setSettingSheet(null)} aria-label="Close">✕</button>
+            </div>
+            <p className="hh-optsheet__intro">
+              {settingSheet === 'quality'
+                ? 'Higher quality looks better but needs more upload. Change it any time — it applies live.'
+                : 'When your phone can’t send a picture that’s both smooth and sharp, this decides which one wins.'}
+            </p>
+            {settingSheet === 'quality'
+              ? QUALITY_OPTIONS.map((o) => {
+                  const locked = !!o.pro && !isPremium;
+                  return (
+                    <button
+                      key={o.value}
+                      className={`hh-optsheet__opt${streamQuality === o.value ? ' hh-optsheet__opt--on' : ''}`}
+                      disabled={locked}
+                      onClick={() => { setStreamQuality(o.value); setSettingSheet(null); }}
+                    >
+                      <span className="hh-optsheet__opt-label">
+                        {o.label}{locked ? ' 🔒' : ''}{streamQuality === o.value ? ' ✓' : ''}
+                      </span>
+                      <span className="hh-optsheet__opt-desc">{o.desc}</span>
+                    </button>
+                  );
+                })
+              : PRIORITY_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    className={`hh-optsheet__opt${degradePref === o.value ? ' hh-optsheet__opt--on' : ''}`}
+                    onClick={() => { setDegradePref(o.value); setSettingSheet(null); }}
+                  >
+                    <span className="hh-optsheet__opt-label">{o.label}{degradePref === o.value ? ' ✓' : ''}</span>
+                    <span className="hh-optsheet__opt-desc">{o.desc}</span>
+                  </button>
+                ))}
+          </div>
+        </div>
+      )}
 
       {isMobile ? (
         <div className={`hh-studio__body hh-studio__body--mobile${mobileSheet ? ' hh-studio__body--sheet' : ''}`}>
@@ -2884,6 +3962,21 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 <span className="hh-studio__rbtn-label">Post</span>
               </button>
             )}
+            {(raisedHands.size > 0 || guestIdentity) && (
+              <button
+                className={`hh-studio__rbtn${mobileSheet === 'guests' ? ' hh-studio__rbtn--on' : ''}`}
+                onClick={() => setMobileSheet((v) => (v === 'guests' ? null : 'guests'))}
+                title="Requests to join"
+              >
+                <IconGuest />
+                {raisedHands.size > 0 && (
+                  <span className="hh-studio__rbtn-badge" aria-label={`${raisedHands.size} waiting to join`}>
+                    {raisedHands.size > 9 ? '9+' : raisedHands.size}
+                  </span>
+                )}
+                <span className="hh-studio__rbtn-label">Guests</span>
+              </button>
+            )}
             {shareUrl && (
               <button
                 className={`hh-studio__rbtn${mobileSheet === 'share' ? ' hh-studio__rbtn--on' : ''}`}
@@ -2930,7 +4023,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               title={mobileSheet === 'chat' ? 'Chat'
                 : mobileSheet === 'post' ? 'Stream post'
                 : mobileSheet === 'lens' ? 'Camera'
-                : mobileSheet === 'share' ? 'Share this stream' : 'Microphone'}
+                : mobileSheet === 'share' ? 'Share this stream'
+                : mobileSheet === 'guests' ? 'Requests to join' : 'Microphone'}
               onClose={() => setMobileSheet(null)}
               height={sheetH[mobileSheet]}
               onHeightChange={(h) => setSheetH((prev) => ({ ...prev, [mobileSheet]: h }))}
@@ -2939,6 +4033,50 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             >
               {mobileSheet === 'chat' && <ChatPanel readOnly readOnlyNotice="" />}
               {mobileSheet === 'post' && renderPostEditor(false)}
+              {mobileSheet === 'guests' && (
+                <div className="hh-guests">
+                  {collabError && <p className="hh-guests__error">{collabError}</p>}
+
+                  {guestIdentity && (
+                    <div className="hh-guests__row hh-guests__row--live">
+                      <span className="hh-guests__name">@{guestIdentity}</span>
+                      <span className="hh-guests__tag">On air</span>
+                      <button
+                        className="hh-guests__btn hh-guests__btn--danger"
+                        disabled={modPending.has(guestIdentity)}
+                        onClick={() => void removeGuest(guestIdentity)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+
+                  {[...raisedHands.keys()].map((identity) => (
+                    <div className="hh-guests__row" key={identity}>
+                      <span className="hh-guests__name">@{identity}</span>
+                      <button
+                        className="hh-guests__btn hh-guests__btn--primary"
+                        /* One guest at a time — server-enforced, but a disabled
+                           button explains it better than a 409 would. `accepting`
+                           covers the promote-in-flight window before guestIdentity
+                           lands, so a second hand can't be promoted in parallel. */
+                        disabled={!!guestIdentity || accepting || modPending.has(identity)}
+                        title={guestIdentity ? 'Remove the current guest first' : 'Bring them on'}
+                        onClick={() => void acceptGuest(identity)}
+                      >
+                        Bring on
+                      </button>
+                      <button className="hh-guests__btn" onClick={() => declineGuest(identity)}>
+                        Decline
+                      </button>
+                    </div>
+                  ))}
+
+                  {raisedHands.size === 0 && !guestIdentity && (
+                    <p className="hh-guests__empty">Nobody is asking to join right now.</p>
+                  )}
+                </div>
+              )}
               {mobileSheet === 'share' && (
                 <div className="hh-studio__share-sheet">
                   <p className="hh-studio__share-hint">Anyone with this link can watch:</p>
@@ -3042,6 +4180,15 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                       () => setMicMuted((v) => !v), (g) => setMicGain(g),
                       micMuted ? 'mute' : `${Math.round(micGain * 100)}`,
                       micMuted ? 'Unmute mic' : 'Mute mic')}
+                    {/* A guest is a full participant in the mix, so they need
+                        their own fader here — a host who can't ride or cut a
+                        guest's level has no answer to a bad mic on air. */}
+                    {shares.filter((sh) => sh.id === GUEST_SOURCE_ID && sh.hasAudio).map((sh) => (
+                      renderFader(sh.id, '👤', sh.label, true, sh.muted, sh.gain,
+                        () => toggleShareMute(sh.id), (g) => setShareGain(sh.id, g),
+                        sh.muted ? 'mute' : `${Math.round(sh.gain * 100)}`,
+                        sh.muted ? `Unmute ${sh.label}` : `Mute ${sh.label}`)
+                    ))}
                   </div>
                 </div>
               )}
@@ -3240,16 +4387,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               {streamState === 'standby' && <button className="hh-studio__go-btn" onClick={() => { void savePost(); setStreamState('live'); }} title="Cut the program and audio over to your viewers">🔴 START STREAM</button>}
               {streamState === 'live' && <button className="hh-studio__pause-btn" onClick={() => setStreamState('paused')} title="Viewers get a “We'll be right back” screen and silence">❚❚ PAUSE STREAM</button>}
               {streamState === 'paused' && <button className="hh-studio__go-btn" onClick={() => setStreamState('live')} title="Back to the program">▶ RESUME STREAM</button>}
-              <button
-                className={`hh-btn hh-btn--small ${recording ? 'hh-studio__rec-btn hh-studio__rec-btn--on' : 'hh-btn--secondary'}`}
-                onClick={() => (recording ? stopRecording() : startRecording())}
-                disabled={!isPremium && !recording}
-                title={!isPremium
-                  ? 'Recording requires a 3Speak Pro subscription'
-                  : recording ? `Stop recording (${formatTime(recElapsed)})` : 'Record this stream to a video file'}
-              >
-                {recording ? `⏺ ${formatTime(recElapsed)}` : !isPremium ? '⏺ Record 🔒' : '⏺ Record'}
-              </button>
               {streamState !== 'standby' && (
                 <button
                   className="hh-studio__end-btn"
@@ -3368,6 +4505,13 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                     Copy
                   </button>
                 </div>
+                <p className="hh-studio__obs-note">
+                  ⏱ OBS input reaches the studio with a short delay. To keep your voice
+                  in sync with the picture, run <strong>everything through OBS</strong> —
+                  your camera and microphone included — rather than mixing it with the
+                  studio's own camera and mic. Combining the two makes the delayed OBS
+                  feed drift noticeably against the live ones.
+                </p>
                 <ul className="hh-studio__obs-hints">
                   <li>Needs <strong>OBS 30 or newer</strong> — that's when the WHIP output landed.</li>
                   <li>Keep this key private: anyone with the URL can publish into your stream.</li>
@@ -3397,12 +4541,19 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               title={!shareSupported ? 'Not available on this device' : shares.length >= MAX_SHARES ? `Max ${MAX_SHARES} shares` : undefined}>
               🖥️ {chromium ? 'Share a tab / screen' : 'Share a window / screen'}
             </button>
-            <button className="hh-studio__add-item" disabled={obsBusy}
-              onClick={() => { setAddMenuOpen(false); void openObsSetup(); }}
-              title="Publish from OBS (or any WHIP encoder) into this stream">
-              🎥 OBS / external encoder
-              <span className="hh-studio__add-state">{obsLive ? 'connected ✓' : obsBusy ? 'setting up…' : ''}</span>
-            </button>
+            {(() => {
+              // OBS still publishing but its source tile was removed → offer to
+              // bring the scene back instead of trying to set up a fresh ingress.
+              const obsSourceGone = obsLive && !shares.some((s) => s.id === OBS_SOURCE_ID);
+              return (
+                <button className="hh-studio__add-item" disabled={obsBusy}
+                  onClick={() => { setAddMenuOpen(false); if (obsSourceGone) restoreObs(); else void openObsSetup(); }}
+                  title={obsSourceGone ? 'Bring the connected OBS feed back as a source' : 'Publish from OBS (or any WHIP encoder) into this stream'}>
+                  🎥 {obsSourceGone ? 'Reconnect OBS scene' : 'OBS / external encoder'}
+                  <span className="hh-studio__add-state">{obsSourceGone ? 'tap to restore' : obsLive ? 'connected ✓' : obsBusy ? 'setting up…' : ''}</span>
+                </button>
+              );
+            })()}
             <button className="hh-studio__add-item" onClick={() => { setAddMenuOpen(false); mediaInputRef.current?.click(); }}>
               🖼️ Media file (image / GIF / video)
             </button>

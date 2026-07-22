@@ -7,6 +7,22 @@
  */
 export const POST_DRAFT_KEY = 'hh-studio-post-draft';
 
+/** Room mode. Drafts are stored PER MODE — see draftKey below. */
+export type DraftMode = 'conference' | 'standalone';
+
+/**
+ * A conference and a stream are different kinds of thing, and their setups have
+ * nothing to do with each other: a group chat is typically unlisted with no
+ * Hive announcement, a stream is public and announced. Sharing one draft meant
+ * creating one clobbered the other's defaults, so each mode keeps its own.
+ *
+ * The unsuffixed key stays the STANDALONE draft: the studio's post composer
+ * reads and writes it directly, and streams are what it has always held.
+ */
+export function draftKey(mode?: DraftMode): string {
+  return mode === 'conference' ? `${POST_DRAFT_KEY}-conference` : POST_DRAFT_KEY;
+}
+
 export interface PostDraft {
   title?: string;
   description?: string;
@@ -29,9 +45,9 @@ export interface PostDraft {
   announceType?: 'snap' | 'post';
 }
 
-export function readPostDraft(): PostDraft {
+export function readPostDraft(mode?: DraftMode): PostDraft {
   try {
-    const raw = window.localStorage.getItem(POST_DRAFT_KEY);
+    const raw = window.localStorage.getItem(draftKey(mode));
     return raw ? (JSON.parse(raw) as PostDraft) : {};
   } catch {
     return {};
@@ -40,10 +56,10 @@ export function readPostDraft(): PostDraft {
 
 /** Merge a partial draft over what's stored. Never throws (storage may be
  *  full, disabled, or blocked in a privacy context). */
-export function writePostDraft(patch: PostDraft): void {
+export function writePostDraft(patch: PostDraft, mode?: DraftMode): void {
   try {
-    const next = { ...readPostDraft(), ...patch };
-    window.localStorage.setItem(POST_DRAFT_KEY, JSON.stringify(next));
+    const next = { ...readPostDraft(mode), ...patch };
+    window.localStorage.setItem(draftKey(mode), JSON.stringify(next));
   } catch {
     /* non-critical */
   }

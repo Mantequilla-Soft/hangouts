@@ -6,7 +6,6 @@ import type { BoostConfig } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { BoostStoreProvider } from '../../hooks/useBoosts.js';
-import { BoostOverlay } from './BoostOverlay.js';
 
 /**
  * Composable watch-side of a standalone stream. Unlike <StandaloneViewer>
@@ -25,6 +24,10 @@ interface StreamCtxValue {
   isGuest: boolean;
   roomName: string;
   boostConfig?: BoostConfig;
+  /** The broadcast is portrait, i.e. it came from the MOBILE studio. Only that
+   *  studio has the Guests panel for accepting collab requests, so it also
+   *  tells a viewer whether asking to join can lead anywhere. */
+  portrait?: boolean;
 }
 const StreamContext = createContext<StreamCtxValue>({ hostIdentity: null, isGuest: true, roomName: '' });
 export const useStreamContext = () => useContext(StreamContext);
@@ -69,7 +72,13 @@ export function StandaloneWatch({ roomName, children, connecting }: StandaloneWa
 
   const hostIdentity = room.roomMeta?.host ?? null;
   return (
-    <StreamContext.Provider value={{ hostIdentity, isGuest: room.isGuest, roomName, boostConfig: room.roomMeta?.boost }}>
+    <StreamContext.Provider value={{
+      hostIdentity,
+      isGuest: room.isGuest,
+      roomName,
+      boostConfig: room.roomMeta?.boost,
+      portrait: (room.roomMeta as { portrait?: boolean } | null)?.portrait,
+    }}>
       <LiveKitRoom
         token={room.livekitToken}
         serverUrl={room.livekitServerUrl}
@@ -78,7 +87,7 @@ export function StandaloneWatch({ roomName, children, connecting }: StandaloneWa
         video={false}
         options={{ adaptiveStream: true, dynacast: true }}
       >
-        <RoomAudio />
+        <RoomAudio programOnly />
         <StartAudio label="Click to enable audio" className="hh-start-audio" />
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
           {children}
@@ -122,7 +131,10 @@ export function StreamVideo({ showLiveBadge = true }: StreamVideoProps) {
       {showLiveBadge && (
         <span className={`hh-stream-badge${live ? '' : ' hh-stream-badge--off'}`}>{live ? '● LIVE' : '○ OFFLINE'}</span>
       )}
-      <BoostOverlay />
+      {/* No <BoostOverlay/> here on purpose. The studio now composites boosts
+          into the program canvas, so they're already in the picture — and in
+          the recording, and in any player. Rendering the DOM overlay on top of
+          that showed every boost twice. */}
     </div>
   );
 }
