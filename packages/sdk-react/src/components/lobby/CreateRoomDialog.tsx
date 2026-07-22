@@ -4,6 +4,9 @@ import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
 import { AUTO_VOD_KEY, AUTO_DL_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
+import { isInAppBrowser, canBroadcast } from '../../lib/browser.js';
+import { useIsMobile } from '../../hooks/useIsMobile.js';
+import { FREE_STREAM_CAP_LABEL, PRO_STREAM_CAP_LABEL } from '../../lib/streamLimits.js';
 
 /** How the host wants to announce the session on Hive. */
 export type AnnounceType = 'snap' | 'post';
@@ -24,6 +27,11 @@ export interface CreateRoomDialogProps {
    *  Only shown when "Announce on Hive" is on. The integrator manages this
    *  state itself and reads it in `onCreated`. */
   renderAnnounceOptions?: (announceType: AnnounceType) => ReactNode;
+  /** Offer the "Quick snap" announcement type. ON by default. When false, the
+   *  announcement is always a full post: the snap/post toggle disappears (a
+   *  single option shouldn't be a button) and `announceType` is forced to
+   *  'post'. Standalone streams are already post-only regardless. */
+  allowSnapAnnounce?: boolean;
   /** Replaces the built-in description field with an integrator-supplied
    *  markdown editor (e.g. 3Speak's MarkdownComposer). When omitted, the
    *  dialog falls back to its own textarea + formatting toolbar. */
@@ -32,6 +40,11 @@ export interface CreateRoomDialogProps {
    *  locked with an explanation rather than not at all, so the feature is
    *  discoverable. */
   isPremium?: boolean;
+  /** Open on this mode instead of whatever was used last. Set by the entry
+   *  point the host came through — "Group chat" and "Start stream" are
+   *  different intents, and each should land on its own kind of room. The
+   *  tiles stay switchable. */
+  defaultMode?: RoomMode;
 }
 
 async function uploadTo3Speak(file: File, apiKey: string): Promise<string> {
@@ -98,19 +111,30 @@ function renderMarkdown(md: string): string {
 const VISIBILITIES: Array<{ id: RoomVisibility; icon: string; title: string; desc: string }> = [
   { id: 'public', icon: '🌐', title: 'Public', desc: 'Anyone can watch as a guest' },
   { id: 'hive-internal', icon: '🔑', title: 'Hive-only', desc: 'Requires a Hive sign-in' },
-  { id: 'unlisted', icon: '🔗', title: 'Unlisted', desc: 'Link only — hidden from lobby' },
+  { id: 'unlisted', icon: '🔗', title: 'Unlisted', desc: 'Link only access' },
 ];
 
-export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false, renderAnnounceOptions, renderDescriptionEditor, isPremium = false }: CreateRoomDialogProps) {
+export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false, renderAnnounceOptions, renderDescriptionEditor, isPremium = false, defaultMode, allowSnapAnnounce = true }: CreateRoomDialogProps) {
   // Pre-fill from the host's last session (shared with the studio's post
   // composer) so title/thumbnail/description/tags/language come back.
-  const draft = useMemo(() => readPostDraft(), []);
+  // Which mode this dialog opens on, decided BEFORE the draft is read — each
+  // mode keeps its own draft, so we have to know which one to load.
+  const initialMode: RoomMode = useMemo(() => {
+    if (defaultMode) return defaultMode;
+    const last = readPostDraft().mode;
+    return allowStandalone && last ? (last as RoomMode) : 'conference';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const draft = useMemo(() => readPostDraft(initialMode), [initialMode]);
   // Restore the last mode/access choice. Standalone is only restorable when the
   // integrator still allows it — otherwise a remembered 'standalone' would
   // stick with the mode tiles hidden and no way to change it.
-  const [mode, setMode] = useState<RoomMode>(
-    allowStandalone && draft.mode ? (draft.mode as RoomMode) : 'conference',
-  );
+  const [mode, setMode] = useState<RoomMode>(initialMode);
+  // A remembered 'standalone' would otherwise strand the host in a mode whose
+  // tile is disabled, with no way back.
+  useEffect(() => {
+    if (isInAppBrowser() || !canBroadcast()) setMode('conference');
+  }, []);
   const [visibility, setVisibility] = useState<RoomVisibility>(
     (draft.visibility as RoomVisibility) ?? 'public',
   );
@@ -124,7 +148,8 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
   const [tagInput, setTagInput] = useState('');
   const [language, setLanguage] = useState(draft.language ?? 'en');
   const [boostEnabled, setBoostEnabled] = useState(draft.boostEnabled ?? true);
-  const [minBoostUsd, setMinBoostUsd] = useState(draft.minBoostUsd ?? '1');
+  // $1 priced out most of the audience for a quick 'nice stream' boost.
+  const [minBoostUsd, setMinBoostUsd] = useState(draft.minBoostUsd ?? '0.1');
   const [creatorPayoutAccount, setCreatorPayoutAccount] = useState(draft.creatorPayoutAccount ?? '');
   const [notifyOnHive, setNotifyOnHive] = useState(draft.notifyOnHive ?? true);
   const [announceType, setAnnounceType] = useState<AnnounceType>((draft.announceType as AnnounceType) ?? 'snap');
@@ -141,8 +166,37 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
   // DERIVED rather than forced into `announceType` state, so a host who picks
   // snap for a conference, switches to standalone and back still finds their
   // original choice intact.
+  // Broadcasting from an in-app browser (Hive Keychain's, or any social app's
+  // link opener) does not work reliably: camera prompts misbehave, the host app
+  // can suspend the WebView mid-stream, and there is no address bar to escape
+  // to a real browser. Block it at the door rather than letting someone get
+  // halfway into a broadcast and lose it.
+  const cannotBroadcast = useMemo(() => isInAppBrowser() || !canBroadcast(), []);
+
+  // Heading + one-line explainer above the form, so the host knows what kind of
+  // room they're about to make — and, for a stream, why the studio differs
+  // between desktop and phone.
+  const onPhone = useIsMobile();
+  const modeIntro = mode === 'standalone'
+    ? (onPhone
+        ? {
+            title: 'Go Live',
+            desc: 'Stream vertically straight from your phone — tap and you\u2019re broadcasting. For a richer studio with scenes and screen sharing, open 3Speak on a desktop.',
+          }
+        : {
+            title: 'Stream Studio',
+            desc: 'The full studio: add scenes, screen shares, extra cameras and overlays before you go live. Vertical phone-style streaming is only available on mobile.',
+          })
+    : {
+        title: 'Group Chat',
+        desc: 'Have a fun talk with others, invite guests on stage, and record podcasts on 3Speak.',
+      };
+
   const isStandalone = mode === 'standalone';
-  const effectiveAnnounceType: AnnounceType = isStandalone ? 'post' : announceType;
+  // Post-only when the stream is standalone OR the integrator disabled snaps.
+  // With one option left there's no choice to make, so the toggle is hidden.
+  const postOnly = isStandalone || !allowSnapAnnounce;
+  const effectiveAnnounceType: AnnounceType = postOnly ? 'post' : announceType;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const descRef = useRef<HTMLTextAreaElement>(null);
   const { create, isLoading } = useHangoutsRoom();
@@ -205,13 +259,37 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
     setTagInput('');
   };
 
+  // Switching the mode tile loads THAT mode's saved setup.
+  //
+  // Without this, flipping from Group chat to Standalone kept the chat's
+  // settings — typically unlisted with no announcement — and a host would start
+  // a stream nobody could find. Skipped on the first render, where the initial
+  // state already came from the right draft.
+  const loadedModeRef = useRef(initialMode);
+  useEffect(() => {
+    if (loadedModeRef.current === mode) return;
+    loadedModeRef.current = mode;
+    const d = readPostDraft(mode);
+    setTitle(d.title ?? '');
+    setDescription(d.description ?? '');
+    setBackgroundImageUrl(d.thumbnail ?? '');
+    setTags(d.tags ?? []);
+    setLanguage(d.language ?? 'en');
+    setVisibility((d.visibility as RoomVisibility) ?? 'public');
+    setBoostEnabled(d.boostEnabled ?? true);
+    setMinBoostUsd(d.minBoostUsd ?? '0.1');
+    setCreatorPayoutAccount(d.creatorPayoutAccount ?? '');
+    setNotifyOnHive(d.notifyOnHive ?? true);
+    setAnnounceType((d.announceType as AnnounceType) ?? 'snap');
+  }, [mode, initialMode]);
+
   // Remember what the host typed so the next create dialog (and the studio's
   // post composer) opens pre-filled with it.
   useEffect(() => {
     writePostDraft({
       title, description, thumbnail: backgroundImageUrl, tags, language, mode, visibility,
       boostEnabled, minBoostUsd, creatorPayoutAccount, notifyOnHive, announceType,
-    });
+    }, mode);
   }, [
     title, description, backgroundImageUrl, tags, language, mode, visibility,
     boostEnabled, minBoostUsd, creatorPayoutAccount, notifyOnHive, announceType,
@@ -252,8 +330,21 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
         if (e.key === 'Enter' && e.target instanceof HTMLInputElement) e.preventDefault();
       }}
     >
-      {/* 1 · Mode */}
-      {allowStandalone && (
+      <div className="hh-cd__intro">
+        {/* Beta pill on the mode itself — live streaming is still being tested.
+            Shown on the direct-link entry, where this heading is the only label
+            (the lobby header is hidden). */}
+        <h2 className="hh-cd__intro-title">
+          {modeIntro.title}
+          {!!defaultMode && <span className="hh-cd__beta">beta</span>}
+        </h2>
+        <p className="hh-cd__intro-desc">{modeIntro.desc}</p>
+      </div>
+
+      {/* 1 · Mode — hidden when the host arrived via a link that already said
+          which kind of room they want ("Group chat" / "Start stream"). Asking
+          again would be asking a question they just answered. */}
+      {allowStandalone && !defaultMode && (
         <div className="hh-cd__section">
           <span className="hh-cd__label">What are you starting?</span>
           <div className="hh-cd__tiles">
@@ -262,10 +353,18 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
               <span className="hh-cd__tile-title">Room</span>
               <span className="hh-cd__tile-desc">Everyone can join &amp; talk</span>
             </button>
-            <button type="button" className={`hh-cd__tile${mode === 'standalone' ? ' is-active' : ''}`} onClick={() => setMode('standalone')}>
+            <button
+              type="button"
+              className={`hh-cd__tile${mode === 'standalone' ? ' is-active' : ''}${cannotBroadcast ? ' is-disabled' : ''}`}
+              disabled={cannotBroadcast}
+              title={cannotBroadcast ? 'Open 3Speak in your browser to go live' : undefined}
+              onClick={() => setMode('standalone')}
+            >
               <span className="hh-cd__tile-icon">📡</span>
               <span className="hh-cd__tile-title">Standalone</span>
-              <span className="hh-cd__tile-desc">Solo livestream studio</span>
+              <span className="hh-cd__tile-desc">
+                {cannotBroadcast ? 'Not available in this app’s browser' : 'Solo livestream studio'}
+              </span>
             </button>
           </div>
         </div>
@@ -288,8 +387,12 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
       {/* 3 · Title */}
       <div className="hh-cd__section">
         <span className="hh-cd__label">Title</span>
+        {/* No autoFocus: focusing the title on open scrolls the dialog past its
+            own heading/mode tiles straight to this field, so the host never
+            sees the intro or which mode they're on. Let the form open at the
+            top and let them tab/click into it. */}
         <input className="hh-cd__input" type="text" placeholder="Give it a catchy title…" value={title}
-          onChange={(e) => setTitle(e.target.value)} maxLength={64} autoFocus />
+          onChange={(e) => setTitle(e.target.value)} maxLength={64} />
       </div>
 
       {/* 4 · Thumbnail / background */}
@@ -380,7 +483,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
         <label className="hh-cd__switch">
           <input type="checkbox" checked={boostEnabled} onChange={(e) => setBoostEnabled(e.target.checked)} />
           <span className="hh-cd__switch-track"><span className="hh-cd__switch-thumb" /></span>
-          <span className="hh-cd__switch-label">💸 Enable Boost messages</span>
+          <span className="hh-cd__switch-label">🚀 Enable Boost messages</span>
         </label>
       </div>
 
@@ -418,7 +521,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
                   VOD is attached to when the stream ends, and what live-chat
                   messages are commented onto. A snap is a comment and can hold
                   none of that, so the choice isn't offered. */}
-              {!isStandalone && (
+              {!postOnly && (
                 <div className="hh-cd__seg" role="tablist" aria-label="Announcement type">
                   <button
                     type="button"
@@ -440,12 +543,14 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
                   </button>
                 </div>
               )}
-              <p className="hh-cd__announce-hint">
-                {isStandalone
-                  ? 'Posts to Hive and publishes the stream on 3Speak — pick a community, payout and beneficiaries below.'
-                  : announceType === 'snap'
-                    ? 'A short snap linking to your live session.'
-                    : 'A full top-level Hive post — pick a community, payout and beneficiaries below.'}
+              <p className={`hh-cd__announce-hint${postOnly ? ' hh-cd__announce-hint--solo' : ''}`}>
+                {isStandalone ? (
+                  <><strong>Posts to Hive and publishes the stream on 3Speak</strong> — pick a community, payout and beneficiaries below.</>
+                ) : effectiveAnnounceType === 'snap' ? (
+                  <><strong>A short snap</strong> linking to your live session.</>
+                ) : (
+                  <><strong>A full top-level Hive post</strong> — pick a community, payout and beneficiaries below.</>
+                )}
               </p>
               {renderAnnounceOptions?.(effectiveAnnounceType)}
             </div>
@@ -506,6 +611,19 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
             </span>
           </label>
         </div>
+      )}
+
+      {/* Streams are time-capped; say so before the host commits. Free gets a
+          short cap, Pro a long one (a safety ceiling). Stream modes only. */}
+      {isStandalone && (
+        <p className="hh-cd__limit-hint">
+          {isPremium ? (
+            <>⏳ Streams can run up to {PRO_STREAM_CAP_LABEL}.</>
+          ) : (
+            <>⏳ Free streams are limited to {FREE_STREAM_CAP_LABEL}. Upgrade to{' '}
+              <strong>3Speak Pro</strong> for longer streams (up to {PRO_STREAM_CAP_LABEL}).</>
+          )}
+        </p>
       )}
 
       {/* 11 · Actions */}

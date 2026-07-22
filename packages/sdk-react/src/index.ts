@@ -52,13 +52,16 @@ export { RoomHeader, type RoomHeaderProps } from './components/room/RoomHeader.j
 export { ChatPanel } from './components/room/ChatPanel.js';
 export { BoostOverlay } from './components/room/BoostOverlay.js';
 export { SendBoostDialog } from './components/room/SendBoostDialog.js';
+export { useWhipIngress, type UseWhipIngress } from './hooks/useWhipIngress.js';
+export { isChromium, isInAppBrowser, canBroadcast } from './lib/browser.js';
+export { CollabRequest, type CollabRequestProps } from './components/room/CollabRequest.js';
 export { BoostHistoryPanel } from './components/room/BoostHistoryPanel.js';
 export { BoostSettingsPanel } from './components/room/BoostSettingsPanel.js';
 export { RecordingControls, RecordingIndicator } from './components/room/RecordingControls.js';
 export { StreamingPanel, StopStreamingPanel, type StreamingPanelProps, type StopStreamingPanelProps } from './components/room/StreamingPanel.js';
 export { HangoutsErrorBoundary } from './components/room/HangoutsErrorBoundary.js';
 export { ScreenShareView } from './components/room/ScreenShareView.js';
-export { StandaloneStudio, type StandaloneStudioProps, type StudioSceneId, type PipCorner } from './components/room/StandaloneStudio.js';
+export { StandaloneStudio, type StandaloneStudioProps, type StudioSceneId, type PipCorner , type StreamVodResult } from './components/room/StandaloneStudio.js';
 export { StandaloneViewer, type StandaloneViewerProps } from './components/room/StandaloneViewer.js';
 export {
   StandaloneWatch, type StandaloneWatchProps,

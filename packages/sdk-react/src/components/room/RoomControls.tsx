@@ -275,7 +275,7 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
             onClick={() => setBoostDialogOpen(true)}
             title="Send a Boost"
           >
-            💸 Boost
+            🚀 Boost
           </button>
         )}
 

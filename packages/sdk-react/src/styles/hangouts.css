@@ -2962,11 +2962,15 @@
 }
 
 
+/* Across the TOP, full width. A boost is the loudest thing that happens in a
+   stream and the thing the sender paid for — tucked into a bottom corner it
+   competed with the action rail and the caption, and on a portrait phone it was
+   a 38%-wide sliver. */
 .hh-boost-overlay {
   position: absolute;
+  top: 12px;
+  left: 12px;
   right: 12px;
-  bottom: 12px;
-  width: min(320px, 38%);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -2974,13 +2978,13 @@
 }
 
 @keyframes hh-boost-slidein {
-  from { opacity: 0; transform: translateX(24px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; transform: translateY(-16px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes hh-boost-fadeout {
-  from { opacity: 1; transform: translateX(0); }
-  to   { opacity: 0; transform: translateX(24px); }
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-16px); }
 }
 
 .hh-boost-overlay__item {
@@ -3769,6 +3773,10 @@
   --st-border-strong: var(--hh-input-border);
   --st-text: var(--hh-text);
   --st-muted: var(--hh-text-muted);
+  /* Was undefined everywhere it's used, so it fell back to hardcoded light
+     greys (#aaa/#9a9a9a) — invisible on the light theme. Alias the app's muted
+     token so dim/hint text stays readable in both themes. */
+  --st-text-dim: var(--hh-text-muted);
   --st-accent: var(--hh-primary);
   --st-glow: rgba(227, 19, 55, 0.45);
   --st-amber: #f1c40f;
@@ -3851,6 +3859,28 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Compact icon buttons in the MOBILE live header (quality / priority / views).
+   A full dropdown makes the header too tall on a phone, so these open a bottom
+   popup instead. */
+.hh-studio__hbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--st-border-strong);
+  border-radius: 8px;
+  background: var(--hh-bg-secondary);
+  color: var(--st-text);
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.hh-studio__hbtn-val { font-variant-numeric: tabular-nums; font-weight: 600; }
+/* The viewer count only looks like a button — it isn't interactive. */
+.hh-studio__hbtn--static { cursor: default; }
+
 /* Permanent throttling warning in the studio header. Deliberately not
    dismissible and never shrunk away — a background tab silently wrecks the
    stream, so this must stay in the host's eyeline. */
@@ -3900,15 +3930,16 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
   height: 28px;
+  padding: 0 0.6rem;
   margin-left: 0.15rem;
   border: 1px solid var(--hh-border, #e0e0e0);
   border-radius: 8px;
   background: transparent;
   color: var(--hh-text-secondary, #888);
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 .hh-studio__close:hover {
@@ -4932,11 +4963,15 @@
   line-height: 1.5;
 }
 .hh-studio__browser-warn p { margin: 0.5rem 0; }
-.hh-studio__browser-warn-detail { color: var(--st-text-dim, #aaa); font-size: 0.8rem; }
+/* --st-text-dim isn't defined, so it fell back to #aaa — unreadable on the
+   light-theme white panel. Dim the ACTUAL theme text instead, which stays
+   legible in both light and dark. */
+.hh-studio__browser-warn-detail { color: var(--st-text); opacity: 0.72; font-size: 0.8rem; }
 .hh-studio__browser-warn-list {
   margin: 0.35rem 0 0.5rem;
   padding-left: 1.1rem;
-  color: var(--st-text-dim, #aaa);
+  color: var(--st-text);
+  opacity: 0.72;
   font-size: 0.8rem;
 }
 .hh-studio__browser-warn-list li { margin: 0.2rem 0; }
@@ -5521,6 +5556,13 @@
   box-shadow: inset 0 0 0 1px var(--hh-primary, #e31337);
 }
 .hh-cd__announce-hint { margin: 0; font-size: 0.72rem; color: var(--hh-text-muted, #999); }
+/* When there's no snap/post toggle (a single announcement option), this hint IS
+   the description of what will happen — so make it bigger and more legible. */
+.hh-cd__announce-hint--solo {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--hh-text-secondary, var(--hh-text));
+}
 
 /* Create-dialog buttons use a red OUTLINE, never a red fill. */
 .hh-cd__submit.hh-btn--primary {
@@ -5624,6 +5666,18 @@
 }
 .hh-studio__obs-lead { margin: 0.7rem 0.9rem; }
 .hh-studio__obs-error { margin: 0.9rem; color: #ff6b6b; font-weight: 600; }
+/* Delay / "run everything through OBS" callout — full theme text on a subtle
+   panel so it stays readable in both light and dark. */
+.hh-studio__obs-note {
+  margin: 0.7rem 0.9rem 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  background: var(--st-panel-strong);
+  border: 1px solid var(--st-border-strong);
+  color: var(--st-text);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
 .hh-studio__obs-url {
   display: flex;
   gap: 0.4rem;
@@ -5643,7 +5697,8 @@
 .hh-studio__obs-hints {
   margin: 0.7rem 0.9rem 0;
   padding-left: 1.1rem;
-  color: var(--st-text-dim, #9a9a9a);
+  color: var(--st-text);
+  opacity: 0.72;
   font-size: 0.76rem;
 }
 .hh-studio__obs-hints li { margin: 0.25rem 0; }
@@ -5847,14 +5902,21 @@
 /* Translucent variant: the host keeps an eye on the camera preview through
    the chat rather than losing the frame while reading messages. */
 .hh-sheet--transparent {
-  /* Almost fully see-through and NO blur — the camera behind it should stay
-     sharp. Legibility comes entirely from text shadows. */
-  background: rgba(0, 0, 0, 0.06);
+  /* Completely see-through, NO blur — the camera behind it stays sharp.
+     Legibility comes entirely from the message text shadows. */
+  background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  border-top-color: rgba(255, 255, 255, 0.12);
+  /* No modal frame. */
+  border-top: none;
+  border-radius: 0;
   box-shadow: none;
 }
+/* A bare overlay: no drag grip, no header bar (title + ✕), no chat header. It's
+   opened/closed from the rail's Chat toggle. */
+.hh-sheet--transparent .hh-sheet__grip,
+.hh-sheet--transparent .hh-sheet__head,
+.hh-sheet--transparent .hh-chat__header { display: none; }
 /* Strip every inner surface that would re-introduce opacity. */
 .hh-sheet--transparent .hh-sheet__body > .hh-chat,
 .hh-sheet--transparent .hh-chat__messages,
@@ -5872,6 +5934,11 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   max-height: none;
+}
+/* Bottom-anchor the mobile studio chat like the viewer's — newest messages sit
+   at the bottom and fill UPWARD, instead of stacking down from the top. */
+.hh-sheet--transparent .hh-chat__messages {
+  justify-content: flex-end;
 }
 /* The chat's own header duplicates the sheet's title row. */
 .hh-sheet--transparent .hh-chat__header { display: none; }
@@ -6015,6 +6082,36 @@
     line-height: 1.3;
   }
   .hh-studio__quality select { font-size: 12px; }
+  .hh-studio__header-actions {
+    row-gap: 6px;
+    min-width: 0;
+  }
+  /* Mobile header: title is gone and the pickers are compact icon buttons, so
+     the control row fits on ONE line — no wrap. The warn still drops to its own
+     full-width row (order:10 + width:100% above). */
+  .hh-studio__header--mobile {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+  }
+  .hh-studio__header--mobile .hh-studio__header-actions {
+    flex: 1;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 5px;
+  }
+  .hh-studio__header--mobile .hh-studio__hbtn {
+    padding: 0.26rem 0.4rem;
+    font-size: 0.78rem;
+  }
+  /* Collapsed = a single slim bar; spread the controls evenly across it so they
+     aren't cramped together on the right. */
+  .hh-studio__header--collapsed { padding-bottom: 6px; }
+  .hh-studio__header--collapsed .hh-studio__header-actions {
+    justify-content: space-evenly;
+    gap: 0;
+  }
 }
 
 /* Media errors used to render only inside the desktop scenes rail, so a denied
@@ -6298,3 +6395,388 @@
 .hh-cd__reccheck--locked { cursor: not-allowed; }
 .hh-cd__reccheck--locked > span { opacity: 0.7; }
 .hh-cd__reccheck--locked input { cursor: not-allowed; }
+
+/* --- chat moderation ------------------------------------------------------
+   The host taps a chatter's name in chat to get kick/ban. Only the host ever
+   sees a tappable name, and never on their own messages. */
+.hh-chat__msg-name--tappable {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.hh-chat__msg-name--tappable:hover { text-decoration: underline; }
+
+.hh-modsheet {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.hh-modsheet__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+/* Bottom sheet, matching the house convention that anything popup-shaped
+   arrives from the bottom on a phone. */
+.hh-modsheet__panel {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.9rem;
+  border-radius: 14px 14px 0 0;
+  background: var(--hh-surface, #1b1b1f);
+  color: var(--hh-text, #fff);
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.45);
+}
+.hh-modsheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.95rem;
+}
+.hh-modsheet__close {
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.hh-modsheet__error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #ff6b6b;
+}
+.hh-modsheet__action {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(128, 128, 128, 0.28);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+.hh-modsheet__action em {
+  font-style: normal;
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+.hh-modsheet__action:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Destructive actions are outlined red, never filled — house convention. */
+.hh-modsheet__action--danger {
+  border-color: rgba(224, 89, 75, 0.75);
+  color: #e0594b;
+}
+.hh-modsheet__action--danger.is-confirming {
+  border-color: #e0594b;
+  background: rgba(224, 89, 75, 0.1);
+}
+
+/* --- collab guests sheet --------------------------------------------------
+   Viewers asking to join, and whoever is currently on air. One at a time. */
+.hh-guests { display: flex; flex-direction: column; gap: 0.5rem; }
+.hh-guests__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 10px;
+}
+.hh-guests__row--live { border-color: rgba(224, 89, 75, 0.55); }
+.hh-guests__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 0.9rem; }
+.hh-guests__tag {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #e0594b;
+}
+.hh-guests__btn {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.hh-guests__btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.hh-guests__btn--primary { border-color: var(--st-accent, #4f8cff); color: var(--st-accent, #4f8cff); }
+/* Destructive = red OUTLINE, never a fill. */
+.hh-guests__btn--danger { border-color: rgba(224, 89, 75, 0.75); color: #e0594b; }
+.hh-guests__empty, .hh-guests__error { margin: 0; font-size: 0.82rem; opacity: 0.65; }
+.hh-guests__error { color: #ff6b6b; opacity: 1; }
+
+/* Viewer-side "ask to join" control. */
+.hh-collab__btn.is-active { border-color: var(--st-accent, #4f8cff); color: var(--st-accent, #4f8cff); }
+.hh-collab__glyph { font-size: 22px; line-height: 1; }
+
+/* --- boost dialog: keep it inside the viewport ----------------------------
+   The inputs carry padding + a border with no border-box, so at narrow widths
+   they measured wider than the dialog and spilled past its right edge. Scope
+   the fix to the dialog rather than touching a global reset. */
+.hh-boost-dialog,
+.hh-boost-dialog * {
+  box-sizing: border-box;
+}
+.hh-boost-dialog__amount,
+.hh-boost-dialog__asset,
+.hh-boost-dialog__message {
+  min-width: 0;      /* flex children default to min-content, which refuses to shrink */
+  max-width: 100%;
+}
+.hh-boost-dialog__message {
+  width: 100%;       /* a textarea's intrinsic `cols` width ignores the container */
+}
+.hh-boost-dialog__amount-row {
+  flex-wrap: wrap;   /* amount + asset side by side until they genuinely don't fit */
+}
+/* Tall content (message + hints) must scroll INSIDE the dialog, not push it
+   off-screen — an on-screen keyboard leaves very little height on a phone. */
+.hh-boost-dialog {
+  max-height: 90dvh;
+}
+.hh-boost-dialog__body {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* A mode tile that isn't available here (e.g. going live from an in-app
+   browser). Dimmed, not hidden — the host should see the option exists and
+   why it can't be used. */
+.hh-cd__tile.is-disabled,
+.hh-cd__tile:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Boost recipient picker — only rendered when a collab guest is on air, so the
+   sender can choose between them and the host. */
+.hh-boost-dialog__recipients {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.hh-boost-dialog__recipients-label {
+  font-size: 0.8rem;
+  opacity: 0.65;
+}
+.hh-boost-dialog__recipient {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.hh-boost-dialog__recipient em {
+  font-style: normal;
+  opacity: 0.55;
+}
+.hh-boost-dialog__recipient.is-active {
+  border-color: rgba(227, 19, 55, 0.8);
+  background: rgba(227, 19, 55, 0.15);
+}
+.hh-boost-dialog__recipient:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Lobby opened straight into the create form from a "Group chat" /
+   "Start stream" link — no title, no room list, just the form. */
+.hh-lobby--direct {
+  padding-top: 0;
+}
+
+/* Mode intro above the create form — what kind of room this is, and how the
+   stream studio differs between desktop and phone. */
+.hh-cd__intro {
+  margin-bottom: 0.35rem;
+}
+.hh-cd__intro-title {
+  margin: 0 0 0.2rem;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+.hh-cd__intro-desc {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  opacity: 0.7;
+}
+
+
+.hh-cd__intro-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+.hh-cd__intro-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+/* Small beta pill, so people know live streaming is still being tested. */
+.hh-cd__beta {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.08rem 0.32rem;
+  border-radius: 999px;
+  background: rgba(224, 89, 75, 0.18);
+  color: #e0594b;
+}
+.hh-cd__intro-eyebrow .hh-cd__beta { color: #e0594b; }
+
+/* Free-stream time-cap popup (non-Pro). Sits over the top of the studio in both
+   layouts, dismissible, distinct from the red error banner. */
+.hh-studio__timecap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  display: flex;
+  justify-content: center;
+  padding: 0.6rem;
+  pointer-events: none;
+}
+.hh-studio__timecap-card {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: 520px;
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(20, 20, 26, 0.96);
+  border: 1px solid rgba(240, 190, 90, 0.55);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  color: #fff;
+}
+.hh-studio__timecap-icon { font-size: 1.2rem; }
+.hh-studio__timecap-text { margin: 0; font-size: 0.85rem; line-height: 1.35; flex: 1; }
+.hh-studio__timecap-close {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+/* Mobile value-picker popup (quality / priority) — a bottom sheet with a
+   backdrop, matching the house "popups arrive from the bottom" convention. */
+.hh-optsheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.hh-optsheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: 82vh;
+  overflow-y: auto;
+  background: var(--hh-bg);
+  color: var(--st-text);
+  border-radius: 16px 16px 0 0;
+  padding: 0.5rem 0.85rem calc(1.2rem + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.4);
+}
+.hh-optsheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0 0.5rem;
+}
+.hh-optsheet__title { font-size: 1rem; font-weight: 700; }
+.hh-optsheet__close {
+  border: none; background: none; color: inherit;
+  font-size: 1.1rem; cursor: pointer; opacity: 0.7; padding: 0.2rem 0.3rem;
+}
+.hh-optsheet__intro {
+  margin: 0 0 0.7rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--st-muted);
+}
+.hh-optsheet__opt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.7rem 0.8rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--st-border-strong);
+  border-radius: 12px;
+  background: var(--hh-bg-secondary);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.hh-optsheet__opt:last-child { margin-bottom: 0; }
+/* Selected = red OUTLINE (house convention), not a fill. */
+.hh-optsheet__opt--on { border-color: var(--hh-primary); }
+.hh-optsheet__opt:disabled { opacity: 0.5; cursor: not-allowed; }
+.hh-optsheet__opt-label { font-size: 0.92rem; font-weight: 600; }
+.hh-optsheet__opt-desc { font-size: 0.78rem; line-height: 1.35; color: var(--st-muted); }
+
+
+.hh-cd__limit-hint {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  opacity: 0.8;
+}
+
+/* Elapsed / remaining stream time in the studio header. */
+.hh-studio__timer {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  white-space: nowrap;
+}
+.hh-studio__timer-left { opacity: 0.6; font-size: 0.72rem; }
+.hh-studio__timer--low { color: #ffcf6b; }
+.hh-studio__timer--low .hh-studio__timer-left { opacity: 0.9; }
+@media (max-width: 820px) {
+  /* Keep it compact on a phone — the "left" part carries the useful bit. */
+  .hh-studio__timer { font-size: 0.72rem; }
+}
+
+/* Per-track "Auto" limiter toggle in the mixer fader. */
+.hh-studio__fader-auto {
+  display: inline-flex; align-items: center; gap: 0.2rem;
+  font-size: 0.6rem; color: rgba(255, 255, 255, 0.75);
+  cursor: pointer; user-select: none;
+}
+.hh-studio__fader-auto input { width: 12px; height: 12px; accent-color: var(--st-accent, #4f8cff); }

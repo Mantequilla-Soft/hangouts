@@ -2,6 +2,8 @@ import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useLocalParticipant, useLocalParticipantPermissions, useParticipants } from '@livekit/components-react';
 import { useChat } from '../../hooks/useChat.js';
 import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
+import { useHostControls } from '../../hooks/useHostControls.js';
+import { useStreamContext } from './StandaloneWatch.js';
 
 const QUICK_EMOJIS = ['👍','❤️','😂','🔥','👏','😮','🙌','💯','🎉','🤔','😎','✋'];
 
@@ -31,7 +33,10 @@ export interface ChatPanelProps {
   onMessageSent?: (text: string) => void;
 }
 
-function ChatBubble({ identity, name, text, localName }: { identity: string; name: string; text: string; localName: string }) {
+function ChatBubble({ identity, name, text, localName, onModerate }: {
+  identity: string; name: string; text: string; localName: string;
+  onModerate?: (target: { identity: string; name: string }) => void;
+}) {
   const avatar = useHiveAvatar(identity, 'small');
   const segments = parseMentions(text);
   // Highlight this bubble if the local user is mentioned (match on display name or identity)
@@ -43,7 +48,18 @@ function ChatBubble({ identity, name, text, localName }: { identity: string; nam
     <div className={`hh-chat__msg${isMentioned ? ' hh-chat__msg--mentioned' : ''}`}>
       <img className="hh-chat__msg-avatar" src={avatar} alt={name} />
       <div className="hh-chat__msg-body">
-        <span className="hh-chat__msg-name">{name}</span>
+        {onModerate ? (
+          <button
+            type="button"
+            className="hh-chat__msg-name hh-chat__msg-name--tappable"
+            onClick={() => onModerate({ identity, name })}
+            title={`Moderate ${name}`}
+          >
+            {name}
+          </button>
+        ) : (
+          <span className="hh-chat__msg-name">{name}</span>
+        )}
         <span className="hh-chat__msg-text">
           {segments.map((seg, i) =>
             seg.type === 'mention'
@@ -56,11 +72,77 @@ function ChatBubble({ identity, name, text, localName }: { identity: string; nam
   );
 }
 
+/**
+ * Moderation actions for one chatter, opened by tapping their name.
+ *
+ * Host-only. Kick removes them from this stream (they can come back); ban is
+ * persistent for the room. Both are destructive and easy to mis-tap on a phone
+ * held one-handed while streaming, so ban asks for a second tap to confirm.
+ */
+function ModerationPopup({ target, roomName, onClose }: {
+  target: { identity: string; name: string };
+  roomName: string;
+  onClose: () => void;
+}) {
+  const { kick, ban, pending } = useHostControls(roomName);
+  const [confirmBan, setConfirmBan] = useState(false);
+  const [error, setError] = useState('');
+  const busy = pending.has(target.identity);
+
+  const run = async (action: () => Promise<void>) => {
+    setError('');
+    try { await action(); onClose(); }
+    catch (err) { setError(err instanceof Error ? err.message : 'That did not work'); }
+  };
+
+  return (
+    <div className="hh-modsheet" role="dialog" aria-label={`Moderate ${target.name}`}>
+      <div className="hh-modsheet__backdrop" onClick={onClose} />
+      <div className="hh-modsheet__panel">
+        <div className="hh-modsheet__head">
+          <strong>@{target.name}</strong>
+          <button className="hh-modsheet__close" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+
+        {error && <p className="hh-modsheet__error">{error}</p>}
+
+        <button
+          className="hh-modsheet__action"
+          disabled={busy}
+          onClick={() => void run(() => kick(target.identity))}
+        >
+          👢 Remove from this stream
+          <em>They can rejoin if they still have the link.</em>
+        </button>
+
+        <button
+          className={`hh-modsheet__action hh-modsheet__action--danger${confirmBan ? ' is-confirming' : ''}`}
+          disabled={busy}
+          onClick={() => {
+            if (!confirmBan) { setConfirmBan(true); return; }
+            void run(() => ban(target.identity));
+          }}
+        >
+          {confirmBan ? '⛔ Tap again to confirm ban' : '⛔ Ban from this room'}
+          <em>Blocks them for the rest of the session.</em>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnlyNotice, onMessageSent }: ChatPanelProps = {}) {
   const { messages, sendMessage } = useChat();
   const permissions = useLocalParticipantPermissions();
   const { localParticipant } = useLocalParticipant();
   const participants = useParticipants();
+  // Moderation is offered only to the stream's host, and never on their own
+  // messages. Outside a stream context (a plain conference) there is no host
+  // identity, so names stay inert.
+  const { hostIdentity, roomName: streamRoom } = useStreamContext();
+  const isHost = !!hostIdentity && !!localParticipant
+    && localParticipant.identity === hostIdentity;
+  const [modTarget, setModTarget] = useState<{ identity: string; name: string } | null>(null);
   const canChat = readOnly ? false : (permissions ? (permissions.canPublishData ?? false) : !isGuest);
 
   // The name to match against incoming @mentions for highlight
@@ -121,6 +203,13 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
 
   return (
     <div className="hh-chat">
+      {modTarget && streamRoom && (
+        <ModerationPopup
+          target={modTarget}
+          roomName={streamRoom}
+          onClose={() => setModTarget(null)}
+        />
+      )}
       <div className="hh-chat__header">
         <span className="hh-chat__title">Chat</span>
         {onClose && (
@@ -139,7 +228,14 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
           <div className="hh-chat__empty">No messages yet</div>
         )}
         {messages.map((msg) => (
-          <ChatBubble key={msg.id} identity={msg.identity} name={msg.name} text={msg.text} localName={localName} />
+          <ChatBubble
+            key={msg.id}
+            identity={msg.identity}
+            name={msg.name}
+            text={msg.text}
+            localName={localName}
+            onModerate={isHost && msg.identity !== hostIdentity ? setModTarget : undefined}
+          />
         ))}
         <div ref={bottomRef} />
       </div>

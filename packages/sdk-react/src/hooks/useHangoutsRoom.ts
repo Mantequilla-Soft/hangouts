@@ -20,7 +20,7 @@ interface BoostConfigInput {
 }
 
 export function useHangoutsRoom() {
-  const { apiClient, apiBaseUrl, livekitServerUrl } = useHangoutsContext();
+  const { apiClient, apiBaseUrl, livekitServerUrl, username } = useHangoutsContext();
   const [state, setState] = useState<RoomState>({
     livekitToken: null,
     roomName: null,
@@ -118,7 +118,13 @@ export function useHangoutsRoom() {
         roomMeta: meta,
         isHost: false,
         isPremium: false,
-        isGuest: true,
+        // NOT unconditionally true. /listen honours an optional session and
+        // hands a signed-in viewer their OWN Hive identity — and viewers of a
+        // standalone stream always arrive through listen(), because they are
+        // not room participants. Hardcoding `true` marked those real users as
+        // anonymous, which hides everything gated on being a known account
+        // (asking to join the stream, chatting as yourself).
+        isGuest: !username || result.identity !== username,
       });
       return result;
     } finally {
