@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConnectionState, useLocalParticipant, useParticipants, useTracks } from '@livekit/components-react';
-import { ConnectionState, Track } from 'livekit-client';
+import { ConnectionQuality, ConnectionState, ParticipantEvent, Track } from 'livekit-client';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { useWhipIngress } from '../../hooks/useWhipIngress.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
@@ -17,7 +17,7 @@ import { useChat } from '../../hooks/useChat.js';
 import { MobileSheet } from './MobileSheet.js';
 import {
   IconAspect, IconAudio, IconBoost, IconChat, IconCheck, IconFlipCamera, IconGuest,
-  IconLens, IconPause, IconPlay, IconPost, IconShare, IconStop, IconZoomIn, IconZoomOut,
+  IconLens, IconMirror, IconPause, IconPlay, IconPost, IconShare, IconStop, IconZoomIn, IconZoomOut,
 } from './StudioIcons.js';
 import { BoostOverlay } from './BoostOverlay.js';
 import { useBoostStore, BOOST_DISPLAY_MS } from '../../hooks/useBoosts.js';
@@ -37,6 +37,7 @@ const MAX_TAGS = 10;
 /** Remembered device choices — a host who picked the back camera or a USB-C
  *  mic last time should not have to pick again every stream. */
 const CAM_FACING_KEY = 'hh-studio-cam-facing';
+const CAM_MIRROR_KEY = 'hh-studio-cam-mirror';
 const MIC_DEVICE_KEY = 'hh-studio-mic-device';
 const ORIENTATION_KEY = 'hh-studio-orientation';
 const CAM_DEVICE_KEY = 'hh-studio-cam-device';
@@ -740,6 +741,20 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const localParticipantRef = useRef(localParticipant);
   localParticipantRef.current = localParticipant;
   const connectionState = useConnectionState();
+
+  // Host upload/connection health. Surfaced so the streamer can tell when a
+  // problem is THEIR link (viewers buffering) versus something they'd fix in
+  // the mixer — LiveKit's own quality estimate for the local publisher.
+  const [connQuality, setConnQuality] = useState<ConnectionQuality>(ConnectionQuality.Unknown);
+  useEffect(() => {
+    const lp = localParticipant;
+    if (!lp) return undefined;
+    const sync = () => setConnQuality(lp.connectionQuality);
+    sync();
+    lp.on(ParticipantEvent.ConnectionQualityChanged, sync);
+    return () => { lp.off(ParticipantEvent.ConnectionQualityChanged, sync); };
+  }, [localParticipant]);
+
   const participants = useParticipants();
   const { imageServerApiKey, apiClient, apiBaseUrl } = useHangoutsContext();
   // OBS/WHIP ingest goes through the SDK hook rather than a hand-rolled fetch,
@@ -1550,6 +1565,25 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   });
   const camFacingRef = useRef(camFacing);
   camFacingRef.current = camFacing;
+
+  // Horizontal mirror of the CAMERA IMAGE ONLY (selfie view). Applied inside the
+  // compositor as a transform wrapped tightly around the camera draw calls, so
+  // burnt-in text — the watermark and the guest/creator name badges — is drawn
+  // outside it and never renders reversed.
+  const [camMirror, setCamMirror] = useState<boolean>(() => {
+    try { return localStorage.getItem(CAM_MIRROR_KEY) === '1'; } catch { return false; }
+  });
+  const camMirrorRef = useRef(camMirror);
+  camMirrorRef.current = camMirror;
+
+  const toggleCamMirror = useCallback(() => {
+    setCamMirror((v) => {
+      const next = !v;
+      camMirrorRef.current = next;
+      try { localStorage.setItem(CAM_MIRROR_KEY, next ? '1' : '0'); } catch { /* private mode */ }
+      return next;
+    });
+  }, []);
 
   const [micDeviceId, setMicDeviceId] = useState<string>(() => {
     try { return localStorage.getItem(MIC_DEVICE_KEY) || ''; } catch { return ''; }
@@ -2736,6 +2770,20 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         else drawPlaceholder(ctx, 'Share ended', '', x, y, w, h);
       } else drawMediaInto(src.slice(6), x, y, w, h, now);
     };
+    /** Run `fn` with a horizontal mirror about the rect spanning [x, x+w].
+     *
+     *  Deliberately scoped: it wraps CAMERA PIXELS ONLY. Every text overlay —
+     *  the watermark, the guest/creator name badges, the "Camera is off"
+     *  placeholder — is drawn outside this transform, so mirroring the shot
+     *  never reverses the lettering burnt into the stream. */
+    const withCamMirror = (x: number, w: number, fn: () => void) => {
+      if (!camMirrorRef.current) { fn(); return; }
+      ctx.save();
+      ctx.translate(x * 2 + w, 0);
+      ctx.scale(-1, 1);
+      fn();
+      ctx.restore();
+    };
     const drawCamPip = (p: SceneParams, cam: HTMLVideoElement) => {
       // pipRect already returns a square box for the square mask, so the
       // camera keeps its normal margin to the frame edge.
@@ -2751,7 +2799,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       ctx.save();
       path();
       ctx.clip();
-      drawCoverZoom(ctx, cam, m.x, m.y, m.w, m.h, p.camZoom, p.camPanX, p.camPanY);
+      withCamMirror(m.x, m.w, () => drawCoverZoom(ctx, cam, m.x, m.y, m.w, m.h, p.camZoom, p.camPanX, p.camPanY));
       ctx.restore();
 
       ctx.strokeStyle = 'rgba(255,255,255,0.75)';
@@ -2773,7 +2821,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         case 'cam':
           if (!ready(cam) && camFreezeRef.current) {
             // Mid-swap: hold the last frame instead of flashing "Camera is off".
-            drawCover(ctx, camFreezeRef.current as unknown as Drawable, 0, 0, CW, CH);
+            withCamMirror(0, CW, () => drawCover(ctx, camFreezeRef.current as unknown as Drawable, 0, 0, CW, CH));
             break;
           }
           if (ready(cam)) {
@@ -2799,15 +2847,17 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             camAutoTurnsRef.current = auto;
             const stored = camRotRef.current[rotKeyRef.current];
             const turns = (((stored ?? auto) % 4) + 4) % 4;
-            if (turns) {
-              drawRotatedCover(ctx, cam, CW, CH, turns, z);
-            } else if (opposed) {
-              // Upright content in a landscape frame: nothing to rotate, so
-              // keep the whole frame rather than cropping into it.
-              drawFitWithBackdrop(ctx, cam, 0, 0, CW, CH, z);
-            }
-            else if (z > 1) drawCoverZoom(ctx, cam, 0, 0, CW, CH, z, 0, 0);
-            else drawCover(ctx, cam, 0, 0, CW, CH);
+            withCamMirror(0, CW, () => {
+              if (turns) {
+                drawRotatedCover(ctx, cam, CW, CH, turns, z);
+              } else if (opposed) {
+                // Upright content in a landscape frame: nothing to rotate, so
+                // keep the whole frame rather than cropping into it.
+                drawFitWithBackdrop(ctx, cam, 0, 0, CW, CH, z);
+              }
+              else if (z > 1) drawCoverZoom(ctx, cam, 0, 0, CW, CH, z, 0, 0);
+              else drawCover(ctx, cam, 0, 0, CW, CH);
+            });
           }
           else drawPlaceholder(ctx, 'Camera is off', camHintRef.current, 0, 0, CW, CH);
           break;
@@ -2822,7 +2872,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           const rightX = x + SPLIT_BAR / 2;
           const rightW = Math.max(0, CW - rightX);
           drawSourceInto(p.source, 0, 0, leftW2, CH, now);
-          if (ready(cam)) drawCover(ctx, cam, rightX, 0, rightW, CH);
+          if (ready(cam)) withCamMirror(rightX, rightW, () => drawCover(ctx, cam, rightX, 0, rightW, CH));
           else drawPlaceholder(ctx, 'Camera is off', '', rightX, 0, rightW, CH);
           ctx.fillStyle = '#2c2c3a';
           ctx.fillRect(x - SPLIT_BAR / 2, 0, SPLIT_BAR, CH);
@@ -3215,6 +3265,15 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       : { cls: ' hh-studio__live--standby', symbol: '◌', word: 'STANDBY', tip: 'Viewers see the "Starting soon" slate' };
   const previewTag = streamState === 'standby' ? 'Preview — viewers see “Starting soon”'
     : streamState === 'paused' ? 'Paused — viewers see “We\'ll be right back”' : null;
+
+  // Connection-health pill shown beside the LIVE/STANDBY badge. Only meaningful
+  // once LiveKit has an estimate (skip 'Unknown', e.g. before publishing).
+  const connBad = connQuality === ConnectionQuality.Poor || connQuality === ConnectionQuality.Lost;
+  const connBadge = connQuality === ConnectionQuality.Poor
+    ? { cls: ' hh-studio__conn--poor', label: 'Weak', tip: 'Weak upload — viewers may see buffering or reduced quality. Move closer to Wi‑Fi, or pick a lower quality.' }
+    : connQuality === ConnectionQuality.Lost
+      ? { cls: ' hh-studio__conn--lost', label: 'Lost', tip: 'Connection lost — trying to recover. Your stream may be interrupted.' }
+      : { cls: ' hh-studio__conn--good', label: 'Good', tip: 'Your connection to the streaming server is strong.' };
 
   const addTag = (raw?: string) => {
     // Strip a leading # and anything non-slug so tags never start with '#'.
@@ -3666,6 +3725,15 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         <span className={`hh-studio__live${stateBadge.cls}`} title={stateBadge.tip}>
           {stateBadge.symbol}{!isMobile && ` ${stateBadge.word}`}
         </span>
+        {/* Uplink health — always visible (incl. the collapsed mobile header) so
+            the host learns of a weak connection the moment it happens. Bars are
+            static; the modifier class colours + fills them by quality. */}
+        {connQuality !== ConnectionQuality.Unknown && (
+          <span className={`hh-studio__conn${connBadge.cls}`} title={connBadge.tip} role="status" aria-label={`Connection: ${connBadge.label}`}>
+            <span className="hh-studio__conn-bars" aria-hidden="true"><i /><i /><i /></span>
+            {(!isMobile || connBad) && <span className="hh-studio__conn-label">{connBadge.label}</span>}
+          </span>
+        )}
         {/* Title eats a whole row on a phone and isn't needed there (the host
             knows their own stream) — desktop keeps it. */}
         {!isMobile && <h2 className="hh-studio__title">{title}</h2>}
@@ -3881,6 +3949,33 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             </div>
           )}
 
+          {/* Optional pre-flight: only while in standby (before going live), a
+              compact at-a-glance check of the three things a stream needs —
+              camera, mic (live level meter, so you SEE your voice register),
+              and connection. Everything here also exists elsewhere (preview,
+              Audio sheet, header pill); this just gathers it so a new streamer
+              isn't hunting right before they hit Start. */}
+          {streamState === 'standby' && (
+            <div className="hh-studio__preflight" role="status" aria-label="Go-live readiness check">
+              <span className="hh-studio__preflight-title">Ready to go live?</span>
+              <div className={`hh-studio__preflight-row${camOn ? ' is-ok' : ' is-bad'}`}>
+                <span className="hh-studio__preflight-key">📷 Camera</span>
+                <span className="hh-studio__preflight-val">{camOn ? 'On' : 'Off — tap the preview'}</span>
+              </div>
+              <div className={`hh-studio__preflight-row${micOn ? ' is-ok' : ' is-bad'}`}>
+                <span className="hh-studio__preflight-key">🎤 Mic</span>
+                {micOn
+                  ? <span className="hh-studio__preflight-meter">{renderMeter('mic', true)}</span>
+                  : <span className="hh-studio__preflight-val">Off — open Audio</span>}
+              </div>
+              <div className={`hh-studio__preflight-row${connBad ? ' is-bad' : connQuality !== ConnectionQuality.Unknown ? ' is-ok' : ''}`}>
+                <span className="hh-studio__preflight-key">📶 Connection</span>
+                <span className="hh-studio__preflight-val">{connQuality === ConnectionQuality.Unknown ? 'Checking…' : connBadge.label}</span>
+              </div>
+              <span className="hh-studio__preflight-hint">Say a few words — the mic bar should move. Then tap <b>Start</b>.</span>
+            </div>
+          )}
+
           {/* Camera controls on the LEFT, session controls on the RIGHT, so
               the thumb framing the shot isn't the one that can end the
               broadcast. */}
@@ -3911,6 +4006,17 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             >
               <IconFlipCamera />
               <span className="hh-studio__rbtn-label">Flip</span>
+            </button>
+            <button
+              className={`hh-studio__rbtn${camMirror ? ' hh-studio__rbtn--on' : ''}`}
+              onClick={toggleCamMirror}
+              disabled={!camOn}
+              title={camMirror
+                ? 'Turn off the mirrored (selfie) view — text on screen is never mirrored'
+                : 'Mirror the camera image (selfie view) — text on screen stays unmirrored'}
+            >
+              <IconMirror />
+              <span className="hh-studio__rbtn-label">Mirror</span>
             </button>
             <button
               className={`hh-studio__rbtn${mobileSheet === 'lens' ? ' hh-studio__rbtn--on' : ''}`}

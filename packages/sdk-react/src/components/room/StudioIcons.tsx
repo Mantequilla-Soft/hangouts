@@ -38,6 +38,15 @@ export const IconFlipCamera = (p: SVGProps<SVGSVGElement>) => (
   </Svg>
 );
 
+/** Mirror the camera image horizontally (selfie view). */
+export const IconMirror = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <path d="M12 3v18" strokeDasharray="2 3" />
+    <path d="M9 7 4 12l5 5z" />
+    <path d="M15 7l5 5-5 5z" />
+  </Svg>
+);
+
 /** Portrait / landscape aspect toggle. */
 export const IconAspect = (p: SVGProps<SVGSVGElement>) => (
   <Svg {...p}>

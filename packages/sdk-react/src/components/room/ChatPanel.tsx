@@ -3,6 +3,7 @@ import { useLocalParticipant, useLocalParticipantPermissions, useParticipants } 
 import { useChat } from '../../hooks/useChat.js';
 import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
+import { useModerators } from '../../hooks/useModerators.js';
 import { useStreamContext } from './StandaloneWatch.js';
 
 const QUICK_EMOJIS = ['👍','❤️','😂','🔥','👏','😮','🙌','💯','🎉','🤔','😎','✋'];
@@ -75,19 +76,26 @@ function ChatBubble({ identity, name, text, localName, onModerate }: {
 /**
  * Moderation actions for one chatter, opened by tapping their name.
  *
- * Host-only. Kick removes them from this stream (they can come back); ban is
- * persistent for the room. Both are destructive and easy to mis-tap on a phone
- * held one-handed while streaming, so ban asks for a second tap to confirm.
+ * Available to the host AND host-appointed moderators. Kick removes them from
+ * this stream (they can come back); ban is persistent for the room. Both are
+ * destructive and easy to mis-tap on a phone held one-handed while streaming,
+ * so ban asks for a second tap to confirm. Granting/revoking moderator is
+ * host-only and offered only for signed-in Hive users (who can authenticate
+ * their own moderation actions — anonymous guests can't be mods).
  */
-function ModerationPopup({ target, roomName, onClose }: {
+function ModerationPopup({ target, roomName, isHost, targetIsMod, onClose }: {
   target: { identity: string; name: string };
   roomName: string;
+  isHost: boolean;
+  targetIsMod: boolean;
   onClose: () => void;
 }) {
-  const { kick, ban, pending } = useHostControls(roomName);
+  const { kick, ban, setModerator, pending } = useHostControls(roomName);
   const [confirmBan, setConfirmBan] = useState(false);
   const [error, setError] = useState('');
-  const busy = pending.has(target.identity);
+  const busy = pending.has(target.identity) || pending.has(target.identity.toLowerCase());
+  // Only Hive users (identity === username) can be moderators; guests can't.
+  const canManageMods = isHost && !target.identity.startsWith('guest-');
 
   const run = async (action: () => Promise<void>) => {
     setError('');
@@ -105,6 +113,19 @@ function ModerationPopup({ target, roomName, onClose }: {
         </div>
 
         {error && <p className="hh-modsheet__error">{error}</p>}
+
+        {canManageMods && (
+          <button
+            className="hh-modsheet__action"
+            disabled={busy}
+            onClick={() => void run(() => setModerator(target.identity, !targetIsMod))}
+          >
+            {targetIsMod ? '🛡️ Remove as moderator' : '🛡️ Make moderator'}
+            <em>{targetIsMod
+              ? 'They keep chatting but can no longer remove or ban others.'
+              : 'Lets them remove and ban disruptive viewers, like you can.'}</em>
+          </button>
+        )}
 
         <button
           className="hh-modsheet__action"
@@ -142,6 +163,9 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
   const { hostIdentity, roomName: streamRoom } = useStreamContext();
   const isHost = !!hostIdentity && !!localParticipant
     && localParticipant.identity === hostIdentity;
+  // Host-appointed moderators can moderate too (see useModerators).
+  const { moderators, isCurrentUserMod } = useModerators();
+  const canModerate = isHost || isCurrentUserMod;
   const [modTarget, setModTarget] = useState<{ identity: string; name: string } | null>(null);
   const canChat = readOnly ? false : (permissions ? (permissions.canPublishData ?? false) : !isGuest);
 
@@ -207,6 +231,8 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
         <ModerationPopup
           target={modTarget}
           roomName={streamRoom}
+          isHost={isHost}
+          targetIsMod={moderators.includes(modTarget.identity.toLowerCase())}
           onClose={() => setModTarget(null)}
         />
       )}
@@ -234,7 +260,7 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
             name={msg.name}
             text={msg.text}
             localName={localName}
-            onModerate={isHost && msg.identity !== hostIdentity ? setModTarget : undefined}
+            onModerate={canModerate && msg.identity !== hostIdentity && msg.identity !== localParticipant?.identity ? setModTarget : undefined}
           />
         ))}
         <div ref={bottomRef} />

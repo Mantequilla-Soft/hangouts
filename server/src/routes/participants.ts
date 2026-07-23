@@ -5,16 +5,37 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { banGuestByIdentity } from '../lib/guestBans.js';
 
+type RoomMeta = { host?: string; mode?: string; collabGuest?: string; mods?: string[] };
+
 /** Parse room metadata and verify the caller is the host. */
 async function verifyHost(roomName: string, username: string) {
   const rooms = await roomService.listRooms([roomName]);
   if (rooms.length === 0) return { error: 'not_found' as const };
 
-  let meta: { host?: string; mode?: string; collabGuest?: string } = {};
+  let meta: RoomMeta = {};
   try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
 
   if (meta.host !== username) return { error: 'forbidden' as const };
   return { error: null, meta, raw: rooms[0] };
+}
+
+/**
+ * Verify the caller may MODERATE — the host, or a Hive user the host promoted
+ * to moderator (persisted in `meta.mods`). Used for behavioural moderation
+ * (kick / ban). Structural powers (changing publish permissions, minting other
+ * mods, ending the room) stay host-only via verifyHost.
+ */
+async function verifyHostOrMod(roomName: string, username: string) {
+  const rooms = await roomService.listRooms([roomName]);
+  if (rooms.length === 0) return { error: 'not_found' as const };
+
+  let meta: RoomMeta = {};
+  try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
+
+  const isHost = meta.host === username;
+  const isMod = Array.isArray(meta.mods) && meta.mods.includes(username);
+  if (!isHost && !isMod) return { error: 'forbidden' as const };
+  return { error: null, meta, isHost, isMod };
 }
 
 /**
@@ -119,9 +140,9 @@ export const participantRoutes: FastifyPluginAsync = async (fastify) => {
   }, async (request, reply) => {
     const { name, identity } = request.params as { name: string; identity: string };
 
-    const check = await verifyHost(name, request.username);
+    const check = await verifyHostOrMod(name, request.username);
     if (check.error === 'not_found') return reply.notFound('Room not found');
-    if (check.error === 'forbidden') return reply.forbidden('Only the host can kick participants');
+    if (check.error === 'forbidden') return reply.forbidden('Only the host or a moderator can remove participants');
 
     await roomService.removeParticipant(name, identity);
     return reply.code(204).send();
@@ -149,9 +170,9 @@ export const participantRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.badRequest('Ban is only for guest participants; use the platform system to ban Hive accounts');
     }
 
-    const check = await verifyHost(name, request.username);
+    const check = await verifyHostOrMod(name, request.username);
     if (check.error === 'not_found') return reply.notFound('Room not found');
-    if (check.error === 'forbidden') return reply.forbidden('Only the host can ban participants');
+    if (check.error === 'forbidden') return reply.forbidden('Only the host or a moderator can ban participants');
 
     banGuestByIdentity(name, identity);
     try {
@@ -161,5 +182,54 @@ export const participantRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     return reply.code(204).send();
+  });
+
+  // Grant/revoke moderator (HOST ONLY). Moderators are Hive usernames stored in
+  // room metadata so the server can authorize their kick/ban and every client
+  // learns who's a mod from the same broadcast. Anonymous guests can't be mods
+  // — they have no Hive identity to authenticate a moderation action with.
+  fastify.patch('/rooms/:name/mods/:username', {
+    preHandler: [requireAuth, checkBan],
+    schema: {
+      params: {
+        type: 'object',
+        required: ['name', 'username'],
+        properties: {
+          name:     { type: 'string' },
+          username: { type: 'string' },
+        },
+      },
+      body: {
+        type: 'object',
+        required: ['isMod'],
+        properties: { isMod: { type: 'boolean' } },
+      },
+    },
+  }, async (request, reply) => {
+    const { name, username: target } = request.params as { name: string; username: string };
+    const { isMod } = request.body as { isMod: boolean };
+
+    const check = await verifyHost(name, request.username);
+    if (check.error === 'not_found') return reply.notFound('Room not found');
+    if (check.error === 'forbidden') return reply.forbidden('Only the host can change moderators');
+
+    // A mod must be a real Hive account (they authenticate their own actions);
+    // the host is implicitly a moderator and never needs to be in the list.
+    const clean = target.trim().toLowerCase();
+    if (!clean || clean.startsWith('guest-')) {
+      return reply.badRequest('Only signed-in Hive users can be moderators');
+    }
+    if (clean === check.meta?.host) {
+      return reply.badRequest('The host is already a moderator');
+    }
+
+    const next = await mutateRoomMetadata(name, (meta) => {
+      const current = Array.isArray(meta.mods) ? (meta.mods as string[]) : [];
+      const set = new Set(current.map((m) => String(m).toLowerCase()));
+      if (isMod) set.add(clean); else set.delete(clean);
+      return { ...meta, mods: [...set] };
+    });
+
+    return reply.send({ mods: (next.mods as string[]) ?? [] });
   });
 };

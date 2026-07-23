@@ -182,6 +182,15 @@ export class HangoutsApiClient {
     );
   }
 
+  /** Grant or revoke moderator for a Hive user (host only). Returns the new list. */
+  async setModerator(roomName: string, username: string, isMod: boolean): Promise<{ mods: string[] }> {
+    return this.request(
+      'PATCH',
+      `/rooms/${encodeURIComponent(roomName)}/mods/${encodeURIComponent(username)}`,
+      { isMod },
+    );
+  }
+
   // Recording
 
   async startRecording(roomName: string, opts?: { mode?: RecordingMode; layout?: RecordingLayout }): Promise<RecordingStartResponse> {

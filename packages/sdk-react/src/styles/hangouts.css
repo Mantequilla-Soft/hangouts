@@ -3840,6 +3840,57 @@
   50% { opacity: 0.75; }
 }
 
+/* Uplink-health pill: a 3-bar signal glyph + optional label, coloured by the
+   host's LiveKit connection quality. Sits next to the LIVE/STANDBY badge. */
+.hh-studio__conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--hh-btn-secondary-bg);
+  white-space: nowrap;
+}
+.hh-studio__conn-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+.hh-studio__conn-bars i {
+  width: 3px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.35;
+}
+.hh-studio__conn-bars i:nth-child(1) { height: 5px; }
+.hh-studio__conn-bars i:nth-child(2) { height: 8px; }
+.hh-studio__conn-bars i:nth-child(3) { height: 12px; }
+
+/* Good: all three bars lit, green. */
+.hh-studio__conn--good { color: #27c093; }
+.hh-studio__conn--good .hh-studio__conn-bars i { opacity: 1; }
+
+/* Weak: two bars, amber, with a gentle pulse to draw the eye. */
+.hh-studio__conn--poor { color: #f1c40f; }
+.hh-studio__conn--poor .hh-studio__conn-bars i:nth-child(1),
+.hh-studio__conn--poor .hh-studio__conn-bars i:nth-child(2) { opacity: 1; }
+.hh-studio__conn--poor { animation: hh-studio-conn-pulse 1.6s ease-in-out infinite; }
+
+/* Lost: one bar, red, stronger pulse. */
+.hh-studio__conn--lost { color: #ff2a4a; }
+.hh-studio__conn--lost .hh-studio__conn-bars i:nth-child(1) { opacity: 1; }
+.hh-studio__conn--lost { animation: hh-studio-conn-pulse 0.9s ease-in-out infinite; }
+
+@keyframes hh-studio-conn-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
 .hh-studio__title {
   margin: 0;
   font-size: 1rem;
@@ -5854,6 +5905,66 @@
 /* Camera controls left, session controls right. */
 .hh-studio__rail--left { left: 0.6rem; }
 .hh-studio__rail--right { right: 0.6rem; }
+
+/* Optional pre-flight readiness card — top-centre in standby, clear of the
+   side rails (which anchor bottom-left/right). Compact + translucent so it
+   never buries the camera preview behind it. */
+.hh-studio__preflight {
+  position: absolute;
+  top: 3.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  width: min(20rem, calc(100% - 6.5rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.7rem;
+  background: rgba(12, 12, 18, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 0.72rem;
+  pointer-events: none; /* purely informational — taps fall through to preview */
+}
+.hh-studio__preflight-title {
+  font-weight: 800;
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.1rem;
+}
+.hh-studio__preflight-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.hh-studio__preflight-key {
+  flex: 0 0 5.6rem;
+  opacity: 0.85;
+}
+.hh-studio__preflight-val {
+  font-weight: 700;
+}
+.hh-studio__preflight-meter {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+.hh-studio__preflight-meter .hh-meter {
+  flex: 1;
+  height: 0.5rem;
+}
+.hh-studio__preflight-row.is-ok .hh-studio__preflight-val { color: #27c093; }
+.hh-studio__preflight-row.is-bad .hh-studio__preflight-val { color: #ffb020; }
+.hh-studio__preflight-hint {
+  margin-top: 0.15rem;
+  opacity: 0.72;
+  font-size: 0.68rem;
+  line-height: 1.3;
+}
+.hh-studio__preflight-hint b { color: #fff; opacity: 1; }
 
 .hh-studio__rbtn {
   box-sizing: border-box;
