@@ -17,11 +17,14 @@ import { useChat } from '../../hooks/useChat.js';
 import { MobileSheet } from './MobileSheet.js';
 import {
   IconAspect, IconAudio, IconBoost, IconChat, IconCheck, IconFlipCamera, IconGuest,
-  IconLens, IconMirror, IconPause, IconPlay, IconPost, IconShare, IconStop, IconZoomIn, IconZoomOut,
+  IconLens, IconMirror, IconDualCamera, IconBroadcast, IconClip, IconPause, IconPlay, IconPost, IconShare, IconStop, IconZoomIn, IconZoomOut,
 } from './StudioIcons.js';
 import { BoostOverlay } from './BoostOverlay.js';
 import { useBoostStore, BOOST_DISPLAY_MS } from '../../hooks/useBoosts.js';
 import { BoostHistoryPanel } from './BoostHistoryPanel.js';
+import { useStreaming } from '../../hooks/useStreaming.js';
+import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
+import { useDvr } from '../../hooks/useDvr.js';
 
 /** Program canvas resolution — every scene composites into this fixed
  *  16:9 frame, and this exact frame is what gets published. */
@@ -991,8 +994,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const isMobile = useIsMobile();
   const isMobileRef = useRef(isMobile);
   isMobileRef.current = isMobile;
-  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests';
+  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests' | 'restream' | 'dvr';
   const [mobileSheet, setMobileSheet] = useState<MobileSheetId | null>(null);
+
+  // Restream to YouTube/Twitch (Pro). Reuses the shared streaming hook +
+  // StreamingPanel; the server enforces the Pro gate, the UI just hides it.
+  const restream = useStreaming(roomName);
+  // DVR (Pro): rolling segment recording + clip the last ~30s.
+  const dvr = useDvr(roomName);
   // Mobile header: the quality + priority pickers are icon buttons that open a
   // small option popup (a dropdown is too tall for the compact live header).
   const [settingSheet, setSettingSheet] = useState<'quality' | 'priority' | null>(null);
@@ -1041,7 +1050,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     return {
       chat: Math.round(vh * 0.62), post: Math.round(vh * 0.92),
       mic: Math.round(vh * 0.5), lens: Math.round(vh * 0.5), share: Math.round(vh * 0.42),
-      guests: Math.round(vh * 0.45),
+      guests: Math.round(vh * 0.45), restream: Math.round(vh * 0.7), dvr: Math.round(vh * 0.5),
     };
   });
 
@@ -1926,6 +1935,62 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   }, []);
 
   startCamRef.current = startCam;
+
+  // ---- Dual camera (front + back at once) --------------------------------
+  // A SECOND camera stream drawn as a PiP over the main one. Fully additive:
+  // when `dualCam` is off (the default) nothing here runs and the single-camera
+  // path is untouched. Two simultaneous captures only work on hardware/browsers
+  // that allow it (many Android phones; NOT iOS Safari, and not single-sensor
+  // devices) — a failed or camera-stealing open reverts cleanly with a message.
+  const cam2StreamRef = useRef<MediaStream | null>(null);
+  const cam2VideoRef = useRef<HTMLVideoElement | null>(null);
+  const [dualCam, setDualCam] = useState(false);
+  const dualCamRef = useRef(false);
+  dualCamRef.current = dualCam;
+  const [dualBusy, setDualBusy] = useState(false);
+
+  const stopCam2 = useCallback(() => {
+    cam2StreamRef.current?.getTracks().forEach((t) => t.stop());
+    cam2StreamRef.current = null;
+    cam2VideoRef.current = null;
+  }, []);
+
+  const toggleDualCam = useCallback(async () => {
+    if (dualCamRef.current) { dualCamRef.current = false; setDualCam(false); stopCam2(); return; }
+    if (!camStreamRef.current) { setLensError('Start your camera first.'); return; }
+    setDualBusy(true);
+    // Open the OPPOSITE lens to whatever the main camera is showing.
+    const opposite = camFacingRef.current === 'user' ? 'environment' : 'user';
+    try {
+      const ms = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: opposite } } });
+      // If opening the second camera STOLE the main one (single-sensor phones),
+      // the main track ends — bail out and restore the main rather than stream a
+      // dead half.
+      const mainTrack = camStreamRef.current?.getVideoTracks()[0];
+      if (!mainTrack || mainTrack.readyState === 'ended') {
+        ms.getTracks().forEach((t) => t.stop());
+        setLensError('This device can only use one camera at a time.');
+        if (!mainTrack || mainTrack.readyState === 'ended') { stopCam(); void startCamRef.current?.(); }
+        return;
+      }
+      const v = document.createElement('video');
+      v.muted = true; v.playsInline = true; v.srcObject = ms;
+      void v.play().catch(() => { /* frames arrive async */ });
+      cam2StreamRef.current = ms;
+      cam2VideoRef.current = v;
+      dualCamRef.current = true;
+      setDualCam(true);
+      setLensError('');
+    } catch {
+      stopCam2();
+      setLensError('This device can’t run both cameras at once.');
+    } finally {
+      setDualBusy(false);
+    }
+  }, [stopCam2, stopCam]);
+
+  // Stop the second camera when the studio unmounts.
+  useEffect(() => () => stopCam2(), [stopCam2]);
 
   /** Flip between the front and back camera. Safe while live: the compositor
    *  reads whatever `camVideoRef` currently points at, and the PUBLISHED track
@@ -2858,6 +2923,26 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               else if (z > 1) drawCoverZoom(ctx, cam, 0, 0, CW, CH, z, 0, 0);
               else drawCover(ctx, cam, 0, 0, CW, CH);
             });
+            // Dual camera: the opposite lens as a PiP in the bottom-right. Not
+            // mirrored (it's the back lens) and drawn OUTSIDE withCamMirror so
+            // the main-cam mirror never flips it.
+            if (dualCamRef.current) {
+              const c2 = cam2VideoRef.current;
+              if (c2 && c2.readyState >= 2 && c2.videoWidth > 0) {
+                const pipW = CW * 0.30;
+                const c2d = dimsOf(c2);
+                const pipH = (c2d.w && c2d.h) ? pipW * (c2d.h / c2d.w) : pipW * (CH / CW);
+                const mg = CW * 0.03;
+                const px = CW - pipW - mg;
+                const py = CH - pipH - mg;
+                const rr = Math.min(pipW, pipH) * 0.08;
+                const path2 = () => { ctx.beginPath(); if (typeof ctx.roundRect === 'function') ctx.roundRect(px, py, pipW, pipH, rr); else ctx.rect(px, py, pipW, pipH); };
+                ctx.save(); path2(); ctx.clip();
+                drawCover(ctx, c2, px, py, pipW, pipH);
+                ctx.restore();
+                ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 2; path2(); ctx.stroke();
+              }
+            }
           }
           else drawPlaceholder(ctx, 'Camera is off', camHintRef.current, 0, 0, CW, CH);
           break;
@@ -4019,6 +4104,17 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               <span className="hh-studio__rbtn-label">Mirror</span>
             </button>
             <button
+              className={`hh-studio__rbtn${dualCam ? ' hh-studio__rbtn--on' : ''}`}
+              onClick={() => void toggleDualCam()}
+              disabled={!camOn || dualBusy}
+              title={dualCam
+                ? 'Turn off the second camera'
+                : 'Show both cameras at once (front + back). Not supported on every phone.'}
+            >
+              <IconDualCamera />
+              <span className="hh-studio__rbtn-label">Dual</span>
+            </button>
+            <button
               className={`hh-studio__rbtn${mobileSheet === 'lens' ? ' hh-studio__rbtn--on' : ''}`}
               onClick={() => {
                 void refreshAudioInputs();
@@ -4093,6 +4189,26 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 <span className="hh-studio__rbtn-label">Share</span>
               </button>
             )}
+            {isPremium && (
+              <button
+                className={`hh-studio__rbtn${mobileSheet === 'restream' ? ' hh-studio__rbtn--on' : ''}${restream.isStreaming ? ' hh-studio__rbtn--live' : ''}`}
+                onClick={() => setMobileSheet((v) => (v === 'restream' ? null : 'restream'))}
+                title="Restream to YouTube or Twitch (Pro)"
+              >
+                <IconBroadcast />
+                <span className="hh-studio__rbtn-label">Restream</span>
+              </button>
+            )}
+            {isPremium && (
+              <button
+                className={`hh-studio__rbtn${mobileSheet === 'dvr' ? ' hh-studio__rbtn--on' : ''}${dvr.recording ? ' hh-studio__rbtn--live' : ''}`}
+                onClick={() => setMobileSheet((v) => (v === 'dvr' ? null : 'dvr'))}
+                title="DVR — clip the last 30 seconds (Pro)"
+              >
+                <IconClip />
+                <span className="hh-studio__rbtn-label">Clip</span>
+              </button>
+            )}
             {streamState === 'standby' && (
               <button
                 className="hh-studio__rbtn hh-studio__rbtn--go"
@@ -4130,6 +4246,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 : mobileSheet === 'post' ? 'Stream post'
                 : mobileSheet === 'lens' ? 'Camera'
                 : mobileSheet === 'share' ? 'Share this stream'
+                : mobileSheet === 'restream' ? 'Restream to YouTube / Twitch'
+                : mobileSheet === 'dvr' ? 'Clip the last 30 seconds'
                 : mobileSheet === 'guests' ? 'Requests to join' : 'Microphone'}
               onClose={() => setMobileSheet(null)}
               height={sheetH[mobileSheet]}
@@ -4296,6 +4414,63 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                         sh.muted ? `Unmute ${sh.label}` : `Mute ${sh.label}`)
                     ))}
                   </div>
+                </div>
+              )}
+              {mobileSheet === 'restream' && (
+                restream.isStreaming && restream.platform ? (
+                  <StopStreamingPanel
+                    platform={restream.platform}
+                    viewerUrl=""
+                    isLoading={restream.isLoading}
+                    error={restream.error}
+                    onStop={() => void restream.stopStream()}
+                    onClose={() => setMobileSheet(null)}
+                  />
+                ) : (
+                  <StreamingPanel
+                    videoEnabled
+                    isLoading={restream.isLoading}
+                    error={restream.error}
+                    onStart={(platform, streamKey, bgUrl) => void restream.startStream(platform, streamKey, bgUrl, true)}
+                    onClose={() => setMobileSheet(null)}
+                  />
+                )
+              )}
+              {mobileSheet === 'dvr' && (
+                <div className="hh-studio__dvr-sheet">
+                  {dvr.error && <p className="hh-studio__device-error">{dvr.error}</p>}
+                  {!dvr.recording ? (
+                    <>
+                      <p className="hh-studio__device-hint">
+                        Turn on DVR to record a rolling buffer while you stream. Then tap
+                        <b> Clip</b> any time to save the last 30 seconds as a shareable video.
+                      </p>
+                      <button className="hh-btn hh-btn--primary" disabled={dvr.busy} onClick={() => void dvr.start()}>
+                        {dvr.busy ? 'Starting…' : '● Start DVR'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="hh-studio__device-hint">DVR is recording. Grab the last 30 seconds:</p>
+                      <button className="hh-btn hh-btn--primary" disabled={dvr.busy} onClick={() => void dvr.clip(apiBaseUrl)}>
+                        {dvr.busy ? 'Building clip…' : '✂ Clip last 30s'}
+                      </button>
+                      {dvr.lastClip && (
+                        <div className="hh-studio__dvr-clip">
+                          <a href={dvr.lastClip} target="_blank" rel="noopener noreferrer">Open your clip ↗</a>
+                          <button
+                            className="hh-btn hh-btn--secondary hh-btn--small"
+                            onClick={() => { if (dvr.lastClip) void navigator.clipboard?.writeText(dvr.lastClip); }}
+                          >
+                            Copy link
+                          </button>
+                        </div>
+                      )}
+                      <button className="hh-btn hh-btn--secondary" disabled={dvr.busy} onClick={() => void dvr.stop()}>
+                        Stop DVR
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </MobileSheet>

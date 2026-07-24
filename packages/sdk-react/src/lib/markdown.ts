@@ -4,9 +4,20 @@
  * `renderMarkdown` mirrors the create-dialog / studio preview: HTML is escaped
  * FIRST, then a small subset of markdown is turned back into tags — so a
  * description can never inject markup.
+ *
+ * The escape covers QUOTES too (" and '), not just <>&. The generated link tag
+ * puts the URL straight into href="…", and the link regex's URL class allows
+ * any non-space/non-) char — so an unescaped quote would let a crafted URL like
+ * `[x](https://a"onmouseover=…)` break out of the attribute and inject an event
+ * handler. Escaping quotes closes that (real URLs percent-encode them anyway).
  */
 export function renderMarkdown(md: string): string {
-  let h = String(md ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  let h = String(md ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
   h = h
     .replace(/^### (.*)$/gm, '<h3>$1</h3>')
     .replace(/^## (.*)$/gm, '<h2>$1</h2>')

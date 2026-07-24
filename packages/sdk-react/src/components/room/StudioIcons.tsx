@@ -47,6 +47,34 @@ export const IconMirror = (p: SVGProps<SVGSVGElement>) => (
   </Svg>
 );
 
+/** Clip — scissors, for grabbing the last few seconds. */
+export const IconClip = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <circle cx="6" cy="6" r="3" />
+    <circle cx="6" cy="18" r="3" />
+    <path d="M20 4 8.5 15.5" />
+    <path d="M14.5 14.5 20 20" />
+    <path d="M8.5 8.5 12 12" />
+  </Svg>
+);
+
+/** Broadcast / restream — a signal source radiating outward. */
+export const IconBroadcast = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="2" />
+    <path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 16.2a6 6 0 0 0 0-8.4" />
+    <path d="M5 5a9.5 9.5 0 0 0 0 14M19 19a9.5 9.5 0 0 0 0-14" />
+  </Svg>
+);
+
+/** Two cameras at once (front + back) — a main frame with a PiP overlapping it. */
+export const IconDualCamera = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <rect x="3" y="5" width="13" height="11" rx="2" />
+    <rect x="11" y="12" width="9" height="7" rx="1.5" />
+  </Svg>
+);
+
 /** Portrait / landscape aspect toggle. */
 export const IconAspect = (p: SVGProps<SVGSVGElement>) => (
   <Svg {...p}>

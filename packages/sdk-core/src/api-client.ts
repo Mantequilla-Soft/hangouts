@@ -191,6 +191,24 @@ export class HangoutsApiClient {
     );
   }
 
+  // DVR (clip the last ~30s) — host + Pro. See server routes/dvr.ts.
+  async startDvr(roomName: string): Promise<{ status: string; egressId?: string }> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/dvr/start`);
+  }
+
+  async stopDvr(roomName: string): Promise<{ status: string }> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/dvr/stop`);
+  }
+
+  /** Build a clip of the last ~30s. Returns a path under the API host. */
+  async clipDvr(roomName: string): Promise<{ path: string }> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/dvr/clip`);
+  }
+
+  async dvrStatus(roomName: string): Promise<{ recording: boolean }> {
+    return this.request('GET', `/rooms/${encodeURIComponent(roomName)}/dvr/status`);
+  }
+
   // Recording
 
   async startRecording(roomName: string, opts?: { mode?: RecordingMode; layout?: RecordingLayout }): Promise<RecordingStartResponse> {

@@ -5966,6 +5966,28 @@
 }
 .hh-studio__preflight-hint b { color: #fff; opacity: 1; }
 
+/* DVR (clip) sheet */
+.hh-studio__dvr-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.5rem 0.2rem;
+}
+.hh-studio__dvr-clip {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.06);
+}
+.hh-studio__dvr-clip a {
+  color: #4ea1ff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
 .hh-studio__rbtn {
   box-sizing: border-box;
   flex: 0 0 auto;
