@@ -25,6 +25,9 @@ const envSchema = z.object({
    *  because the conference template lives on a deployment we don't control. */
   EGRESS_STANDALONE_TEMPLATE_URL: z.string().default('https://preview.3speak.tv/egress-stream'),
   BOOSTS_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  // DVR: a segmented-HLS egress that records a rolling buffer so a Pro host can
+  // clip the last ~30s. Runs a second egress per stream, so it's a kill-switch.
+  DVR_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   // Admin secret for the manual /boosts/ingest reconciliation endpoint. That
   // endpoint drives REAL payouts from a caller-supplied amount and has no
   // on-chain re-verification, so it must never be reachable unauthenticated.

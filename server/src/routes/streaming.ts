@@ -4,6 +4,7 @@ import { roomService } from '../lib/livekit.js';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
+import { isUserPremium } from '../lib/users.js';
 
 const egressClient = new EgressClient(
   config.LIVEKIT_HOST,
@@ -65,6 +66,12 @@ export const streamingRoutes: FastifyPluginAsync = async (fastify) => {
     const check = await verifyHost(name, request.username);
     if (check.error === 'not_found') return reply.notFound('Room not found');
     if (check.error === 'forbidden') return reply.forbidden('Only the host can start streaming');
+
+    // Restreaming to YouTube/Twitch is a Pro perk: it spins up a dedicated
+    // transcoding egress per stream, so it stays gated on premium.
+    if (!(await isUserPremium(request.username))) {
+      return reply.code(402).send({ message: 'Restreaming to YouTube/Twitch is a 3Speak Pro feature.' });
+    }
 
     if (activeStreams.has(name)) {
       return reply.conflict('Room is already streaming');
