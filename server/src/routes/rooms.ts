@@ -11,6 +11,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { getUserStatus } from '../lib/users.js';
 import { recordGuestIp, isGuestBanned, clearRoomBans } from '../lib/guestBans.js';
+import { recordViewerJoin } from '../lib/streamStats.js';
 
 type RoomVisibility = 'public' | 'hive-internal' | 'unlisted';
 const ROOM_VISIBILITIES: readonly RoomVisibility[] = ['public', 'hive-internal', 'unlisted'];
@@ -623,6 +624,12 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     // Guest caps and IP bans apply to actual guests, not signed-in users.
     if (!silent && !authedUser) {
       recordGuestIp(name, identity, request.ip);
+    }
+
+    // Leaderboard: a real viewer joining a livestream (not the OBS overlay, not
+    // the host/co-host). streamId = roomName. Best-effort, never blocks the join.
+    if (!silent && meta.mode === 'standalone' && identity !== meta.host && identity !== meta.collabGuest) {
+      recordViewerJoin(name, typeof meta.host === 'string' ? meta.host.toLowerCase() : undefined);
     }
 
     return reply.send({

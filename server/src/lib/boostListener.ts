@@ -22,6 +22,7 @@ import {
   upsertBoostLedgerReceived,
 } from './boostLedger.js';
 import { sendBoostPayout } from './boostPayout.js';
+import { recordBoost } from './streamStats.js';
 
 interface BoostTransferInput {
   txId: string;
@@ -213,6 +214,8 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
   try {
     await publishBoost(memo.room, event, lk);
     markBoostBroadcasted(id);
+    // Leaderboard: log the boost against its stream (sender + recipient + amount).
+    recordBoost(event.room, event.recipient, event.sender, event.usdAmount, event.message);
   } catch (err) {
     await handleRejected(id, 'internal_error', log, err);
     return;

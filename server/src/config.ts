@@ -15,6 +15,11 @@ const envSchema = z.object({
   // Long-form video upload service (general /studio uploads — NOT shorts).
   VIDEO_UPLOAD_URL: z.string().url().default('https://video.3speak.tv'),
   VIDEO_UPLOAD_TOKEN: z.string().default(''),
+  // 3Speak checker — receives live-stream leaderboard stats (peak/total viewers,
+  // duration, boosts) via its secret-gated /stream-stats/* endpoints. Fail-safe:
+  // empty STREAM_STATS_SECRET ⇒ reporting is disabled (never blocks a stream).
+  CHECKER_URL: z.string().url().default('https://checker.3speak.tv'),
+  STREAM_STATS_SECRET: z.string().default(''),
   STUDIO_FRONTEND_URL: z.string().url().default('https://3speak.tv'),
   MONGODB_URI: z.string().default(''),
   /** Egress template for CONFERENCE recordings (the existing grid/speaker
