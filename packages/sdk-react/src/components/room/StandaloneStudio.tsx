@@ -6,7 +6,7 @@ import { useWhipIngress } from '../../hooks/useWhipIngress.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
 import { ChatPanel } from './ChatPanel.js';
-import { AUTO_VOD_KEY, AUTO_DL_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
+import { AUTO_VOD_KEY, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
 import { resolveStreamCap } from '../../lib/streamLimits.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
 import { isChromium } from '../../lib/browser.js';
@@ -17,7 +17,7 @@ import { useChat } from '../../hooks/useChat.js';
 import { MobileSheet } from './MobileSheet.js';
 import {
   IconAspect, IconAudio, IconBoost, IconChat, IconCheck, IconFlipCamera, IconGuest,
-  IconLens, IconMirror, IconDualCamera, IconBroadcast, IconClip, IconPause, IconPlay, IconPost, IconShare, IconStop, IconZoomIn, IconZoomOut,
+  IconMirror, IconBroadcast, IconPause, IconPlay, IconPost, IconShare, IconStop, IconZoomIn, IconZoomOut,
 } from './StudioIcons.js';
 import { BoostOverlay } from './BoostOverlay.js';
 import { useBoostStore, BOOST_DISPLAY_MS } from '../../hooks/useBoosts.js';
@@ -435,8 +435,9 @@ function drawNameTag(
   const textW = ctx.measureText(label).width;
   const boxW = textW + padX * 2;
   const boxH = fontPx + padY * 2;
-  // Right side — keeps the name clear of the 3Speak watermark in the top-left.
-  const bx = x + w - margin - boxW;
+  // Horizontally centred within this region (a guest split), so each person's
+  // name sits under the middle of their own half rather than off to one edge.
+  const bx = x + Math.round((w - boxW) / 2);
   const by = place === 'top' ? y + margin : y + h - margin - boxH;
   const r = Math.min(boxH / 2, 12);
   ctx.beginPath();
@@ -737,9 +738,12 @@ export interface StandaloneStudioProps {
    *  host turned the Hive announcement off). Hides the "replace the stream
    *  with a video" option and stops it taking effect. Default true. */
   canPublishVod?: boolean;
+  /** Base host for the OBS **output** (browser-source) URL a streamer pastes
+   *  into OBS to pull their own stream in — same page the rooms use. */
+  obsBaseUrl?: string;
 }
 
-export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium = false, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false }: StandaloneStudioProps) {
+export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium = false, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false, obsBaseUrl = 'https://hangout.3speak.tv' }: StandaloneStudioProps) {
   const { localParticipant } = useLocalParticipant();
   const localParticipantRef = useRef(localParticipant);
   localParticipantRef.current = localParticipant;
@@ -759,7 +763,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   }, [localParticipant]);
 
   const participants = useParticipants();
-  const { imageServerApiKey, apiClient, apiBaseUrl } = useHangoutsContext();
+  const { imageServerApiKey, apiClient, apiBaseUrl, livekitServerUrl } = useHangoutsContext();
   // OBS/WHIP ingest goes through the SDK hook rather than a hand-rolled fetch,
   // so integrators get the same path we do. The hook keeps the raw-fetch
   // fallback for older bundled cores.
@@ -994,14 +998,80 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const isMobile = useIsMobile();
   const isMobileRef = useRef(isMobile);
   isMobileRef.current = isMobile;
-  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests' | 'restream' | 'dvr';
+  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests';
   const [mobileSheet, setMobileSheet] = useState<MobileSheetId | null>(null);
 
-  // Restream to YouTube/Twitch (Pro). Reuses the shared streaming hook +
-  // StreamingPanel; the server enforces the Pro gate, the UI just hides it.
+  // Restream to YouTube/Twitch + bring in OBS (Pro). Its own overlay (not a
+  // MobileSheet) because StreamingPanel is absolutely-positioned and would
+  // otherwise float out of the sheet. The server enforces the Pro gate.
   const restream = useStreaming(roomName);
-  // DVR (Pro): rolling segment recording + clip the last ~30s.
+  const [restreamOpen, setRestreamOpen] = useState(false);
+  // OBS OUTPUT: a chrome-free browser-source URL of THIS stream, to pull it INTO
+  // OBS. The /obs renderer's `room+show` mode hardcodes the prod backend, so it
+  // only works for streams on that one deployment. OpenPods runs several
+  // endpoints (each with its OWN LiveKit), so instead we drive the SAME renderer
+  // in `url+token` mode: point it at this stream's LiveKit and hand it a 12h
+  // read-only `obs-` observer token minted by THIS room's backend. Minted lazily
+  // when the panel opens (the token round-trips to the endpoint the stream is on).
+  const [obsSourceUrl, setObsSourceUrl] = useState('');
+  const [obsUrlErr, setObsUrlErr] = useState(false);
+  // Serve the /obs renderer from the integrator's OWN origin (current SDK,
+  // multi-endpoint aware) rather than a shared static host that may be stale.
+  const obsRenderBase = (obsBaseUrl || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/$/, '');
+  useEffect(() => {
+    if (!restreamOpen || obsSourceUrl || !roomName || !apiBaseUrl || !livekitServerUrl) return;
+    let alive = true;
+    setObsUrlErr(false);
+    (async () => {
+      try {
+        const r = await fetch(`${apiBaseUrl}/rooms/${encodeURIComponent(roomName)}/listen`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ silent: true }),
+        });
+        if (!r.ok) throw new Error(String(r.status));
+        const { token } = (await r.json()) as { token?: string };
+        if (!alive) return;
+        if (!token) throw new Error('no token');
+        const q = new URLSearchParams({ url: livekitServerUrl, token, room: roomName });
+        // The overlay picks the program feed by track name, but pass the host
+        // identity as a fallback so it never latches onto a guest's raw camera.
+        const hostId = localParticipantRef.current?.identity;
+        if (hostId) q.set('host', hostId);
+        setObsSourceUrl(`${obsRenderBase}/obs?${q.toString()}`);
+      } catch {
+        if (alive) setObsUrlErr(true);
+      }
+    })();
+    return () => { alive = false; };
+  }, [restreamOpen, obsSourceUrl, roomName, apiBaseUrl, livekitServerUrl, obsRenderBase]);
+  // DVR (Pro): rolling segment recording so VIEWERS can clip the last ~30s.
+  // Started silently for a Pro host while live; the clip button lives on the
+  // viewer's watch page, not here.
   const dvr = useDvr(roomName);
+  const dvrStartRef = useRef(dvr.start); dvrStartRef.current = dvr.start;
+  const dvrStopRef = useRef(dvr.stop); dvrStopRef.current = dvr.stop;
+  const dvrAutoRef = useRef(false);
+  // Host opt-out (Pro): when off, DVR never runs, so the viewer clip button
+  // (gated on /dvr/status recording:true) disappears. Chosen in the create-room
+  // dialog and still editable in the post tab — synced via streamRecordingPrefs.
+  const [allowClips, setAllowClips] = useState(() => readPref(ALLOW_CLIPS_KEY, true));
+  useEffect(() => { writePref(ALLOW_CLIPS_KEY, allowClips); }, [allowClips]);
+  // Run DVR while a Pro host is live/paused AND clips are allowed; stop it
+  // otherwise (clips turned off, or the stream ended) so the viewer button hides.
+  useEffect(() => {
+    const shouldRun = isPremium && !!roomName && allowClips
+      && (streamState === 'live' || streamState === 'paused');
+    if (shouldRun && !dvrAutoRef.current) {
+      dvrAutoRef.current = true;
+      void dvrStartRef.current();
+    } else if (!shouldRun && dvrAutoRef.current) {
+      dvrAutoRef.current = false;
+      void dvrStopRef.current();
+    }
+  }, [streamState, isPremium, roomName, allowClips]);
+  // Stop the recording (and its egress) when the studio goes away.
+  useEffect(() => () => { if (dvrAutoRef.current) void dvrStopRef.current(); }, []);
   // Mobile header: the quality + priority pickers are icon buttons that open a
   // small option popup (a dropdown is too tall for the compact live header).
   const [settingSheet, setSettingSheet] = useState<'quality' | 'priority' | null>(null);
@@ -1050,7 +1120,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     return {
       chat: Math.round(vh * 0.62), post: Math.round(vh * 0.92),
       mic: Math.round(vh * 0.5), lens: Math.round(vh * 0.5), share: Math.round(vh * 0.42),
-      guests: Math.round(vh * 0.45), restream: Math.round(vh * 0.7), dvr: Math.round(vh * 0.5),
+      guests: Math.round(vh * 0.45),
     };
   });
 
@@ -1542,6 +1612,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   }, [streamState, roomName, authedPatch]);
 
   // ---- level meters ------------------------------------------------------
+  const preflightMeterRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     let raf = 0;
     const buf = new Float32Array(512);
@@ -1558,6 +1629,22 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         const lvl = rmsToLevel(Math.sqrt(sum / buf.length));
         levels[key] = Math.max(lvl, (levels[key] ?? 0) * 0.88);
         el.style.setProperty('--lvl', levels[key].toFixed(3));
+      }
+      // Pre-flight mic check uses a HORIZONTAL bar (its fill grows by width),
+      // driven straight off the mic analyser independent of the vertical meters.
+      const pm = preflightMeterRef.current;
+      if (pm) {
+        const an = analysersRef.current.mic;
+        if (an) {
+          an.getFloatTimeDomainData(buf);
+          let sum = 0;
+          for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+          const lvl = rmsToLevel(Math.sqrt(sum / buf.length));
+          levels.__pf = Math.max(lvl, (levels.__pf ?? 0) * 0.85);
+          pm.style.width = `${Math.round(levels.__pf * 100)}%`;
+        } else {
+          pm.style.width = '0%';
+        }
       }
       raf = requestAnimationFrame(tick);
     };
@@ -1805,6 +1892,20 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     const triedModes: string[] = [];
 
     stream = await openWith({});
+    // NotReadableError / AbortError both mean "the source couldn't start" — busy,
+    // still releasing from a previous open, or (common in a desktop browser /
+    // DevTools device emulation) the facingMode constraint tripped it up. Give
+    // it a beat and retry, then as a last resort drop facingMode entirely and
+    // take whatever camera the browser will give.
+    const startFailed = () => /NotReadableError|AbortError/.test((lastErr as { name?: string } | null)?.name ?? '');
+    if (!stream && startFailed()) {
+      await new Promise((r) => setTimeout(r, 500));
+      stream = await openWith({});
+      if (!stream) {
+        try { stream = await navigator.mediaDevices.getUserMedia({ video: true }); }
+        catch (err) { lastErr = err; }
+      }
+    }
     let el = stream ? await attach(stream) : null;
 
     if (stream && el && portraitRef.current && el.videoWidth >= el.videoHeight && el.videoWidth) {
@@ -1889,7 +1990,19 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         );
         return startCamRef.current?.(want, '');
       }
-      setMediaError('Camera access denied.');
+      // Report the ACTUAL failure — "denied" is misleading when the camera was
+      // allowed but is busy (NotReadableError: another tab/app holds it, common
+      // when debugging in a desktop browser) or genuinely absent.
+      const errName = (lastErr as { name?: string } | null)?.name ?? '';
+      setMediaError(
+        errName === 'NotAllowedError' || errName === 'SecurityError'
+          ? 'Camera access denied.'
+          : errName === 'NotReadableError' || errName === 'AbortError'
+            ? 'The camera could not be started — it may be in use by another app or browser tab. Close it, then try again.'
+            : errName === 'NotFoundError' || errName === 'OverconstrainedError'
+              ? 'No usable camera was found.'
+              : `Could not open the camera${errName ? ` (${errName})` : ''}.`,
+      );
       return;
     }
 
@@ -1935,62 +2048,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   }, []);
 
   startCamRef.current = startCam;
-
-  // ---- Dual camera (front + back at once) --------------------------------
-  // A SECOND camera stream drawn as a PiP over the main one. Fully additive:
-  // when `dualCam` is off (the default) nothing here runs and the single-camera
-  // path is untouched. Two simultaneous captures only work on hardware/browsers
-  // that allow it (many Android phones; NOT iOS Safari, and not single-sensor
-  // devices) — a failed or camera-stealing open reverts cleanly with a message.
-  const cam2StreamRef = useRef<MediaStream | null>(null);
-  const cam2VideoRef = useRef<HTMLVideoElement | null>(null);
-  const [dualCam, setDualCam] = useState(false);
-  const dualCamRef = useRef(false);
-  dualCamRef.current = dualCam;
-  const [dualBusy, setDualBusy] = useState(false);
-
-  const stopCam2 = useCallback(() => {
-    cam2StreamRef.current?.getTracks().forEach((t) => t.stop());
-    cam2StreamRef.current = null;
-    cam2VideoRef.current = null;
-  }, []);
-
-  const toggleDualCam = useCallback(async () => {
-    if (dualCamRef.current) { dualCamRef.current = false; setDualCam(false); stopCam2(); return; }
-    if (!camStreamRef.current) { setLensError('Start your camera first.'); return; }
-    setDualBusy(true);
-    // Open the OPPOSITE lens to whatever the main camera is showing.
-    const opposite = camFacingRef.current === 'user' ? 'environment' : 'user';
-    try {
-      const ms = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: opposite } } });
-      // If opening the second camera STOLE the main one (single-sensor phones),
-      // the main track ends — bail out and restore the main rather than stream a
-      // dead half.
-      const mainTrack = camStreamRef.current?.getVideoTracks()[0];
-      if (!mainTrack || mainTrack.readyState === 'ended') {
-        ms.getTracks().forEach((t) => t.stop());
-        setLensError('This device can only use one camera at a time.');
-        if (!mainTrack || mainTrack.readyState === 'ended') { stopCam(); void startCamRef.current?.(); }
-        return;
-      }
-      const v = document.createElement('video');
-      v.muted = true; v.playsInline = true; v.srcObject = ms;
-      void v.play().catch(() => { /* frames arrive async */ });
-      cam2StreamRef.current = ms;
-      cam2VideoRef.current = v;
-      dualCamRef.current = true;
-      setDualCam(true);
-      setLensError('');
-    } catch {
-      stopCam2();
-      setLensError('This device can’t run both cameras at once.');
-    } finally {
-      setDualBusy(false);
-    }
-  }, [stopCam2, stopCam]);
-
-  // Stop the second camera when the studio unmounts.
-  useEffect(() => () => stopCam2(), [stopCam2]);
 
   /** Flip between the front and back camera. Safe while live: the compositor
    *  reads whatever `camVideoRef` currently points at, and the PUBLISHED track
@@ -2923,26 +2980,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               else if (z > 1) drawCoverZoom(ctx, cam, 0, 0, CW, CH, z, 0, 0);
               else drawCover(ctx, cam, 0, 0, CW, CH);
             });
-            // Dual camera: the opposite lens as a PiP in the bottom-right. Not
-            // mirrored (it's the back lens) and drawn OUTSIDE withCamMirror so
-            // the main-cam mirror never flips it.
-            if (dualCamRef.current) {
-              const c2 = cam2VideoRef.current;
-              if (c2 && c2.readyState >= 2 && c2.videoWidth > 0) {
-                const pipW = CW * 0.30;
-                const c2d = dimsOf(c2);
-                const pipH = (c2d.w && c2d.h) ? pipW * (c2d.h / c2d.w) : pipW * (CH / CW);
-                const mg = CW * 0.03;
-                const px = CW - pipW - mg;
-                const py = CH - pipH - mg;
-                const rr = Math.min(pipW, pipH) * 0.08;
-                const path2 = () => { ctx.beginPath(); if (typeof ctx.roundRect === 'function') ctx.roundRect(px, py, pipW, pipH, rr); else ctx.rect(px, py, pipW, pipH); };
-                ctx.save(); path2(); ctx.clip();
-                drawCover(ctx, c2, px, py, pipW, pipH);
-                ctx.restore();
-                ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 2; path2(); ctx.stroke();
-              }
-            }
           }
           else drawPlaceholder(ctx, 'Camera is off', camHintRef.current, 0, 0, CW, CH);
           break;
@@ -2962,7 +2999,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           ctx.fillStyle = '#2c2c3a';
           ctx.fillRect(x - SPLIT_BAR / 2, 0, SPLIT_BAR, CH);
           if (p.guestName) {
-            drawNameTag(ctx, p.guestName, 0, 0, leftW2, CH, 'top');
+            drawNameTag(ctx, p.guestName, 0, 0, leftW2, CH, 'bottom');
             drawNameTag(ctx, p.hostName ?? '', rightX, 0, rightW, CH, 'bottom');
           }
           break;
@@ -3549,6 +3586,26 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         </span>
       </label>
 
+      {/* Pro: let viewers clip the last 30s. Toggleable ANY time — turning it
+          off stops the DVR recording, so the viewer "30 sec" button vanishes. */}
+      <label className={`hh-post__vod${isPremium ? '' : ' hh-post__vod--locked'}`}>
+        <input
+          type="checkbox"
+          checked={allowClips && isPremium}
+          disabled={!isPremium}
+          onChange={(e) => setAllowClips(e.target.checked)}
+        />
+        <span>
+          ✂ Let viewers clip the last 30 seconds
+          {!isPremium && ' 🔒'}
+          <em className="hh-post__vod-hint">
+            {!isPremium
+              ? 'Only available with 3Speak Pro — viewers can save and share a 30-second clip of your live stream.'
+              : 'Viewers get a “30 sec” button to save and share a clip. Turn this off to hide it.'}
+          </em>
+        </span>
+      </label>
+
     </div>
   );
 
@@ -4013,7 +4070,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       )}
 
       {isMobile ? (
-        <div className={`hh-studio__body hh-studio__body--mobile${mobileSheet ? ' hh-studio__body--sheet' : ''}`}>
+        <div className={`hh-studio__body hh-studio__body--mobile${mobileSheet ? ' hh-studio__body--sheet' : ''}${mobileSheet === 'chat' ? ' hh-studio__body--chatsheet' : ''}`}>
           {previewFrameEl}
 
           {mediaError && (
@@ -4050,7 +4107,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               <div className={`hh-studio__preflight-row${micOn ? ' is-ok' : ' is-bad'}`}>
                 <span className="hh-studio__preflight-key">🎤 Mic</span>
                 {micOn
-                  ? <span className="hh-studio__preflight-meter">{renderMeter('mic', true)}</span>
+                  ? <span className="hh-studio__preflight-hmeter"><i ref={preflightMeterRef} /></span>
                   : <span className="hh-studio__preflight-val">Off — open Audio</span>}
               </div>
               <div className={`hh-studio__preflight-row${connBad ? ' is-bad' : connQuality !== ConnectionQuality.Unknown ? ' is-ok' : ''}`}>
@@ -4102,28 +4159,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             >
               <IconMirror />
               <span className="hh-studio__rbtn-label">Mirror</span>
-            </button>
-            <button
-              className={`hh-studio__rbtn${dualCam ? ' hh-studio__rbtn--on' : ''}`}
-              onClick={() => void toggleDualCam()}
-              disabled={!camOn || dualBusy}
-              title={dualCam
-                ? 'Turn off the second camera'
-                : 'Show both cameras at once (front + back). Not supported on every phone.'}
-            >
-              <IconDualCamera />
-              <span className="hh-studio__rbtn-label">Dual</span>
-            </button>
-            <button
-              className={`hh-studio__rbtn${mobileSheet === 'lens' ? ' hh-studio__rbtn--on' : ''}`}
-              onClick={() => {
-                void refreshAudioInputs();
-                setMobileSheet((v) => (v === 'lens' ? null : 'lens'));
-              }}
-              title="Choose which camera lens to use"
-            >
-              <IconLens />
-              <span className="hh-studio__rbtn-label">Lens</span>
             </button>
           </div>
 
@@ -4191,22 +4226,12 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             )}
             {isPremium && (
               <button
-                className={`hh-studio__rbtn${mobileSheet === 'restream' ? ' hh-studio__rbtn--on' : ''}${restream.isStreaming ? ' hh-studio__rbtn--live' : ''}`}
-                onClick={() => setMobileSheet((v) => (v === 'restream' ? null : 'restream'))}
-                title="Restream to YouTube or Twitch (Pro)"
+                className={`hh-studio__rbtn${restreamOpen ? ' hh-studio__rbtn--on' : ''}${restream.isStreaming ? ' hh-studio__rbtn--live' : ''}`}
+                onClick={() => setRestreamOpen((v) => !v)}
+                title="Restream to YouTube or Twitch, or bring in OBS (Pro)"
               >
                 <IconBroadcast />
                 <span className="hh-studio__rbtn-label">Restream</span>
-              </button>
-            )}
-            {isPremium && (
-              <button
-                className={`hh-studio__rbtn${mobileSheet === 'dvr' ? ' hh-studio__rbtn--on' : ''}${dvr.recording ? ' hh-studio__rbtn--live' : ''}`}
-                onClick={() => setMobileSheet((v) => (v === 'dvr' ? null : 'dvr'))}
-                title="DVR — clip the last 30 seconds (Pro)"
-              >
-                <IconClip />
-                <span className="hh-studio__rbtn-label">Clip</span>
               </button>
             )}
             {streamState === 'standby' && (
@@ -4246,8 +4271,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 : mobileSheet === 'post' ? 'Stream post'
                 : mobileSheet === 'lens' ? 'Camera'
                 : mobileSheet === 'share' ? 'Share this stream'
-                : mobileSheet === 'restream' ? 'Restream to YouTube / Twitch'
-                : mobileSheet === 'dvr' ? 'Clip the last 30 seconds'
                 : mobileSheet === 'guests' ? 'Requests to join' : 'Microphone'}
               onClose={() => setMobileSheet(null)}
               height={sheetH[mobileSheet]}
@@ -4416,15 +4439,20 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                   </div>
                 </div>
               )}
-              {mobileSheet === 'restream' && (
-                restream.isStreaming && restream.platform ? (
+            </MobileSheet>
+          )}
+
+          {restreamOpen && (
+            <div className="hh-studio__rs-overlay" onClick={() => setRestreamOpen(false)}>
+              <div className="hh-studio__rs-modal" onClick={(e) => e.stopPropagation()}>
+                {restream.isStreaming && restream.platform ? (
                   <StopStreamingPanel
                     platform={restream.platform}
                     viewerUrl=""
                     isLoading={restream.isLoading}
                     error={restream.error}
                     onStop={() => void restream.stopStream()}
-                    onClose={() => setMobileSheet(null)}
+                    onClose={() => setRestreamOpen(false)}
                   />
                 ) : (
                   <StreamingPanel
@@ -4432,48 +4460,28 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                     isLoading={restream.isLoading}
                     error={restream.error}
                     onStart={(platform, streamKey, bgUrl) => void restream.startStream(platform, streamKey, bgUrl, true)}
-                    onClose={() => setMobileSheet(null)}
+                    onClose={() => setRestreamOpen(false)}
                   />
-                )
-              )}
-              {mobileSheet === 'dvr' && (
-                <div className="hh-studio__dvr-sheet">
-                  {dvr.error && <p className="hh-studio__device-error">{dvr.error}</p>}
-                  {!dvr.recording ? (
-                    <>
-                      <p className="hh-studio__device-hint">
-                        Turn on DVR to record a rolling buffer while you stream. Then tap
-                        <b> Clip</b> any time to save the last 30 seconds as a shareable video.
-                      </p>
-                      <button className="hh-btn hh-btn--primary" disabled={dvr.busy} onClick={() => void dvr.start()}>
-                        {dvr.busy ? 'Starting…' : '● Start DVR'}
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <p className="hh-studio__device-hint">DVR is recording. Grab the last 30 seconds:</p>
-                      <button className="hh-btn hh-btn--primary" disabled={dvr.busy} onClick={() => void dvr.clip(apiBaseUrl)}>
-                        {dvr.busy ? 'Building clip…' : '✂ Clip last 30s'}
-                      </button>
-                      {dvr.lastClip && (
-                        <div className="hh-studio__dvr-clip">
-                          <a href={dvr.lastClip} target="_blank" rel="noopener noreferrer">Open your clip ↗</a>
-                          <button
-                            className="hh-btn hh-btn--secondary hh-btn--small"
-                            onClick={() => { if (dvr.lastClip) void navigator.clipboard?.writeText(dvr.lastClip); }}
-                          >
-                            Copy link
-                          </button>
-                        </div>
-                      )}
-                      <button className="hh-btn hh-btn--secondary" disabled={dvr.busy} onClick={() => void dvr.stop()}>
-                        Stop DVR
-                      </button>
-                    </>
-                  )}
+                )}
+                <div className="hh-studio__rs-obs">
+                  <p>Show this stream <b>inside OBS</b>: add a <b>Browser Source</b> and paste this URL (tick <em>Allow transparency</em>).</p>
+                  <div className="hh-studio__obs-url">
+                    <input
+                      readOnly
+                      value={obsSourceUrl || (obsUrlErr ? 'Could not prepare the URL — close and reopen to retry.' : 'Preparing OBS URL…')}
+                      onFocus={(e) => { if (obsSourceUrl) e.currentTarget.select(); }}
+                    />
+                    <button
+                      className="hh-btn hh-btn--primary hh-btn--small"
+                      disabled={!obsSourceUrl}
+                      onClick={() => { if (obsSourceUrl) void navigator.clipboard?.writeText(obsSourceUrl); }}
+                    >
+                      Copy
+                    </button>
+                  </div>
                 </div>
-              )}
-            </MobileSheet>
+              </div>
+            </div>
           )}
         </div>
       ) : (

@@ -63,6 +63,7 @@ export { HangoutsErrorBoundary } from './components/room/HangoutsErrorBoundary.j
 export { ScreenShareView } from './components/room/ScreenShareView.js';
 export { StandaloneStudio, type StandaloneStudioProps, type StudioSceneId, type PipCorner , type StreamVodResult } from './components/room/StandaloneStudio.js';
 export { StandaloneViewer, type StandaloneViewerProps } from './components/room/StandaloneViewer.js';
+export { StandaloneObsOverlay, type StandaloneObsOverlayProps } from './components/room/StandaloneObsOverlay.js';
 export {
   StandaloneWatch, type StandaloneWatchProps,
   StreamVideo, type StreamVideoProps,

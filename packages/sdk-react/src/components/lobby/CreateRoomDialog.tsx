@@ -3,7 +3,7 @@ import type { Room, RoomVisibility, RoomMode } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
-import { AUTO_VOD_KEY, AUTO_DL_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
+import { AUTO_VOD_KEY, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
 import { isInAppBrowser, canBroadcast } from '../../lib/browser.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { FREE_STREAM_CAP_LABEL, PRO_STREAM_CAP_LABEL } from '../../lib/streamLimits.js';
@@ -158,8 +158,10 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
   // change their mind before hitting Start.
   const [autoVod, setAutoVod] = useState(() => readPref(AUTO_VOD_KEY));
   const [autoDownload, setAutoDownload] = useState(() => readPref(AUTO_DL_KEY));
+  const [allowClips, setAllowClips] = useState(() => readPref(ALLOW_CLIPS_KEY, true));
   useEffect(() => { writePref(AUTO_VOD_KEY, autoVod); }, [autoVod]);
   useEffect(() => { writePref(AUTO_DL_KEY, autoDownload); }, [autoDownload]);
+  useEffect(() => { writePref(ALLOW_CLIPS_KEY, allowClips); }, [allowClips]);
 
   // A standalone stream is always announced as a full post — a snap can't carry
   // the video, the payout or the comments the rest of the flow depends on.
@@ -607,6 +609,24 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
                 {isPremium
                   ? 'Saves a copy to your computer when you end the stream.'
                   : 'Only available with 3Speak Pro — records the broadcast to a file on your computer.'}
+              </em>
+            </span>
+          </label>
+
+          <label className={`hh-cd__reccheck${isPremium ? '' : ' hh-cd__reccheck--locked'}`}>
+            <input
+              type="checkbox"
+              checked={allowClips && isPremium}
+              disabled={!isPremium}
+              onChange={(e) => setAllowClips(e.target.checked)}
+            />
+            <span>
+              ✂ Let viewers clip the last 30 seconds
+              {!isPremium && ' 🔒'}
+              <em>
+                {isPremium
+                  ? 'Viewers get a “30 sec” button to save and share a clip of your live stream.'
+                  : 'Only available with 3Speak Pro — viewers can save and share a 30-second clip.'}
               </em>
             </span>
           </label>

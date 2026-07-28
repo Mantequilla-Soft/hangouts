@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { RoomAudio } from './RoomAudio.js';
-import { LiveKitRoom,  StartAudio, useParticipants, useTracks, VideoTrack } from '@livekit/components-react';
+import { LiveKitRoom,  StartAudio, useParticipants, useTracks, VideoTrack, useRoomInfo } from '@livekit/components-react';
 import { Track, VideoQuality, type RemoteTrackPublication } from 'livekit-client';
 import type { BoostConfig } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
@@ -70,29 +70,55 @@ export function StandaloneWatch({ roomName, children, connecting }: StandaloneWa
     return <>{connecting ?? <div className="hh-stream-connecting">Connecting to the stream…</div>}</>;
   }
 
-  const hostIdentity = room.roomMeta?.host ?? null;
   return (
-    <StreamContext.Provider value={{
-      hostIdentity,
-      isGuest: room.isGuest,
-      roomName,
-      boostConfig: room.roomMeta?.boost,
-      portrait: (room.roomMeta as { portrait?: boolean } | null)?.portrait,
-    }}>
-      <LiveKitRoom
-        token={room.livekitToken}
-        serverUrl={room.livekitServerUrl}
-        connect={true}
-        audio={false}
-        video={false}
-        options={{ adaptiveStream: true, dynacast: true }}
-      >
+    <LiveKitRoom
+      token={room.livekitToken}
+      serverUrl={room.livekitServerUrl}
+      connect={true}
+      audio={false}
+      video={false}
+      options={{ adaptiveStream: true, dynacast: true }}
+    >
+      <StreamContextBridge roomName={roomName} isGuest={room.isGuest} joinMeta={room.roomMeta}>
         <RoomAudio programOnly />
         <StartAudio label="Click to enable audio" className="hh-start-audio" />
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
           {children}
         </BoostStoreProvider>
-      </LiveKitRoom>
+      </StreamContextBridge>
+    </LiveKitRoom>
+  );
+}
+
+/**
+ * Provides StreamContext from the LIVE room metadata (reactive to the host's
+ * "Start" / metadata updates), not the join-time snapshot. A viewer who joined
+ * during standby otherwise never sees `portrait` flip true, so CollabRequest
+ * stays hidden and they can't ask to join the stage until they refresh. Falls
+ * back to the join-time meta until the first metadata sync lands.
+ */
+function StreamContextBridge({ roomName, isGuest, joinMeta, children }: {
+  roomName: string;
+  isGuest: boolean;
+  joinMeta: unknown;
+  children: ReactNode;
+}) {
+  const roomInfo = useRoomInfo();
+  const meta = useMemo((): { host?: string; boost?: BoostConfig; portrait?: boolean } => {
+    if (roomInfo.metadata) {
+      try { return JSON.parse(roomInfo.metadata); } catch { /* fall back below */ }
+    }
+    return (joinMeta as { host?: string; boost?: BoostConfig; portrait?: boolean }) ?? {};
+  }, [roomInfo.metadata, joinMeta]);
+  return (
+    <StreamContext.Provider value={{
+      hostIdentity: meta.host ?? null,
+      isGuest,
+      roomName,
+      boostConfig: meta.boost,
+      portrait: meta.portrait,
+    }}>
+      {children}
     </StreamContext.Provider>
   );
 }

@@ -1,8 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { EgressClient, SegmentedFileOutput, SegmentedFileProtocol, EncodingOptionsPreset } from 'livekit-server-sdk';
+import { EgressClient, SegmentedFileOutput, SegmentedFileProtocol, EncodingOptions } from 'livekit-server-sdk';
+import { TrackType, TrackSource } from '@livekit/protocol';
 import { spawn } from 'node:child_process';
 import { createReadStream } from 'node:fs';
-import { readdir, stat, unlink, mkdir } from 'node:fs/promises';
+import { readdir, stat, unlink, mkdir, chmod, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { roomService } from '../lib/livekit.js';
@@ -27,7 +28,11 @@ const egressClient = new EgressClient(
   config.LIVEKIT_API_SECRET,
 );
 
-const DVR_DIR = '/tmp/livekit-dvr';
+// MUST live under /tmp/livekit-recordings: that is the ONLY path bind-mounted
+// into the egress container (docker-compose) and the only base allowed by
+// egress.yaml `local:`. Segments written anywhere else stay inside the egress
+// container and never reach the API — the bug that made every clip "empty".
+const DVR_DIR = '/tmp/livekit-recordings/dvr';
 const CLIP_DIR = '/tmp/livekit-dvr-clips';
 const SEGMENT_SEC = 2;                 // HLS segment length
 const BUFFER_SEC = 150;                // keep ~2.5min of segments on disk
@@ -41,11 +46,11 @@ const safeName = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '_');
 
 async function verifyHost(roomName: string, username: string) {
   const rooms = await roomService.listRooms([roomName]);
-  if (rooms.length === 0) return { error: 'not_found' as const };
-  let meta: { host?: string } = {};
+  if (rooms.length === 0) return { error: 'not_found' as const, meta: null };
+  let meta: { host?: string; mode?: string; portrait?: boolean } = {};
   try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
-  if (meta.host !== username) return { error: 'forbidden' as const };
-  return { error: null };
+  if (meta.host !== username) return { error: 'forbidden' as const, meta: null };
+  return { error: null, meta };
 }
 
 // Drop .ts segments older than the buffer window so disk stays bounded.
@@ -74,6 +79,15 @@ function ffmpegConcat(inputs: string[], out: string): Promise<void> {
 const paramsSchema = {
   params: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
 } as const;
+
+/** Stop the janitor + egress and remove the segment dir for one DVR session. */
+async function teardown(name: string, entry: { egressId: string; dir: string; janitor: NodeJS.Timeout }) {
+  clearInterval(entry.janitor);
+  active.delete(name);
+  await egressClient.stopEgress(entry.egressId).catch(() => { /* already completed */ });
+  // The stream is over — no more clips can come from it, so drop the segments.
+  await rm(entry.dir, { recursive: true, force: true }).catch(() => { /* raced */ });
+}
 
 export const dvrRoutes: FastifyPluginAsync = async (fastify) => {
   // Serve a finished clip. No auth: the filename carries a random token, same
@@ -104,6 +118,10 @@ export const dvrRoutes: FastifyPluginAsync = async (fastify) => {
 
     const dir = join(DVR_DIR, safeName(name));
     await mkdir(dir, { recursive: true });
+    // The egress container writes the segments as its OWN user; make the dirs
+    // world-writable so it can, whatever uid it runs as.
+    await chmod(DVR_DIR, 0o777).catch(() => { /* best effort */ });
+    await chmod(dir, 0o777).catch(() => { /* best effort */ });
     const output = new SegmentedFileOutput({
       protocol: SegmentedFileProtocol.HLS_PROTOCOL,
       filenamePrefix: join(dir, 'seg'),
@@ -111,23 +129,66 @@ export const dvrRoutes: FastifyPluginAsync = async (fastify) => {
       livePlaylistName: join(dir, 'live.m3u8'),
       segmentDuration: SEGMENT_SEC,
     });
-    const info = await egressClient.startRoomCompositeEgress(name, { segments: output }, {
-      layout: 'speaker',
-      encodingOptions: EncodingOptionsPreset.H264_720P_30,
+    // Record the host's PROGRAM track — exactly what viewers see, at the real
+    // orientation — the same way the VOD egress does. A RoomComposite 'speaker'
+    // layout would follow whoever is talking and force 16:9; portrait mobile
+    // streams must stay 9:16.
+    const portrait = check.meta?.portrait === true;
+    let videoTrackId = '';
+    let audioTrackId = '';
+    let vw = 0;
+    let vh = 0;
+    try {
+      const parts = await roomService.listParticipants(name);
+      const host = parts.find((pt) => pt.identity === check.meta?.host);
+      const videoInfo = host?.tracks.find((t) => t.type === TrackType.VIDEO && t.source === TrackSource.CAMERA);
+      videoTrackId = videoInfo?.sid ?? '';
+      vw = videoInfo?.width ?? 0;
+      vh = videoInfo?.height ?? 0;
+      // 'studio-mix' is the FULL program audio (not 'host-monitor', the mix-minus).
+      const mics = host?.tracks.filter((t) => t.type === TrackType.AUDIO && t.source === TrackSource.MICROPHONE) ?? [];
+      audioTrackId = (mics.find((t) => t.name === 'studio-mix') ?? mics[0])?.sid ?? '';
+    } catch { /* fall through to the template composite */ }
+
+    const encodingOptions = new EncodingOptions({
+      width: vw || (portrait ? 720 : 1280),
+      height: vh || (portrait ? 1280 : 720),
+      framerate: 30,
+      videoBitrate: 3000,
     });
+
+    let info;
+    try {
+      if (!videoTrackId) throw new Error('host program track not found');
+      info = await egressClient.startTrackCompositeEgress(name, { segments: output }, {
+        audioTrackId,
+        videoTrackId,
+        encodingOptions,
+      });
+    } catch (err) {
+      // Chrome-free full-bleed render of the program at the right dims — never a
+      // speaker layout, never letterboxed.
+      request.log.warn({ err }, '[dvr] track-composite failed; using standalone template');
+      info = await egressClient.startRoomCompositeEgress(name, { segments: output }, {
+        customBaseUrl: config.EGRESS_STANDALONE_TEMPLATE_URL,
+        encodingOptions,
+      });
+    }
     const janitor = setInterval(() => void pruneSegments(dir), 30_000);
     active.set(name, { egressId: info.egressId, dir, janitor });
     return reply.send({ status: 'recording', egressId: info.egressId });
   });
 
-  // Clip the last ~30s into a shareable MP4.
-  fastify.post('/rooms/:name/dvr/clip', { preHandler: [requireAuth, checkBan], schema: paramsSchema }, async (request, reply) => {
+  // Clip the last ~30s into a shareable MP4. VIEWER-facing: any watcher can
+  // clip while the (Pro) host has DVR running, so no host/auth check — just a
+  // per-IP rate limit against ffmpeg abuse.
+  fastify.post('/rooms/:name/dvr/clip', {
+    config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
+    schema: paramsSchema,
+  }, async (request, reply) => {
     const { name } = request.params as { name: string };
-    const check = await verifyHost(name, request.username);
-    if (check.error === 'not_found') return reply.notFound('Room not found');
-    if (check.error === 'forbidden') return reply.forbidden('Only the host can clip');
     const entry = active.get(name);
-    if (!entry) return reply.badRequest('DVR is not recording');
+    if (!entry) return reply.badRequest('This stream is not recording — clips are not available.');
 
     // Most-recent segments within the clip window, in chronological order. Pad
     // by two segment durations so we never lose the tail to timing.
@@ -157,19 +218,19 @@ export const dvrRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/rooms/:name/dvr/stop', { preHandler: [requireAuth, checkBan], schema: paramsSchema }, async (request, reply) => {
     const { name } = request.params as { name: string };
     const check = await verifyHost(name, request.username);
-    if (check.error === 'not_found') return reply.notFound('Room not found');
+    // A deleted room (host ended the stream) still needs teardown — the /dvr/stop
+    // 404ing here was leaking the janitor (which then deleted every segment) and
+    // leaving `active` set, so /dvr/status reported ended streams as recording.
+    // Only block when the room EXISTS and the caller isn't its host.
     if (check.error === 'forbidden') return reply.forbidden('Only the host can stop DVR');
     const entry = active.get(name);
-    if (!entry) return reply.send({ status: 'stopped' });
-    clearInterval(entry.janitor);
-    await egressClient.stopEgress(entry.egressId).catch(() => { /* already gone */ });
-    active.delete(name);
-    void pruneSegments(entry.dir);
+    if (entry) await teardown(name, entry);
     return reply.send({ status: 'stopped' });
   });
 
-  // Status.
-  fastify.get('/rooms/:name/dvr/status', { preHandler: [requireAuth, checkBan], schema: paramsSchema }, async (request, reply) => {
+  // Status — PUBLIC so a viewer's watch page can decide whether to show the
+  // Clip button (true only while a Pro host has DVR running).
+  fastify.get('/rooms/:name/dvr/status', { schema: paramsSchema }, async (request, reply) => {
     const { name } = request.params as { name: string };
     return reply.send({ recording: active.has(name) });
   });
@@ -188,3 +249,17 @@ setInterval(() => {
     } catch { /* dir not created yet */ }
   })();
 }, 10 * 60 * 1000);
+
+// Backstop for a host who ended without a clean /dvr/stop: if a recording room
+// no longer exists, tear the session down so /dvr/status stops reporting it as
+// recording and the janitor isn't left running forever.
+setInterval(() => {
+  void (async () => {
+    for (const [name, entry] of active) {
+      try {
+        const rooms = await roomService.listRooms([name]);
+        if (rooms.length === 0) await teardown(name, entry);
+      } catch { /* transient — retry next sweep */ }
+    }
+  })();
+}, 45 * 1000);

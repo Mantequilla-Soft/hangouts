@@ -446,6 +446,7 @@ export function HangoutsRoom({ roomName, onLeave, onEnded, onError, embedded = f
                   title={title}
                   onEndRoom={handleEndRoom}
                   shareUrl={getShareUrl ? getShareUrl(roomName, room.roomMeta?.origin) : null}
+                  obsBaseUrl={obsBaseUrl}
                   isPremium={room.isPremium}
                   onVideoHandoff={onVideoHandoff}
                   watermarkLogoUrl={watermarkLogoUrl}

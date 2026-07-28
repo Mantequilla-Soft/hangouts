@@ -67,13 +67,6 @@ export const IconBroadcast = (p: SVGProps<SVGSVGElement>) => (
   </Svg>
 );
 
-/** Two cameras at once (front + back) — a main frame with a PiP overlapping it. */
-export const IconDualCamera = (p: SVGProps<SVGSVGElement>) => (
-  <Svg {...p}>
-    <rect x="3" y="5" width="13" height="11" rx="2" />
-    <rect x="11" y="12" width="9" height="7" rx="1.5" />
-  </Svg>
-);
 
 /** Portrait / landscape aspect toggle. */
 export const IconAspect = (p: SVGProps<SVGSVGElement>) => (

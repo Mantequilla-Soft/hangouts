@@ -5891,11 +5891,11 @@
      most cases, so env() alone leaves the buttons underneath it. max() keeps a
      guaranteed clearance and still honours a real inset (iOS home indicator)
      when the platform reports one. */
-  /* 3.75rem ≈ 60px clears an Android 3-button nav bar (~48px) as well as a
-     gesture pill (~24px). Needed because we request FULLSCREEN, which extends
-     the viewport underneath the system bar while Chrome still reports a zero
-     safe-area inset. */
-  bottom: max(3.75rem, calc(0.75rem + env(safe-area-inset-bottom, 0px)));
+  /* 3.75rem ≈ 60px clears an Android 3-button nav bar (~48px) / gesture pill
+     (~24px) — we request FULLSCREEN so Chrome reports a zero safe-area inset.
+     Add ~1 button-height on top so the bottom-most control isn't jammed against
+     the very edge of the screen (it read as a dead end). */
+  bottom: max(6.75rem, calc(3.75rem + env(safe-area-inset-bottom, 0px)));
   z-index: 30;
   display: flex;
   flex-direction: column;
@@ -5947,14 +5947,22 @@
 .hh-studio__preflight-val {
   font-weight: 700;
 }
-.hh-studio__preflight-meter {
+/* Horizontal mic-check bar: the fill grows left-to-right by width (its width is
+   set each frame from the mic analyser). */
+.hh-studio__preflight-hmeter {
   flex: 1;
-  display: flex;
-  align-items: center;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
 }
-.hh-studio__preflight-meter .hh-meter {
-  flex: 1;
-  height: 0.5rem;
+.hh-studio__preflight-hmeter i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #27c093 0%, #27c093 65%, #f1c40f 82%, #e74c3c 100%);
+  transition: width 0.06s linear;
 }
 .hh-studio__preflight-row.is-ok .hh-studio__preflight-val { color: #27c093; }
 .hh-studio__preflight-row.is-bad .hh-studio__preflight-val { color: #ffb020; }
@@ -5986,6 +5994,48 @@
   color: #4ea1ff;
   font-weight: 600;
   text-decoration: none;
+}
+
+/* Restream / OBS overlay (bottom sheet). StreamingPanel is normally an
+   absolutely-positioned flyout; neutralise that so it flows inside the modal
+   instead of floating out as a second popup. */
+.hh-studio__rs-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.hh-studio__rs-modal {
+  width: 100%;
+  max-width: 460px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--st-panel, #16161c);
+  border-radius: 14px 14px 0 0;
+  padding: 1rem;
+}
+.hh-studio__rs-modal .hh-streaming-panel {
+  position: static;
+  width: 100%;
+  bottom: auto;
+  right: auto;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+.hh-studio__rs-obs {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--hh-border, rgba(255, 255, 255, 0.1));
+}
+.hh-studio__rs-obs p {
+  margin: 0 0 0.55rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--st-muted, #9aa);
 }
 
 .hh-studio__rbtn {
@@ -6327,14 +6377,14 @@
 .hh-studio__body--mobile .hh-sheet {
   bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
 }
-/* The rails stay VISIBLE and clickable with a sheet open — Start/Pause/End
-   live there now, and hiding them would mean you couldn't control the stream
-   while reading chat. They're raised above the sheet, and the sheet's content
-   is inset so text never runs underneath them. */
-.hh-studio__body--mobile.hh-studio__body--sheet .hh-studio__rail {
+/* CHAT ONLY: the rails stay above the (transparent) chat sheet so the host can
+   control the stream while reading chat, and the chat body is inset so text
+   doesn't run under them. Every OTHER sheet (mic, share, restream, …) sits ON
+   TOP of the rails and is dismissed with its own ✕. */
+.hh-studio__body--mobile.hh-studio__body--chatsheet .hh-studio__rail {
   z-index: 70;
 }
-.hh-studio__body--sheet .hh-sheet__body {
+.hh-studio__body--chatsheet .hh-sheet__body {
   padding-left: 4.2rem;
   padding-right: 4.2rem;
 }

@@ -14,8 +14,14 @@ export const AUTO_VOD_KEY = 'hh-studio-auto-vod';
 /** "Record the session and download it when it ends." */
 export const AUTO_DL_KEY = 'hh-studio-auto-download';
 
-export function readPref(key: string): boolean {
-  try { return window.localStorage.getItem(key) === '1'; } catch { return false; }
+/** "Let viewers clip the last 30 seconds" (Pro). Defaults ON (pass def=true). */
+export const ALLOW_CLIPS_KEY = 'hh-studio-allow-clips';
+
+export function readPref(key: string, def = false): boolean {
+  try {
+    const v = window.localStorage.getItem(key);
+    return v === null ? def : v === '1';
+  } catch { return def; }
 }
 
 export function writePref(key: string, value: boolean): void {
