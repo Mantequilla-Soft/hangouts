@@ -8,7 +8,6 @@ import { roomRoutes } from './routes/rooms.js';
 import { participantRoutes } from './routes/participants.js';
 import { recordingRoutes } from './routes/recording.js';
 import { streamingRoutes } from './routes/streaming.js';
-import { ingressRoutes } from './routes/ingress.js';
 import { dvrRoutes } from './routes/dvr.js';
 import { boostRoutes } from './routes/boosts.js';
 import { eventRoutes } from './routes/events.js';
@@ -36,7 +35,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   await server.register(participantRoutes);
   await server.register(recordingRoutes);
   await server.register(streamingRoutes);
-  await server.register(ingressRoutes);
   await server.register(dvrRoutes);
   await server.register(boostRoutes);
   await server.register(eventRoutes);
