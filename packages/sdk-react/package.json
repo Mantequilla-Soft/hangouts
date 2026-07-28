@@ -22,7 +22,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@snapie/hangouts-core": "file:../../../../../tmp/hangouts-sdk/snapie-hangouts-core-0.14.2.tgz",
+    "@snapie/hangouts-core": "^0.11.1",
     "chess.js": "^1.4.0",
     "perfect-freehand": "^1.2.3",
     "react-chessboard": "^5.10.0"
