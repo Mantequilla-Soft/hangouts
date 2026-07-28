@@ -28,7 +28,7 @@ const envSchema = z.object({
   /** Egress template for STANDALONE streams: a chrome-free full-bleed render of
    *  the broadcaster's program track, served by the 3Speak frontend. Separate
    *  because the conference template lives on a deployment we don't control. */
-  EGRESS_STANDALONE_TEMPLATE_URL: z.string().default('https://preview.3speak.tv/egress-stream'),
+  EGRESS_STANDALONE_TEMPLATE_URL: z.string().default('https://3speak.tv/egress-stream'),
   BOOSTS_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   // DVR: a segmented-HLS egress that records a rolling buffer so a Pro host can
   // clip the last ~30s. Runs a second egress per stream, so it's a kill-switch.
