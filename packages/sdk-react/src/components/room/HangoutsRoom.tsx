@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { LiveKitRoom, RoomAudioRenderer, StartAudio } from '@livekit/components-react';
+import { RoomAudio } from './RoomAudio.js';
+import { LiveKitRoom,  StartAudio } from '@livekit/components-react';
 import { useDataChannel } from '@livekit/components-react';
+import { DisconnectReason } from 'livekit-client';
 import type { GameResultPayload } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
@@ -16,6 +18,8 @@ import { HangoutsErrorBoundary } from './HangoutsErrorBoundary.js';
 import { GuestNameModal } from '../lobby/GuestNameModal.js';
 import { BoostOverlay } from './BoostOverlay.js';
 import { BoostStoreProvider } from '../../hooks/useBoosts.js';
+import { StandaloneStudio, type StreamVodResult } from './StandaloneStudio.js';
+import { StandaloneViewer } from './StandaloneViewer.js';
 
 /** Prevents the screen from sleeping while the user is in a room.
  *  Acquires a WakeLock on mount, releases on unmount, and re-acquires
@@ -101,6 +105,12 @@ function GameNotificationListener({
 export interface HangoutsRoomProps {
   roomName: string;
   onLeave?: () => void;
+  /** Fired when the HOST deliberately ends the room (the End button, or closing
+   *  the studio while live) — distinct from onLeave, which also covers a viewer
+   *  leaving or a terminal disconnect. Lets the integrator show a "stream ended"
+   *  confirmation instead of routing straight away. Falls back to onLeave when
+   *  not provided. */
+  onEnded?: () => void;
   onError?: (error: Error) => void;
   /** When true, removes min-height and fits within parent container. Use when embedding in modals or panels. */
   embedded?: boolean;
@@ -167,6 +177,20 @@ export interface HangoutsRoomProps {
    */
   onGameEnd?: (result: GameResultPayload) => void;
   /**
+   * Standalone rooms only: render the viewer in embed mode — just the live
+   * program video (with a LIVE badge, viewer count and quality selector
+   * overlaid), no header/chat/leave. For dropping the live player into a
+   * host page's own layout (e.g. the 3Speak watch page). Ignored for the
+   * host (studio) and for conference rooms.
+   */
+  standaloneViewerEmbed?: boolean;
+  /**
+   * Standalone host (studio) only: logo image URL burned in as the free-tier
+   * watermark for non-premium streamers. Same-origin or CORS-enabled;
+   * otherwise it's ignored (text mark) so it can't break the capture.
+   */
+  watermarkLogoUrl?: string;
+  /**
    * Fires whenever the room's active game changes: a game's id when one
    * starts (or is already running when you join — late joiners get this
    * from a hydration fetch, not a live event, so it still fires), and
@@ -180,9 +204,36 @@ export interface HangoutsRoomProps {
    * event).
    */
   onActiveGameChange?: (gameId: string | null) => void;
+  /**
+   * Standalone host (studio) only: fired ONCE the first time the host hits
+   * "Start Stream" (standby → live), carrying the host's latest post-composer
+   * details. Lets the integrator defer side effects (e.g. posting the Hive
+   * announcement) to the real go-live — with the studio-edited post — not room
+   * creation. Not re-fired on pause/resume.
+   */
+  onStreamStart?: (post?: { title?: string; description?: string; thumbnail?: string; tags?: string[] }) => void;
+  /**
+   * Standalone host (studio) only: extra controls rendered at the bottom of
+   * the post-composer tab — e.g. a 3Speak community / payout / beneficiaries
+   * picker for the Hive announcement.
+   */
+  renderPostExtras?: React.ReactNode;
+  /**
+   * Standalone host (studio) only: Pro auto-VOD. Fires with the finished
+   * recording when the host ends a stream they chose to "replace with a
+   * video", so the integrator can publish it as the session's VOD.
+   */
+  onStreamVod?: (file: StreamVodResult) => void;
+  /** Standalone host (studio) only: false hides the "replace the stream with a
+   *  video" option (e.g. no Hive announcement was made, so there's nothing to
+   *  replace) and stops it taking effect. Default true. */
+  canPublishVod?: boolean;
+  /** Unlisted streams are never announced — forwarded to the studio so it can
+   *  hide the post editor. */
+  isUnlisted?: boolean;
 }
 
-export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl = 'https://hangout.3speak.tv', pushToTalk = false, onGameEnd, onActiveGameChange }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onEnded, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl = 'https://hangout.3speak.tv', pushToTalk = false, onGameEnd, onActiveGameChange, standaloneViewerEmbed = false, watermarkLogoUrl, onStreamStart, renderPostExtras, onStreamVod, canPublishVod = true, isUnlisted = false }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated, apiClient } = useHangoutsContext();
   // Default chat closed on mobile — the stage needs the space more than the sidebar does.
@@ -192,6 +243,13 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
   const [gameOpen, setGameOpen] = useState(false);
   const [activeGameId, setActiveGameId] = useState<string | null>(null);
   const [showGuestModal, setShowGuestModal] = useState(false);
+  // True while the HOST is deliberately ending the room. endRoom() deletes the
+  // room, which makes LiveKit fire a terminal ROOM_DELETED/ROOM_CLOSED
+  // disconnect — and without this guard handleDisconnected would treat that as
+  // "you left" and fire onLeave (routing away) a beat before onEnded's
+  // confirmation screen could show. Declared up here (never after the early
+  // return below) so the hook order stays stable. See handleEndRoom.
+  const endingRef = useRef(false);
 
   useEffect(() => {
     onActiveGameChange?.(activeGameId);
@@ -278,17 +336,45 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
     onLeave?.();
   };
 
+  /**
+   * Disconnects that mean "you are done here" — everything else is a blip.
+   *
+   * This used to be wired straight to onDisconnected, so ANY drop tore the room
+   * down and returned the host to the lobby. Locking a phone mid-broadcast did
+   * exactly that: the OS suspends the socket, LiveKit reports a disconnect, and
+   * the streamer came back to the create-room screen with their stream gone.
+   * A transient drop must leave the room mounted so the client can reconnect.
+   */
+  const handleDisconnected = (reason?: DisconnectReason) => {
+    if (endingRef.current) return;   // intentional end — handleEndRoom owns it
+    const terminal = reason === DisconnectReason.CLIENT_INITIATED
+      || reason === DisconnectReason.DUPLICATE_IDENTITY
+      || reason === DisconnectReason.PARTICIPANT_REMOVED
+      || reason === DisconnectReason.ROOM_DELETED
+      || reason === DisconnectReason.ROOM_CLOSED;
+    if (!terminal) {
+      console.warn('[Hangouts] transient disconnect, staying in the room:', reason);
+      return;
+    }
+    handleLeave();
+  };
+
   const handleEndRoom = async () => {
+    // The host must NEVER be trapped in a stream they chose to end. The server
+    // delete can legitimately fail — an expired or rotated session token, a
+    // transient error — but that must not block leaving. So we ALWAYS leave
+    // locally; if the delete didn't land, the room auto-closes on its own
+    // (empty-timeout, or the crash watchdog, which also publishes the VOD).
+    endingRef.current = true;   // suppress the room-deleted disconnect
     try {
       await room.endRoom();
-      onLeave?.();
     } catch (err) {
-      // Surface failures so the host gets feedback instead of staring at
-      // a button that "does nothing" — e.g., expired session or the
-      // server thinking someone else owns the room.
-      console.error('[Hangouts] End room failed:', err);
-      const msg = err instanceof Error ? err.message : String(err);
-      alert(`Couldn't end the room: ${msg}`);
+      console.error('[Hangouts] End room failed; leaving locally anyway:', err);
+    } finally {
+      // Host ended it on purpose → let the integrator show a confirmation.
+      // Everything still tears down (the studio unmounts); onEnded just replaces
+      // the "route away immediately" default.
+      if (onEnded) onEnded(); else onLeave?.();
     }
   };
 
@@ -320,6 +406,81 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
   const videoEnabled = video;
   const canPublishVideo = video;
 
+  // Standalone (one-man livestream) rooms replace the whole conference UI:
+  // the host gets an OBS-style studio that composites and publishes a single
+  // program feed; everyone else is a watch-only viewer with chat. No
+  // attendees section, no games, no speaker stage. LiveKitRoom publishes
+  // nothing automatically — the studio manages its own composite tracks.
+  const roomMode = room.roomMeta?.mode ?? 'conference';
+  if (roomMode === 'standalone') {
+    return (
+      <HangoutsErrorBoundary onError={onError}>
+        <LiveKitRoom
+          token={room.livekitToken}
+          serverUrl={room.livekitServerUrl}
+          connect={true}
+          audio={false}
+          video={false}
+          // Adaptive stream lets viewers auto-trim below their chosen quality;
+          // dynacast stops the studio sending simulcast layers nobody watches.
+          // adaptiveStream throttles a remote track based on whether its
+          // <video> is visible on screen. That's right for a VIEWER, but wrong
+          // for the studio: the host composites remote sources (OBS ingest)
+          // into a CANVAS, so the element is never really "watched" and
+          // LiveKit disables the layers — video never arrives. Producers get
+          // the raw feed; viewers keep adapting.
+          options={{ adaptiveStream: !room.isHost, dynacast: true }}
+          onDisconnected={handleDisconnected}
+        >
+          <RoomAudio programOnly />
+          <StartAudio label="Click to enable audio" className="hh-start-audio" />
+          <WakeLockGuard />
+          <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
+            <div
+              className={`hh-room hh-room--standalone ${embedded ? 'hh-room--embedded' : ''}`}
+              style={maxHeight ? { maxHeight } : undefined}
+            >
+              {room.isHost ? (
+                <StandaloneStudio
+                  roomName={roomName}
+                  title={title}
+                  onEndRoom={handleEndRoom}
+                  shareUrl={getShareUrl ? getShareUrl(roomName, room.roomMeta?.origin) : null}
+                  obsBaseUrl={obsBaseUrl}
+                  isPremium={room.isPremium}
+                  onVideoHandoff={onVideoHandoff}
+                  watermarkLogoUrl={watermarkLogoUrl}
+                  initialPost={{
+                    title: room.roomMeta?.post?.title ?? room.roomMeta?.title,
+                    description: room.roomMeta?.post?.description ?? room.roomMeta?.description,
+                    thumbnail: room.roomMeta?.post?.thumbnail ?? room.roomMeta?.backgroundImage,
+                    tags: room.roomMeta?.post?.tags ?? [],
+                  }}
+                  onStreamStart={onStreamStart}
+                  renderPostExtras={renderPostExtras}
+                  onClose={onLeave}
+                  onStreamVod={onStreamVod}
+                  canPublishVod={canPublishVod}
+                  isUnlisted={isUnlisted}
+                />
+              ) : (
+                <StandaloneViewer
+                  roomName={roomName}
+                  title={title}
+                  hostIdentity={host || null}
+                  onLeave={handleLeave}
+                  isGuest={room.isGuest}
+                  boostConfig={room.roomMeta?.boost}
+                  embed={standaloneViewerEmbed}
+                />
+              )}
+            </div>
+          </BoostStoreProvider>
+        </LiveKitRoom>
+      </HangoutsErrorBoundary>
+    );
+  }
+
   // When a game is active it occupies the center stage area — the game picker
   // sidebar is not shown and the chat mutual-exclusion is lifted.
   const gameIsCenter = !!activeGameId;
@@ -333,9 +494,9 @@ export function HangoutsRoom({ roomName, onLeave, onError, embedded = false, max
         // Guests are listen-only — never request mic/camera access.
         audio={!room.isGuest}
         video={!room.isGuest && canPublishVideo}
-        onDisconnected={handleLeave}
+        onDisconnected={handleDisconnected}
       >
-        <RoomAudioRenderer />
+        <RoomAudio />
         {/* Browser autoplay policies block <audio>.play() until the page has a
             fresh user gesture *and* room.startAudio() has been called. Hosts
             get that gesture from their mic-publish prompt, but guests who

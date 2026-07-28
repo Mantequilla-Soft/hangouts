@@ -790,9 +790,9 @@
   color: rgba(255, 255, 255, 0.85);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
   line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  /* The text is already cut to 50 plain characters in JS, so no line-clamp —
+     it would have swallowed the inline "Show more" button. */
+  display: block;
   overflow: hidden;
 }
 
@@ -2962,11 +2962,15 @@
 }
 
 
+/* Across the TOP, full width. A boost is the loudest thing that happens in a
+   stream and the thing the sender paid for — tucked into a bottom corner it
+   competed with the action rail and the caption, and on a portrait phone it was
+   a 38%-wide sliver. */
 .hh-boost-overlay {
   position: absolute;
+  top: 12px;
+  left: 12px;
   right: 12px;
-  bottom: 12px;
-  width: min(320px, 38%);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -2974,13 +2978,13 @@
 }
 
 @keyframes hh-boost-slidein {
-  from { opacity: 0; transform: translateX(24px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; transform: translateY(-16px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes hh-boost-fadeout {
-  from { opacity: 1; transform: translateX(0); }
-  to   { opacity: 0; transform: translateX(24px); }
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-16px); }
 }
 
 .hh-boost-overlay__item {
@@ -3742,3 +3746,3220 @@
   color: var(--hh-accent);
   word-break: break-word;
 }
+
+/* ============================================================
+   Standalone livestream studio (one-man OBS)
+   The studio follows the host app's theme via the --hh-* palette
+   (set by data-hh-theme / prefers-color-scheme). Studio-local
+   --st-* tokens are aliases so the design reads consistently.
+   Only the BROADCAST pixels (canvas scenes + slates) stay dark —
+   they're program content, not UI.
+   ============================================================ */
+
+.hh-room--standalone::before {
+  display: none;
+}
+.hh-room--standalone {
+  padding: 0;
+  background: var(--hh-bg);
+}
+
+.hh-studio {
+  /* Studio-local tokens — aliases of the app theme */
+  --st-bg: var(--hh-bg);
+  --st-panel: var(--hh-bg-secondary);
+  --st-panel-strong: var(--hh-bg-hover);
+  --st-border: var(--hh-border);
+  --st-border-strong: var(--hh-input-border);
+  --st-text: var(--hh-text);
+  --st-muted: var(--hh-text-muted);
+  /* Was undefined everywhere it's used, so it fell back to hardcoded light
+     greys (#aaa/#9a9a9a) — invisible on the light theme. Alias the app's muted
+     token so dim/hint text stays readable in both themes. */
+  --st-text-dim: var(--hh-text-muted);
+  --st-accent: var(--hh-primary);
+  --st-glow: rgba(227, 19, 55, 0.45);
+  --st-amber: #f1c40f;
+  --st-green: #2ecc71;
+  --st-radius: 14px;
+
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  position: relative;
+  color: var(--st-text);
+  background:
+    radial-gradient(1100px 500px at 75% -10%, rgba(227, 19, 55, 0.06), transparent 60%),
+    var(--st-bg);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* --- header --- */
+
+.hh-studio__header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--st-border);
+  flex-shrink: 0;
+  backdrop-filter: blur(6px);
+}
+
+.hh-studio__live {
+  color: #fff;
+  background: linear-gradient(135deg, #ff2a4a, #c00e2c);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 0 14px var(--st-glow);
+  animation: hh-studio-live-pulse 2.4s ease-in-out infinite;
+}
+
+.hh-studio__live--standby {
+  background: var(--hh-btn-secondary-bg);
+  color: var(--st-muted);
+  box-shadow: none;
+  animation: none;
+}
+
+.hh-studio__live--paused {
+  background: linear-gradient(135deg, #f1c40f, #c9a20b);
+  color: #1a1a1a;
+  box-shadow: 0 0 12px rgba(241, 196, 15, 0.35);
+  animation: none;
+}
+
+@keyframes hh-studio-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+
+/* Uplink-health pill: a 3-bar signal glyph + optional label, coloured by the
+   host's LiveKit connection quality. Sits next to the LIVE/STANDBY badge. */
+.hh-studio__conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--hh-btn-secondary-bg);
+  white-space: nowrap;
+}
+.hh-studio__conn-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+.hh-studio__conn-bars i {
+  width: 3px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.35;
+}
+.hh-studio__conn-bars i:nth-child(1) { height: 5px; }
+.hh-studio__conn-bars i:nth-child(2) { height: 8px; }
+.hh-studio__conn-bars i:nth-child(3) { height: 12px; }
+
+/* Good: all three bars lit, green. */
+.hh-studio__conn--good { color: #27c093; }
+.hh-studio__conn--good .hh-studio__conn-bars i { opacity: 1; }
+
+/* Weak: two bars, amber, with a gentle pulse to draw the eye. */
+.hh-studio__conn--poor { color: #f1c40f; }
+.hh-studio__conn--poor .hh-studio__conn-bars i:nth-child(1),
+.hh-studio__conn--poor .hh-studio__conn-bars i:nth-child(2) { opacity: 1; }
+.hh-studio__conn--poor { animation: hh-studio-conn-pulse 1.6s ease-in-out infinite; }
+
+/* Lost: one bar, red, stronger pulse. */
+.hh-studio__conn--lost { color: #ff2a4a; }
+.hh-studio__conn--lost .hh-studio__conn-bars i:nth-child(1) { opacity: 1; }
+.hh-studio__conn--lost { animation: hh-studio-conn-pulse 0.9s ease-in-out infinite; }
+
+@keyframes hh-studio-conn-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.hh-studio__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.hh-studio__viewers {
+  font-size: 0.85rem;
+  color: var(--st-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Compact icon buttons in the MOBILE live header (quality / priority / views).
+   A full dropdown makes the header too tall on a phone, so these open a bottom
+   popup instead. */
+.hh-studio__hbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--st-border-strong);
+  border-radius: 8px;
+  background: var(--hh-bg-secondary);
+  color: var(--st-text);
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.hh-studio__hbtn-val { font-variant-numeric: tabular-nums; font-weight: 600; }
+/* The viewer count only looks like a button — it isn't interactive. */
+.hh-studio__hbtn--static { cursor: default; }
+
+/* Permanent throttling warning in the studio header. Deliberately not
+   dismissible and never shrunk away — a background tab silently wrecks the
+   stream, so this must stay in the host's eyeline. */
+.hh-studio__warn {
+  flex-shrink: 0;
+  /* Character-relative, so the line COUNT stays put regardless of font size:
+     ~70ch holds ~80 chars, and the message is ~135 — i.e. two lines. */
+  max-width: 70ch;
+  color: #ff5a5a;
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: normal;
+  /* Centre the BOX in the header: auto side-margins soak up the free space,
+     and the actions group grows like the title so both flanks balance. */
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+/* Sized to span both text lines, and kept out of the text flow so the two
+   wrapped lines start at the same x instead of the second running under it. */
+.hh-studio__warn-icon {
+  flex-shrink: 0;
+  font-size: 1.9rem;
+  line-height: 1;
+}
+.hh-studio__warn-text { min-width: 0; }
+@media (max-width: 1400px) {
+  .hh-studio__warn { font-size: 0.76rem; }
+}
+@media (max-width: 1100px) {
+  .hh-studio__warn { font-size: 0.68rem; }
+}
+
+.hh-studio__header-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-shrink: 0;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+/* Close the studio (top-right). Confirms first — see StandaloneStudio. */
+.hh-studio__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 0.6rem;
+  margin-left: 0.15rem;
+  border: 1px solid var(--hh-border, #e0e0e0);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--hh-text-secondary, #888);
+  font-size: 0.82rem;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.hh-studio__close:hover {
+  color: var(--hh-primary, #e31337);
+  border-color: var(--hh-primary, #e31337);
+}
+
+/* --- body grid --- */
+
+.hh-studio__body {
+  display: flex;
+  flex-direction: row;
+  gap: 0.8rem;
+  flex: 1;
+  min-height: 0;
+  padding: 0.8rem;
+}
+
+/* --- left rail: scenes / media / sources --- */
+
+.hh-studio__scenes {
+  width: 180px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--st-border-strong) transparent;
+  padding-right: 2px;
+}
+
+.hh-studio__rail-label {
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--st-muted);
+  padding: 0 0.25rem;
+}
+
+.hh-studio__rail-label--media {
+  margin-top: 0.7rem;
+}
+
+.hh-studio__scene {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--st-border);
+  border-radius: 10px;
+  background: var(--st-panel);
+  color: var(--st-text);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.hh-studio__scene:hover:not(:disabled) {
+  background: var(--st-panel-strong);
+  border-color: var(--st-border-strong);
+}
+
+.hh-studio__scene--active {
+  border-color: var(--st-accent);
+  background: linear-gradient(135deg, rgba(227, 19, 55, 0.16), rgba(227, 19, 55, 0.05));
+  box-shadow: 0 0 0 1px var(--st-accent), 0 0 18px rgba(227, 19, 55, 0.18);
+}
+
+.hh-studio__scene:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Tiny CSS-drawn layout thumbnails: a 16:9 frame (the outer span) with
+   two <i> blocks positioned per scene to sketch the composition. */
+.hh-studio__scene-icon {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border: 1px solid var(--st-muted);
+  border-radius: 4px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.hh-studio__scene-icon i {
+  position: absolute;
+  background: var(--st-muted);
+  border-radius: 1px;
+}
+
+.hh-studio__scene-icon--cam i:first-child { inset: 2px; }
+.hh-studio__scene-icon--cam i:last-child { display: none; }
+
+.hh-studio__scene-icon--screen i:first-child { inset: 2px 4px; }
+.hh-studio__scene-icon--screen i:last-child { display: none; }
+
+.hh-studio__scene-icon--fullscreen i:first-child { inset: 2px 3px; }
+.hh-studio__scene-icon--fullscreen i:last-child { display: none; }
+
+.hh-studio__scene-icon--overlay i:first-child { inset: 2px 3px; opacity: 0.45; }
+.hh-studio__scene-icon--overlay i:last-child { right: 3px; bottom: 3px; width: 11px; height: 7px; }
+
+.hh-studio__scene-icon--split i:first-child { top: 2px; bottom: 2px; left: 2px; width: 14px; }
+.hh-studio__scene-icon--split i:last-child { top: 2px; bottom: 2px; right: 2px; width: 12px; }
+
+.hh-studio__scene--active .hh-studio__scene-icon { border-color: var(--st-accent); }
+.hh-studio__scene--active .hh-studio__scene-icon i { background: var(--st-accent); }
+
+.hh-studio__scene--media {
+  padding: 0.4rem 0.5rem;
+}
+
+.hh-studio__media-thumb {
+  width: 34px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: #000;
+}
+
+.hh-studio__media-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+
+.hh-studio__media-remove,
+.hh-studio__media-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 5px;
+  color: var(--st-muted);
+  font-size: 0.85rem;
+}
+
+.hh-studio__media-remove:hover {
+  background: var(--st-accent);
+  color: #fff;
+}
+
+.hh-studio__media-icon:hover {
+  background: var(--st-panel-strong);
+  color: var(--st-text);
+}
+
+.hh-studio__scene--add {
+  justify-content: center;
+  border-style: dashed;
+  color: var(--st-muted);
+  font-size: 0.8rem;
+  background: transparent;
+}
+
+/* Sources block pinned to the rail bottom */
+.hh-studio__rail-sources {
+  margin-top: auto;
+  padding-top: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.hh-studio__source-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--st-border);
+  border-radius: 10px;
+  background: var(--st-panel);
+  color: var(--st-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.hh-studio__source-btn:hover:not(:disabled) {
+  border-color: var(--st-border-strong);
+}
+
+.hh-studio__source-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.hh-studio__source-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--st-border-strong);
+  flex-shrink: 0;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.hh-studio__source-btn--on {
+  color: var(--st-text);
+  border-color: rgba(46, 204, 113, 0.45);
+}
+
+.hh-studio__source-btn--on .hh-studio__source-dot {
+  background: var(--st-green);
+  box-shadow: 0 0 8px rgba(46, 204, 113, 0.7);
+}
+
+.hh-studio__error {
+  font-size: 0.72rem;
+  color: var(--hh-danger);
+  padding: 0 0.25rem;
+}
+
+/* --- center: program preview + mixer --- */
+
+.hh-studio__center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-height: 0;
+}
+
+/* The preview area flexes; the frame inside is JS-fitted to the largest
+   16:9 box (ResizeObserver) so the canvas is never squeezed off-ratio
+   and overlays always align with canvas pixels. */
+.hh-studio__preview {
+  position: relative;
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hh-studio__frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  max-height: 100%;
+  background: #000;
+  border-radius: var(--st-radius);
+  overflow: hidden;
+  border: 1px solid var(--st-border);
+  box-shadow: 0 12px 40px var(--hh-shadow);
+}
+
+.hh-studio__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Above the OBS host video, and opaque, so that element can stay a real
+     laid-out element (see .hh-studio__obs-host) without ever being seen. */
+  position: relative;
+  z-index: 1;
+  background: #000;
+}
+
+.hh-studio__preview-tag {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #ddd;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
+/* Draggable cam overlay. Transparent — the pixels live on the canvas
+   below; this div only carries interactions. */
+.hh-studio__pip-overlay {
+  position: absolute;
+  border: 1px dashed rgba(255, 255, 255, 0.45);
+  border-radius: 10px;
+  cursor: grab;
+  touch-action: none;
+  /* Above .hh-studio__canvas (z-index 1), which is itself raised to mask the
+     OBS host video. Without this the canvas swallows the drag/resize
+     pointer events and the camera overlay can't be moved. */
+  z-index: 2;
+}
+
+.hh-studio__pip-overlay:active {
+  cursor: grabbing;
+  border-color: var(--st-accent);
+}
+
+.hh-studio__pip-resize {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: var(--st-accent);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  touch-action: none;
+  box-shadow: 0 0 8px var(--st-glow);
+}
+
+.hh-studio__pip-resize--tl { top: -7px; left: -7px; cursor: nwse-resize; }
+.hh-studio__pip-resize--tr { top: -7px; right: -7px; cursor: nesw-resize; }
+.hh-studio__pip-resize--bl { bottom: -7px; left: -7px; cursor: nesw-resize; }
+.hh-studio__pip-resize--br { bottom: -7px; right: -7px; cursor: nwse-resize; }
+
+.hh-studio__split-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  margin-left: -9px;
+  cursor: col-resize;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hh-studio__split-handle span {
+  width: 4px;
+  height: 44px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.hh-studio__split-handle:hover span,
+.hh-studio__split-handle:active span {
+  background: var(--st-accent);
+  box-shadow: 0 0 8px var(--st-glow);
+}
+
+/* --- audio mixer --- */
+
+/* Mixer — a console of VERTICAL faders in a horizontal, scrollable strip. */
+.hh-studio__mixer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--st-border);
+  border-radius: var(--st-radius);
+  background: var(--st-panel);
+  flex-shrink: 0;
+}
+
+.hh-studio__mixer-strip {
+  display: flex;
+  flex-direction: row;
+  gap: 0.55rem;
+  align-items: stretch;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--st-border-strong) transparent;
+  padding-bottom: 2px;
+}
+
+/* One vertical fader channel */
+.hh-studio__fader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  width: 64px;
+  flex-shrink: 0;
+  padding: 0.4rem 0.25rem;
+  border: 1px solid var(--st-border);
+  border-radius: 10px;
+  background: var(--st-panel-strong);
+}
+
+.hh-studio__fader-value {
+  font-size: 0.72rem;
+  color: var(--st-muted);
+  font-variant-numeric: tabular-nums;
+  height: 1em;
+}
+
+/* Vertical slider + vertical LED meter, side by side */
+.hh-studio__fader-body {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: center;
+  gap: 6px;
+  height: var(--fader-h, 120px);
+}
+
+.hh-studio__fader-remove {
+  border: none;
+  background: transparent;
+  color: var(--st-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+}
+.hh-studio__fader-remove:hover { color: var(--hh-danger); }
+
+.hh-studio__fader-slider {
+  writing-mode: vertical-lr;
+  direction: rtl;               /* min at bottom, max at top */
+  -webkit-appearance: slider-vertical;
+  appearance: slider-vertical;
+  width: 20px;
+  height: 100%;
+  margin: 0;
+  accent-color: var(--st-accent);
+}
+
+.hh-studio__fader-slider:disabled {
+  opacity: 0.4;
+}
+
+.hh-studio__fader-mute {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--st-border);
+  background: var(--st-panel);
+  cursor: pointer;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+
+.hh-studio__fader-mute:hover:not(:disabled) {
+  border-color: var(--st-border-strong);
+}
+
+.hh-studio__fader-mute--off {
+  opacity: 0.4;
+}
+
+.hh-studio__fader-mute:disabled {
+  cursor: not-allowed;
+}
+
+.hh-studio__fader-label {
+  font-size: 0.68rem;
+  color: var(--st-muted);
+  font-weight: 500;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Aux device picker, below the console */
+.hh-studio__aux-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.74rem;
+  color: var(--st-muted);
+}
+
+.hh-studio__aux-picker > span {
+  flex-shrink: 0;
+}
+
+.hh-studio__fader-select {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.74rem;
+  padding: 0.28rem 0.4rem;
+  border: 1px solid var(--st-border-strong);
+  border-radius: 8px;
+  background: var(--hh-bg);
+  color: var(--st-text);
+}
+
+/* Vertical LED level meter. A groove holds a bottom-anchored fill whose
+   height tracks the --lvl (0..1) custom property the rAF loop writes. The
+   fill is a green→yellow→red gradient chopped into LED rows by a mask, so
+   at silence (--lvl:0) the meter is an empty groove — never "always on". */
+.hh-meter {
+  position: relative;
+  width: 9px;
+  height: 100%;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--st-panel);
+  border: 1px solid var(--st-border);
+}
+
+.hh-meter--idle {
+  opacity: 0.6;
+}
+
+.hh-meter__fill {
+  --lvl: 0;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* Full height, gradient anchored to the METER, revealed up to --lvl by the
+     clip below.
+
+     This used to be `height: var(--lvl)*100%` with `background-size: 100% 118px`
+     — a HARD-CODED meter height. That was right for the desktop fader's 118px
+     meter, but the mobile mic sheet's meter is ~272px, so the red band landed
+     around 40% of its height and any normal level looked like clipping.
+     Sizing to 100% makes the colours track whatever height the meter has. */
+  top: 0;
+  height: 100%;
+  background: linear-gradient(0deg,
+    #2ecc71 0%, #2ecc71 75%,
+    #f1c40f 75%, #f1c40f 90%,
+    #e74c3c 90%, #e74c3c 100%);
+  background-size: 100% 100%;
+  background-position: bottom;
+  background-repeat: no-repeat;
+  /* Reveal from the bottom up to the current level. */
+  clip-path: inset(calc((1 - var(--lvl)) * 100%) 0 0 0);
+  /* LED rows: opaque 5px, 2px gap */
+  -webkit-mask: repeating-linear-gradient(0deg, #000 0 5px, transparent 5px 7px);
+  mask: repeating-linear-gradient(0deg, #000 0 5px, transparent 5px 7px);
+  transition: clip-path 60ms linear;
+}
+
+.hh-studio__mixer-hint {
+  margin: 0.1rem 0 0;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--st-muted);
+  background: rgba(241, 196, 15, 0.06);
+  border: 1px solid rgba(241, 196, 15, 0.25);
+  border-radius: 10px;
+}
+
+/* --- right rail: chat + transport --- */
+
+.hh-studio__chat {
+  width: 300px;
+  max-width: 34%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0.6rem;
+}
+
+.hh-studio__chat .hh-chat {
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--st-radius);
+  border: 1px solid var(--st-border);
+  overflow: hidden;
+}
+
+/* Transport: the stream lifecycle lives under the chat. */
+.hh-studio__transport {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.hh-studio__go-btn,
+.hh-studio__pause-btn,
+.hh-studio__end-btn {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  border-radius: 12px;
+  cursor: pointer;
+  border: none;
+}
+
+.hh-studio__go-btn {
+  color: #fff;
+  background: linear-gradient(135deg, #ff2a4a, #c00e2c);
+  box-shadow: 0 6px 24px rgba(227, 19, 55, 0.35);
+  animation: hh-studio-golive-pulse 1.8s ease-in-out infinite;
+}
+
+.hh-studio__go-btn:hover {
+  filter: brightness(1.12);
+}
+
+@keyframes hh-studio-golive-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(227, 19, 55, 0.5); }
+  50% { box-shadow: 0 0 0 9px rgba(227, 19, 55, 0); }
+}
+
+.hh-studio__pause-btn {
+  color: #1a1a1a;
+  background: linear-gradient(135deg, #f7d047, #e0b010);
+  box-shadow: 0 6px 20px rgba(241, 196, 15, 0.25);
+}
+
+.hh-studio__pause-btn:hover {
+  filter: brightness(1.08);
+}
+
+.hh-studio__end-btn {
+  padding: 0.55rem 1rem;
+  font-size: 0.85rem;
+  color: var(--st-accent);
+  background: transparent;
+  border: 1px solid rgba(227, 19, 55, 0.45);
+}
+
+.hh-studio__end-btn:hover {
+  background: rgba(227, 19, 55, 0.12);
+}
+
+/* --- viewer variant --- */
+
+.hh-studio__body--viewer {
+  padding: 0.8rem;
+}
+
+.hh-studio__program {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background: #000;
+  border-radius: var(--st-radius);
+  border: 1px solid var(--st-border);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hh-studio__program-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.hh-studio__program-placeholder {
+  color: var(--st-muted);
+  font-size: 1rem;
+}
+
+/* --- lobby badge --- */
+
+.hh-room-card__badge {
+  display: inline-block;
+  background: var(--hh-primary);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.12rem 0.4rem;
+  border-radius: 4px;
+  margin-right: 0.45rem;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* --- responsive: stack the studio on narrow screens --- */
+
+@media (max-width: 820px) {
+  .hh-studio__body {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .hh-studio__scenes {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    overflow-y: visible;
+  }
+
+  .hh-studio__rail-label {
+    width: 100%;
+  }
+
+  .hh-studio__rail-label--media {
+    margin-top: 0.2rem;
+  }
+
+  .hh-studio__scene {
+    flex: 1 1 40%;
+  }
+
+  .hh-studio__rail-sources {
+    margin-top: 0.2rem;
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .hh-studio__source-btn {
+    flex: 1 1 40%;
+  }
+
+  .hh-studio__center {
+    flex: none;
+  }
+
+  .hh-studio__preview {
+    flex: none;
+    aspect-ratio: 16 / 9;
+  }
+
+  .hh-studio__chat {
+    width: 100%;
+    max-width: none;
+    flex: none;
+  }
+
+  .hh-studio__chat .hh-chat {
+    height: 300px;
+    flex: none;
+  }
+
+  .hh-studio__body--viewer .hh-studio__program {
+    flex: none;
+    aspect-ratio: 16 / 9;
+  }
+}
+
+/* === Studio: panel heads, collapse/resize, add-menu, post editor === */
+
+.hh-studio__panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--st-muted);
+  padding: 0 0.15rem 0.1rem;
+}
+
+.hh-studio__collapse {
+  border: none;
+  background: transparent;
+  color: var(--st-muted);
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0.1rem 0.3rem;
+  border-radius: 6px;
+}
+.hh-studio__collapse:hover { background: var(--st-panel-strong); color: var(--st-text); }
+
+/* Thin reopen tab shown when a side panel is collapsed */
+.hh-studio__reopen {
+  flex-shrink: 0;
+  width: 30px;
+  writing-mode: vertical-rl;
+  border: 1px solid var(--st-border);
+  background: var(--st-panel);
+  color: var(--st-muted);
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  padding: 0.5rem 0;
+}
+.hh-studio__reopen:hover { color: var(--st-text); border-color: var(--st-border-strong); }
+
+/* Drag handles between panels — a dim grip line, always visible. */
+.hh-studio__resizer {
+  flex-shrink: 0;
+  width: 8px;
+  margin: 0 -2px;
+  cursor: col-resize;
+  position: relative;
+}
+.hh-studio__resizer::before {
+  content: '';
+  position: absolute;
+  top: 12%;
+  bottom: 12%;
+  left: 50%;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: var(--st-border-strong);
+  transition: background 0.15s;
+}
+.hh-studio__resizer:hover::before { background: var(--st-accent); }
+
+.hh-studio__mixer-resizer {
+  height: 8px;
+  margin: -0.35rem 0 0.15rem;
+  cursor: row-resize;
+  position: relative;
+}
+.hh-studio__mixer-resizer::before {
+  content: '';
+  position: absolute;
+  left: 42%;
+  right: 42%;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
+  border-radius: 3px;
+  background: var(--st-border-strong);
+  transition: background 0.15s;
+}
+.hh-studio__mixer-resizer:hover::before { background: var(--st-accent); }
+
+/* Right-rail Chat / Post tabs */
+.hh-studio__tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+.hh-studio__tab {
+  flex: 1;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--st-border);
+  border-radius: 9px;
+  background: var(--st-panel);
+  color: var(--st-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.hh-studio__tab:hover { color: var(--st-text); }
+.hh-studio__tab--active {
+  color: var(--st-text);
+  border-color: var(--st-accent);
+  background: var(--st-panel-strong);
+}
+.hh-studio__tabs-collapse { flex-shrink: 0; }
+
+.hh-studio__tab-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.hh-studio__tab-body > .hh-chat {
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--st-radius);
+  border: 1px solid var(--st-border);
+  overflow: hidden;
+}
+.hh-studio__tab-body > .hh-post {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Add-source popup card */
+.hh-studio__add-popup {
+  width: min(340px, 92%);
+  max-height: 80%;
+  overflow-y: auto;
+  background: var(--hh-bg-secondary);
+  border: 1px solid var(--st-border-strong);
+  border-radius: var(--st-radius);
+  padding: 0.4rem;
+  box-shadow: 0 20px 60px var(--hh-shadow);
+}
+.hh-studio__add-popup .hh-studio__modal-head { padding: 0.3rem 0.4rem 0.4rem; }
+
+.hh-studio__mixer--collapsed { gap: 0; }
+
+.hh-studio__mixer-empty,
+.hh-studio__mixer-hint {
+  color: var(--st-muted);
+  font-size: 0.74rem;
+  padding: 0.4rem 0.2rem;
+}
+
+/* Add-source menu */
+.hh-studio__add-wrap { position: relative; }
+
+.hh-studio__add-backdrop { position: fixed; inset: 0; z-index: 40; }
+
+.hh-studio__add-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 41;
+  background: var(--hh-bg-secondary);
+  border: 1px solid var(--st-border-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px var(--hh-shadow);
+  padding: 0.3rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.hh-studio__add-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.55rem;
+  border: none;
+  background: transparent;
+  color: var(--st-text);
+  font-size: 0.82rem;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.hh-studio__add-item:hover:not(:disabled) { background: var(--st-panel-strong); }
+.hh-studio__add-item:disabled { opacity: 0.4; cursor: not-allowed; }
+.hh-studio__add-item--sub { font-size: 0.78rem; padding-left: 1.1rem; color: var(--st-muted); }
+.hh-studio__add-state { margin-left: auto; font-size: 0.72rem; color: var(--st-green); }
+
+.hh-studio__add-sep,
+.hh-studio__add-sub {
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--st-muted);
+  padding: 0.4rem 0.55rem 0.15rem;
+}
+.hh-studio__add-empty { font-size: 0.74rem; color: var(--st-muted); padding: 0.2rem 0.7rem 0.4rem; }
+
+/* Post composer pane */
+.hh-post {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.6rem;
+  border: 1px solid var(--st-border);
+  border-radius: var(--st-radius);
+  background: var(--st-panel);
+  flex-shrink: 0;
+}
+
+.hh-post--modal { border: none; background: transparent; padding: 0; }
+
+.hh-post__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.hh-post__title-label {
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--st-muted);
+}
+.hh-post__title-label em { color: var(--st-amber); font-style: normal; text-transform: none; letter-spacing: 0; }
+.hh-post__expand {
+  border: 1px solid var(--st-border);
+  background: var(--st-panel-strong);
+  color: var(--st-text);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.1rem 0.4rem;
+}
+.hh-post__expand:hover { border-color: var(--st-border-strong); }
+
+.hh-post__input,
+.hh-post__desc-input,
+.hh-post__tag-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--st-border-strong);
+  border-radius: 8px;
+  background: var(--hh-bg);
+  color: var(--st-text);
+}
+.hh-post__input:disabled,
+.hh-post__desc-input:disabled,
+.hh-post__tag-input:disabled { opacity: 0.5; }
+.hh-post__desc-input { resize: vertical; }
+.hh-post__extras { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--hh-border, #e0e0e0); }
+
+/* Pro auto-VOD toggle in the post composer. */
+.hh-post__vod {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--hh-border, #e0e0e0);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--hh-text, #1a1a1a);
+  cursor: pointer;
+}
+.hh-post__vod input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--hh-primary, #e31337); flex-shrink: 0; }
+.hh-post__vod--locked { cursor: not-allowed; opacity: 0.75; }
+/* Non-Chromium compatibility notice shown once on studio open. */
+.hh-studio__browser-warn {
+  width: min(92vw, 460px);
+  background: var(--st-panel, #1b1b1b);
+  border: 1px solid var(--st-border-strong, #3a3a3a);
+  border-radius: 12px;
+  padding: 0.9rem 1rem 1rem;
+  color: var(--st-text, #eee);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.hh-studio__browser-warn p { margin: 0.5rem 0; }
+/* --st-text-dim isn't defined, so it fell back to #aaa — unreadable on the
+   light-theme white panel. Dim the ACTUAL theme text instead, which stays
+   legible in both light and dark. */
+.hh-studio__browser-warn-detail { color: var(--st-text); opacity: 0.72; font-size: 0.8rem; }
+.hh-studio__browser-warn-list {
+  margin: 0.35rem 0 0.5rem;
+  padding-left: 1.1rem;
+  color: var(--st-text);
+  opacity: 0.72;
+  font-size: 0.8rem;
+}
+.hh-studio__browser-warn-list li { margin: 0.2rem 0; }
+.hh-studio__browser-warn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.8rem;
+}
+
+.hh-post__vod-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.7rem;
+  font-weight: 400;
+  font-style: normal;
+  color: var(--hh-text-muted, #999);
+}
+
+.hh-post__thumb-add {
+  width: 100%;
+  padding: 0.55rem;
+  border: 1px dashed var(--st-border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--st-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.hh-post__thumb-add:disabled { opacity: 0.5; cursor: not-allowed; }
+.hh-post__thumb-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background-size: cover;
+  background-position: center;
+  border-radius: 8px;
+}
+.hh-post__thumb-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  cursor: pointer;
+}
+
+.hh-post__desc-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.hh-post__desc-tabs button {
+  border: 1px solid var(--st-border);
+  background: var(--st-panel-strong);
+  color: var(--st-muted);
+  font-size: 0.72rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.hh-post__desc-tabs button.is-active { color: var(--st-text); border-color: var(--st-accent); }
+.hh-post__desc-hint { margin-left: auto; font-size: 0.66rem; color: var(--st-muted); }
+.hh-post__desc-preview {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--st-text);
+  border: 1px solid var(--st-border);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  max-height: 200px;
+  overflow-y: auto;
+  word-break: break-word;
+}
+.hh-post__desc-preview h1 { font-size: 1.1rem; margin: 0.2rem 0; }
+.hh-post__desc-preview h2 { font-size: 1rem; margin: 0.2rem 0; }
+.hh-post__desc-preview h3 { font-size: 0.9rem; margin: 0.2rem 0; }
+.hh-post__desc-preview p { margin: 0.3rem 0; }
+.hh-post__desc-preview a { color: var(--st-accent); }
+
+.hh-post__tag-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.hh-post__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.74rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: var(--st-panel-strong);
+  color: var(--st-text);
+}
+.hh-post__tag button { border: none; background: transparent; color: var(--st-muted); cursor: pointer; font-size: 0.8rem; line-height: 1; }
+.hh-post__tag button:hover { color: var(--hh-danger); }
+
+/* Popups (Add source, Post) — absolute over the whole studio. */
+.hh-studio__modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  backdrop-filter: blur(3px);
+}
+.hh-studio__modal {
+  width: min(640px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--hh-bg);
+  border: 1px solid var(--st-border-strong);
+  border-radius: var(--st-radius);
+  padding: 1rem 1.1rem;
+  box-shadow: 0 20px 60px var(--hh-shadow);
+}
+.hh-studio__modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--st-muted);
+  margin-bottom: 0.6rem;
+}
+
+/* === Studio: record button + audio-clip transport === */
+
+.hh-studio__rec-btn {
+  background: linear-gradient(135deg, #ff2a4a, #c00e2c);
+  color: #fff;
+  border: none;
+  font-variant-numeric: tabular-nums;
+}
+.hh-studio__rec-btn--on { animation: hh-studio-live-pulse 1.4s ease-in-out infinite; }
+
+/* Play/stop + loop under an audio-clip fader */
+.hh-studio__fader-extra {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+}
+.hh-studio__clip-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid var(--st-border);
+  background: var(--st-panel);
+  color: var(--st-muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 0;
+}
+.hh-studio__clip-btn:hover { border-color: var(--st-border-strong); color: var(--st-text); }
+.hh-studio__clip-btn--on {
+  color: var(--st-text);
+  border-color: var(--st-accent);
+  background: var(--st-panel-strong);
+}
+
+/* Quality selector (studio broadcast quality + viewer playback quality) */
+.hh-studio__quality {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--st-muted);
+}
+.hh-studio__quality select {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--st-border-strong);
+  border-radius: 7px;
+  background: var(--hh-bg);
+  color: var(--st-text);
+  cursor: pointer;
+}
+
+/* === Standalone viewer — EMBED mode (bare live player for host layouts) === */
+.hh-room--standalone .hh-studio__program--embed {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: #000;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+}
+.hh-studio__program--embed .hh-studio__program-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.hh-studio__embed-top {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  z-index: 3;
+  pointer-events: none;
+}
+.hh-studio__embed-top > * { pointer-events: auto; }
+.hh-studio__embed-live {
+  background: linear-gradient(135deg, #ff2a4a, #c00e2c);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  box-shadow: 0 0 12px rgba(227, 19, 55, 0.45);
+  animation: hh-studio-live-pulse 2.4s ease-in-out infinite;
+}
+.hh-studio__embed-live--off {
+  background: rgba(0, 0, 0, 0.6);
+  color: #bbb;
+  box-shadow: none;
+  animation: none;
+}
+.hh-studio__embed-viewers {
+  background: rgba(0, 0, 0, 0.55);
+  color: #eee;
+  font-size: 0.72rem;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  backdrop-filter: blur(4px);
+}
+.hh-studio__embed-top .hh-studio__quality {
+  margin-left: auto;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 999px;
+  padding: 0.08rem 0.45rem;
+  color: #eee;
+  backdrop-filter: blur(4px);
+}
+.hh-studio__embed-top .hh-studio__quality select {
+  background: transparent;
+  border: none;
+  color: #eee;
+  font-size: 0.74rem;
+}
+
+/* === Composable live-stream watch pieces (StandaloneWatch) === */
+.hh-stream-connecting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  color: var(--hh-text-muted, #888);
+  font-size: 0.9rem;
+}
+
+/* Video fills its slot (the integrator sizes the slot, e.g. 16:9). */
+.hh-stream-video {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.hh-stream-video__el {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.hh-stream-video__placeholder {
+  color: #888;
+  font-size: 1rem;
+}
+.hh-stream-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 3;
+  background: linear-gradient(135deg, #ff2a4a, #c00e2c);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  box-shadow: 0 0 12px rgba(227, 19, 55, 0.45);
+  animation: hh-studio-live-pulse 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+.hh-stream-badge--off {
+  background: rgba(0, 0, 0, 0.6);
+  color: #bbb;
+  box-shadow: none;
+  animation: none;
+}
+
+.hh-stream-viewers {
+  font-size: 0.85rem;
+  color: var(--hh-text-secondary, #a0a0a0);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.hh-stream-quality {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--hh-text-secondary, #888);
+}
+.hh-stream-quality select {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--hh-input-border, rgba(128,128,128,0.4));
+  border-radius: 8px;
+  background: var(--hh-bg, transparent);
+  color: inherit;
+  cursor: pointer;
+}
+
+.hh-post__save {
+  border: 1px solid var(--st-border-strong);
+  background: var(--st-panel-strong);
+  color: var(--st-text);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  margin-left: auto;
+}
+.hh-post__save:hover:not(:disabled) { border-color: var(--st-accent); }
+.hh-post__save:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Replaces the old Save button — the post auto-saves, this just reports it. */
+.hh-post__saved {
+  margin-left: auto;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--st-text-dim, #8a8a8a);
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+.hh-post__saved--on { color: var(--st-accent, #e31337); }
+
+.hh-post__head .hh-post__expand { margin-left: 0.35rem; }
+
+/* ============================================================
+   Create-room dialog (redesigned) — tiles, markdown, tag pills
+   ============================================================ */
+.hh-cd {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 0.25rem;
+}
+
+.hh-cd__section { display: flex; flex-direction: column; gap: 0.45rem; }
+
+.hh-cd__label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--hh-text-secondary, #888);
+}
+.hh-cd__label-note { font-weight: 500; text-transform: none; letter-spacing: 0; opacity: 0.7; font-style: normal; }
+.hh-cd__label-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+
+/* --- selection tiles (mode + visibility) --- */
+.hh-cd__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.6rem;
+}
+.hh-cd__tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.25rem;
+  padding: 0.9rem 0.6rem;
+  border: 1.5px solid var(--hh-border, #e0e0e0);
+  border-radius: 14px;
+  background: var(--hh-bg-secondary, #f5f5f5);
+  color: var(--hh-text, #1a1a1a);
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.hh-cd__tile:hover { transform: translateY(-2px); border-color: var(--hh-input-border, #bbb); }
+.hh-cd__tile.is-active {
+  border-color: var(--hh-primary, #e31337);
+  background: linear-gradient(160deg, rgba(227, 19, 55, 0.10), rgba(227, 19, 55, 0.02));
+  box-shadow: 0 0 0 1px var(--hh-primary, #e31337), 0 6px 18px rgba(227, 19, 55, 0.15);
+}
+.hh-cd__tile-icon { font-size: 1.6rem; line-height: 1; }
+.hh-cd__tile-title { font-weight: 700; font-size: 0.92rem; }
+.hh-cd__tile-desc { font-size: 0.72rem; color: var(--hh-text-secondary, #888); line-height: 1.25; }
+
+/* --- inputs --- */
+.hh-cd__input,
+.hh-cd__textarea,
+.hh-cd__select {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--hh-input-border, #ccc);
+  border-radius: 10px;
+  background: var(--hh-bg, #fff);
+  color: var(--hh-text, #1a1a1a);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.hh-cd__input:focus,
+.hh-cd__textarea:focus,
+.hh-cd__select:focus {
+  outline: none;
+  border-color: var(--hh-primary, #e31337);
+  box-shadow: 0 0 0 3px rgba(227, 19, 55, 0.12);
+}
+.hh-cd__textarea { resize: vertical; min-height: 84px; line-height: 1.5; }
+
+/* --- markdown editor --- */
+.hh-cd__md-tabs { display: flex; align-items: center; gap: 0.3rem; }
+.hh-cd__md-tabs button {
+  border: 1px solid var(--hh-border, #e0e0e0);
+  background: var(--hh-bg-secondary, #f5f5f5);
+  color: var(--hh-text-secondary, #888);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.hh-cd__md-tabs button.is-active { color: var(--hh-text, #1a1a1a); border-color: var(--hh-primary, #e31337); }
+.hh-cd__md-hint { font-size: 0.66rem; color: var(--hh-text-muted, #999); }
+.hh-cd__md-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem; }
+.hh-cd__md-toolbar button {
+  border: 1px solid var(--hh-border, #e0e0e0);
+  background: var(--hh-bg-secondary, #f5f5f5);
+  color: var(--hh-text-secondary, #666);
+  font-size: 0.74rem;
+  line-height: 1;
+  min-width: 26px;
+  padding: 0.28rem 0.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.hh-cd__md-toolbar button:hover { color: var(--hh-text, #1a1a1a); border-color: var(--hh-primary, #e31337); }
+.hh-cd__md-preview {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--hh-text, #1a1a1a);
+  border: 1px solid var(--hh-border, #e0e0e0);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  min-height: 84px;
+  max-height: 220px;
+  overflow-y: auto;
+  word-break: break-word;
+}
+.hh-cd__md-preview h1 { font-size: 1.15rem; margin: 0.2rem 0; }
+.hh-cd__md-preview h2 { font-size: 1.02rem; margin: 0.2rem 0; }
+.hh-cd__md-preview h3 { font-size: 0.92rem; margin: 0.2rem 0; }
+.hh-cd__md-preview p { margin: 0.3rem 0; }
+.hh-cd__md-preview a { color: var(--hh-primary, #e31337); }
+
+/* --- tags --- */
+.hh-cd__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--hh-input-border, #ccc);
+  border-radius: 10px;
+  background: var(--hh-bg, #fff);
+  min-height: 42px;
+  box-sizing: border-box;
+}
+.hh-cd__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: var(--hh-bg-hover, #eee);
+  color: var(--hh-text, #1a1a1a);
+}
+.hh-cd__tag button { border: none; background: transparent; color: var(--hh-text-muted, #999); cursor: pointer; font-size: 0.85rem; line-height: 1; padding: 0; }
+.hh-cd__tag button:hover { color: var(--hh-danger, #e31337); }
+.hh-cd__tag-input {
+  flex: 1;
+  min-width: 90px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.15rem;
+  outline: none;
+}
+
+/* --- toggle switch --- */
+.hh-cd__switch { display: inline-flex; align-items: center; gap: 0.55rem; cursor: pointer; user-select: none; }
+.hh-cd__switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.hh-cd__switch-track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--hh-input-border, #ccc);
+  transition: background 0.18s;
+  flex-shrink: 0;
+}
+.hh-cd__switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.18s;
+}
+.hh-cd__switch input:checked + .hh-cd__switch-track { background: var(--hh-primary, #e31337); }
+.hh-cd__switch input:checked + .hh-cd__switch-track .hh-cd__switch-thumb { transform: translateX(18px); }
+.hh-cd__switch-label { font-size: 0.9rem; font-weight: 500; }
+
+/* --- min boost + payout side by side --- */
+.hh-cd__row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+.hh-cd__field { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+
+.hh-cd__check { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.88rem; }
+.hh-cd__check input { width: 16px; height: 16px; accent-color: var(--hh-primary, #e31337); }
+.hh-cd__announce {
+  margin-top: 0.6rem;
+  padding: 0.7rem;
+  border: 1px solid var(--hh-border, #e0e0e0);
+  border-radius: 10px;
+  background: var(--hh-bg-secondary, #f7f7f7);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.hh-cd__seg { display: flex; gap: 0.35rem; }
+.hh-cd__seg button {
+  flex: 1;
+  border: 1px solid var(--hh-border, #e0e0e0);
+  background: var(--hh-bg, #fff);
+  color: var(--hh-text-secondary, #666);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.45rem 0.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.hh-cd__seg button.is-active {
+  /* Red outline, not a red fill (create-dialog convention). */
+  color: var(--hh-primary, #e31337);
+  background: transparent;
+  border-color: var(--hh-primary, #e31337);
+  box-shadow: inset 0 0 0 1px var(--hh-primary, #e31337);
+}
+.hh-cd__announce-hint { margin: 0; font-size: 0.72rem; color: var(--hh-text-muted, #999); }
+/* When there's no snap/post toggle (a single announcement option), this hint IS
+   the description of what will happen — so make it bigger and more legible. */
+.hh-cd__announce-hint--solo {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--hh-text-secondary, var(--hh-text));
+}
+
+/* Create-dialog buttons use a red OUTLINE, never a red fill. */
+.hh-cd__submit.hh-btn--primary {
+  background: transparent;
+  color: var(--hh-primary, #e31337);
+  border: 1px solid var(--hh-primary, #e31337);
+}
+.hh-cd__submit.hh-btn--primary:hover:not(:disabled) {
+  background: rgba(227, 19, 55, 0.08);
+}
+.hh-cd__submit.hh-btn--primary:disabled { opacity: 0.5; }
+
+/* --- actions --- */
+.hh-cd__actions { display: flex; gap: 0.5rem; margin-top: 0.25rem; }
+.hh-cd__submit { flex: 1; font-weight: 700; padding: 0.7rem 1rem; }
+
+@media (max-width: 520px) {
+  .hh-cd__row2 { grid-template-columns: 1fr; }
+  .hh-cd__tiles { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+  .hh-cd__tile { padding: 0.7rem 0.4rem; }
+  .hh-cd__tile-icon { font-size: 1.35rem; }
+}
+
+/* --- room description: 50-char plain preview + "Show more" modal --- */
+.hh-room__description-more {
+  margin-left: 0.4rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--hh-primary, #e31337);
+  font-size: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.hh-room__description-more:hover { text-decoration: underline; }
+
+.hh-room__desc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.hh-room__desc-modal {
+  width: min(92vw, 620px);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--hh-bg, #fff);
+  color: var(--hh-text, #1a1a1a);
+  border: 1px solid var(--hh-border, #e0e0e0);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.hh-room__desc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--hh-border, #e0e0e0);
+  font-weight: 700;
+}
+.hh-room__desc-close {
+  border: none;
+  background: none;
+  color: var(--hh-text-secondary, #888);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.hh-room__desc-close:hover { color: var(--hh-primary, #e31337); }
+.hh-room__desc-body {
+  padding: 0.9rem;
+  overflow-y: auto;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  word-break: break-word;
+}
+.hh-room__desc-body h1 { font-size: 1.2rem; margin: 0.3rem 0; }
+.hh-room__desc-body h2 { font-size: 1.08rem; margin: 0.3rem 0; }
+.hh-room__desc-body h3 { font-size: 0.98rem; margin: 0.3rem 0; }
+.hh-room__desc-body p { margin: 0.4rem 0; }
+.hh-room__desc-body a { color: var(--hh-primary, #e31337); }
+.hh-room__desc-body ul { margin: 0.4rem 0; padding-left: 1.2rem; }
+
+/* --- OBS / WHIP ingest setup dialog --- */
+.hh-studio__obs-modal {
+  width: min(94vw, 520px);
+  background: var(--st-panel, #1b1b1b);
+  border: 1px solid var(--st-border-strong, #3a3a3a);
+  border-radius: 12px;
+  padding: 0 0 0.9rem;
+  color: var(--st-text, #eee);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.hh-studio__obs-lead { margin: 0.7rem 0.9rem; }
+.hh-studio__obs-error { margin: 0.9rem; color: #ff6b6b; font-weight: 600; }
+/* Delay / "run everything through OBS" callout — full theme text on a subtle
+   panel so it stays readable in both light and dark. */
+.hh-studio__obs-note {
+  margin: 0.7rem 0.9rem 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  background: var(--st-panel-strong);
+  border: 1px solid var(--st-border-strong);
+  color: var(--st-text);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.hh-studio__obs-url {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0 0.9rem;
+}
+.hh-studio__obs-url input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--st-border-strong, #3a3a3a);
+  background: var(--st-panel-strong, #111);
+  color: var(--st-text, #eee);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.76rem;
+}
+.hh-studio__obs-hints {
+  margin: 0.7rem 0.9rem 0;
+  padding-left: 1.1rem;
+  color: var(--st-text);
+  opacity: 0.72;
+  font-size: 0.76rem;
+}
+.hh-studio__obs-hints li { margin: 0.25rem 0; }
+.hh-studio__obs-status {
+  margin: 0.7rem 0.9rem 0;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+/* The OBS ingest <video>. Must be a real, laid-out element in the document —
+   Firefox won't decode a detached one — so it's hidden with opacity rather
+   than display:none or off-screen positioning. The canvas draws from it. */
+.hh-studio__obs-host {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  /* Deliberately NOT opacity:0 / visibility:hidden / display:none. LiveKit's
+     adaptiveStream decides whether to keep a remote track flowing by watching
+     the attached element, and a hidden one gets its layers switched off. It
+     stays fully laid out and simply sits under the opaque canvas. */
+  z-index: 0;
+}
+
+/* --- camera mask controls (scenes rail) --- */
+.hh-studio__cam-look {
+  margin: 0.6rem 0 0.2rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--st-border, #2a2a2a);
+}
+.hh-studio__cam-shapes { display: flex; gap: 0.3rem; margin: 0.35rem 0; }
+.hh-studio__cam-shape {
+  flex: 1;
+  padding: 0.3rem 0;
+  border: 1px solid var(--st-border-strong, #3a3a3a);
+  border-radius: 7px;
+  background: var(--st-panel-strong, #111);
+  color: var(--st-text-dim, #9a9a9a);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.hh-studio__cam-shape.is-active {
+  color: var(--st-accent, #e31337);
+  border-color: var(--st-accent, #e31337);
+}
+.hh-studio__cam-slider { display: block; margin: 0.4rem 0; font-size: 0.68rem; color: var(--st-text-dim, #9a9a9a); }
+.hh-studio__cam-slider span { display: block; margin-bottom: 0.15rem; font-weight: 600; }
+.hh-studio__cam-slider input { width: 100%; accent-color: var(--st-accent, #e31337); }
+.hh-studio__cam-hint { margin: 0.3rem 0 0; font-size: 0.63rem; line-height: 1.35; color: var(--st-text-dim, #8a8a8a); }
+
+/* Collapsible header for the camera-mask controls. */
+.hh-studio__cam-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.15rem 0;
+  border: none;
+  background: none;
+  color: var(--st-text-dim, #9a9a9a);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.hh-studio__cam-toggle:hover { color: var(--st-text, #eee); }
+.hh-studio__cam-caret { font-size: 0.7rem; }
+
+/* ==========================================================================
+   Mobile studio — camera-only shell
+   ==========================================================================
+   The desktop studio is a 3-column rail layout whose widths are set INLINE
+   from JS (leftW / chatW), so a media query alone can't undo it. The mobile
+   layout is therefore a separate branch in StandaloneStudio.tsx rather than a
+   restyling of the same markup; these rules only dress that branch. */
+
+.hh-studio__body--mobile {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  gap: 0;
+  /* Mobile address bars shrink/grow the viewport; `dvh` tracks that so the
+     studio can't end up taller than the screen and become scrollable. */
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+.hh-studio__body--mobile .hh-studio__preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: #000;
+  /* The base rule pins 16/9. Left in place it wins over `inset: 0` (width and
+     height are auto, so the ratio decides the height) and the preview computed
+     to 412×232 on a phone instead of filling the screen. */
+  aspect-ratio: auto;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+}
+/* No card treatment on a full-bleed phone preview. */
+.hh-studio__body--mobile .hh-studio__frame {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  /* Fill the screen; the canvas below decides how it fits inside. */
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto;
+}
+/* Portrait is meant to be full-bleed like a short: cover the screen even if
+   that crops a sliver, rather than leaving letterbox bars. */
+.hh-studio__canvas--cover { object-fit: cover; }
+/* Landscape in a tall phone would lose most of the frame to a crop, so it
+   fits inside instead. */
+.hh-studio__canvas--contain { object-fit: contain; }
+
+/* --- mobile action rail (structure only) ----------------------------------
+   The VISUAL treatment is supplied by the integrator so it can match the host
+   app — preview-3speak skins these classes with the same mixins its shorts
+   player uses (src/styles/_shorts-action-rail.scss). What lives here is just
+   enough layout for the rail to work unskinned. */
+.hh-studio__rail {
+  position: absolute;
+  /* Android reports a ZERO safe-area inset for the gesture/navigation bar in
+     most cases, so env() alone leaves the buttons underneath it. max() keeps a
+     guaranteed clearance and still honours a real inset (iOS home indicator)
+     when the platform reports one. */
+  /* 3.75rem ≈ 60px clears an Android 3-button nav bar (~48px) / gesture pill
+     (~24px) — we request FULLSCREEN so Chrome reports a zero safe-area inset.
+     Add ~1 button-height on top so the bottom-most control isn't jammed against
+     the very edge of the screen (it read as a dead end). */
+  bottom: max(6.75rem, calc(3.75rem + env(safe-area-inset-bottom, 0px)));
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+/* Camera controls left, session controls right. */
+.hh-studio__rail--left { left: 0.6rem; }
+.hh-studio__rail--right { right: 0.6rem; }
+
+/* Optional pre-flight readiness card — top-centre in standby, clear of the
+   side rails (which anchor bottom-left/right). Compact + translucent so it
+   never buries the camera preview behind it. */
+.hh-studio__preflight {
+  position: absolute;
+  top: 3.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  width: min(20rem, calc(100% - 6.5rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.7rem;
+  background: rgba(12, 12, 18, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 0.72rem;
+  pointer-events: none; /* purely informational — taps fall through to preview */
+}
+.hh-studio__preflight-title {
+  font-weight: 800;
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.1rem;
+}
+.hh-studio__preflight-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.hh-studio__preflight-key {
+  flex: 0 0 5.6rem;
+  opacity: 0.85;
+}
+.hh-studio__preflight-val {
+  font-weight: 700;
+}
+/* Horizontal mic-check bar: the fill grows left-to-right by width (its width is
+   set each frame from the mic analyser). */
+.hh-studio__preflight-hmeter {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+.hh-studio__preflight-hmeter i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #27c093 0%, #27c093 65%, #f1c40f 82%, #e74c3c 100%);
+  transition: width 0.06s linear;
+}
+.hh-studio__preflight-row.is-ok .hh-studio__preflight-val { color: #27c093; }
+.hh-studio__preflight-row.is-bad .hh-studio__preflight-val { color: #ffb020; }
+.hh-studio__preflight-hint {
+  margin-top: 0.15rem;
+  opacity: 0.72;
+  font-size: 0.68rem;
+  line-height: 1.3;
+}
+.hh-studio__preflight-hint b { color: #fff; opacity: 1; }
+
+/* DVR (clip) sheet */
+.hh-studio__dvr-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.5rem 0.2rem;
+}
+.hh-studio__dvr-clip {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.06);
+}
+.hh-studio__dvr-clip a {
+  color: #4ea1ff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* Restream / OBS overlay (bottom sheet). StreamingPanel is normally an
+   absolutely-positioned flyout; neutralise that so it flows inside the modal
+   instead of floating out as a second popup. */
+.hh-studio__rs-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.hh-studio__rs-modal {
+  width: 100%;
+  max-width: 460px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--st-panel, #16161c);
+  border-radius: 14px 14px 0 0;
+  padding: 1rem;
+}
+.hh-studio__rs-modal .hh-streaming-panel {
+  position: static;
+  width: 100%;
+  bottom: auto;
+  right: auto;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+.hh-studio__rs-obs {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--hh-border, rgba(255, 255, 255, 0.1));
+}
+.hh-studio__rs-obs p {
+  margin: 0 0 0.55rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--st-muted, #9aa);
+}
+
+.hh-studio__rbtn {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  /* Always white, never the theme's text colour: the rail sits over live video
+     and in 3Speak's LIGHT theme `inherit` made the icons dark and unreadable. */
+  color: #fff;
+  cursor: pointer;
+}
+.hh-studio__rbtn svg { color: #fff; }
+.hh-studio__rbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+
+
+/* --- bottom sheet --- */
+.hh-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* Above the transport AND the rail (the host app skins the rail at z-index
+     50). At z-index 20 an open sheet had its lower portion covered and rail
+     buttons floating on top of the chat. */
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--hh-bg-secondary);
+  border-top: 1px solid var(--hh-border);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.45);
+  animation: hh-sheet-up 0.18s ease;
+}
+
+@keyframes hh-sheet-up {
+  from { transform: translateY(12px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* Translucent variant: the host keeps an eye on the camera preview through
+   the chat rather than losing the frame while reading messages. */
+.hh-sheet--transparent {
+  /* Completely see-through, NO blur — the camera behind it stays sharp.
+     Legibility comes entirely from the message text shadows. */
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  /* No modal frame. */
+  border-top: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+/* A bare overlay: no drag grip, no header bar (title + ✕), no chat header. It's
+   opened/closed from the rail's Chat toggle. */
+.hh-sheet--transparent .hh-sheet__grip,
+.hh-sheet--transparent .hh-sheet__head,
+.hh-sheet--transparent .hh-chat__header { display: none; }
+/* Strip every inner surface that would re-introduce opacity. */
+.hh-sheet--transparent .hh-sheet__body > .hh-chat,
+.hh-sheet--transparent .hh-chat__messages,
+.hh-sheet--transparent .hh-chat__header {
+  background: transparent;
+  border-color: transparent;
+}
+/* The chat panel is its own glass card: background, blur, shadow AND border.
+   All of it has to go, or a distinct panel outline stays visible inside the
+   see-through sheet. */
+.hh-sheet--transparent .hh-chat {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  max-height: none;
+}
+/* Bottom-anchor the mobile studio chat like the viewer's — newest messages sit
+   at the bottom and fill UPWARD, instead of stacking down from the top. */
+.hh-sheet--transparent .hh-chat__messages {
+  justify-content: flex-end;
+}
+/* The chat's own header duplicates the sheet's title row. */
+.hh-sheet--transparent .hh-chat__header { display: none; }
+.hh-sheet--transparent .hh-chat__msg-name,
+.hh-sheet--transparent .hh-chat__msg-text,
+.hh-sheet--transparent .hh-chat__empty,
+.hh-sheet--transparent .hh-sheet__title {
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+/* Only the sheet BACKGROUND is see-through — the messages themselves stay
+   fully readable. Each row gets its own dark pill, so text never washes out
+   against a bright camera while the gaps between messages stay transparent. */
+/* No pill and no blur — just heavily shadowed text, so the camera reads
+   through everywhere between the glyphs. */
+.hh-sheet--transparent .hh-chat__msg {
+  background: transparent;
+  padding: 3px 4px;
+}
+.hh-sheet--transparent .hh-chat__msg-name,
+.hh-sheet--transparent .hh-chat__msg-text,
+.hh-sheet--transparent .hh-chat__empty,
+.hh-sheet--transparent .hh-sheet__title {
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 6px rgba(0, 0, 0, 0.85),
+    0 0 14px rgba(0, 0, 0, 0.6);
+}
+.hh-sheet--transparent .hh-chat__mention { color: #8ab4ff; }
+
+/* The composer stays solid — a text field you can't see is unusable. */
+.hh-sheet--transparent .hh-chat__input {
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.hh-sheet--transparent .hh-chat__input::placeholder { color: rgba(255, 255, 255, 0.6); }
+
+.hh-sheet__grip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.hh-sheet__grip-bar {
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hh-text-muted);
+  opacity: 0.6;
+}
+
+.hh-sheet__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 6px;
+}
+.hh-sheet__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--hh-text-secondary);
+}
+.hh-sheet__close {
+  min-width: 40px;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--hh-text-secondary);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.hh-sheet__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  /* Same reasoning as the rail: keep content clear of the system bar. */
+  padding: 0 10px max(3.5rem, calc(10px + env(safe-area-inset-bottom, 0px)));
+}
+/* The studio's desktop rule caps chat height; inside a sheet it should fill. */
+.hh-sheet__body > .hh-chat {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  height: auto;
+}
+
+/* --- microphone picker --- */
+.hh-studio__devices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hh-studio__device {
+  min-height: 46px;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--hh-border);
+  border-radius: 10px;
+  background: var(--hh-bg);
+  color: var(--hh-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.hh-studio__device--on {
+  border-color: var(--hh-primary);
+  color: var(--hh-primary);
+}
+.hh-studio__device-hint {
+  margin: 4px 2px;
+  font-size: 12px;
+  color: var(--hh-text-muted);
+}
+
+/* --- header at phone width --- */
+@media (max-width: 820px) {
+  .hh-studio__header {
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    padding: 8px 10px;
+  }
+  .hh-studio__title {
+    font-size: 15px;
+    /* Never let a long stream title push the close button off-screen. */
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hh-studio__warn {
+    order: 10;
+    width: 100%;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+  .hh-studio__quality select { font-size: 12px; }
+  .hh-studio__header-actions {
+    row-gap: 6px;
+    min-width: 0;
+  }
+  /* Mobile header: title is gone and the pickers are compact icon buttons, so
+     the control row fits on ONE line — no wrap. The warn still drops to its own
+     full-width row (order:10 + width:100% above). */
+  .hh-studio__header--mobile {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+  }
+  .hh-studio__header--mobile .hh-studio__header-actions {
+    flex: 1;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 5px;
+  }
+  .hh-studio__header--mobile .hh-studio__hbtn {
+    padding: 0.26rem 0.4rem;
+    font-size: 0.78rem;
+  }
+  /* Collapsed = a single slim bar; spread the controls evenly across it so they
+     aren't cramped together on the right. */
+  .hh-studio__header--collapsed { padding-bottom: 6px; }
+  .hh-studio__header--collapsed .hh-studio__header-actions {
+    justify-content: space-evenly;
+    gap: 0;
+  }
+}
+
+/* Media errors used to render only inside the desktop scenes rail, so a denied
+   camera on a phone failed completely silently. */
+.hh-studio__merror {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 35;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--hh-danger) 16%, transparent);
+  border-top: 1px solid var(--hh-danger);
+  color: var(--hh-text);
+  font-size: 13px;
+  text-align: center;
+}
+.hh-studio__merror button {
+  flex: none;
+  min-height: 34px;
+  padding: 6px 14px;
+  border: 1px solid var(--hh-danger);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--hh-danger);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Portrait: the frame is tall, so let it use the full height and centre it
+   rather than stretching to the full width. */
+
+/* Permission prompt — camera and mic are mandatory on mobile, so a refusal
+   gets an explanation and a retry rather than a dead toggle. */
+.hh-studio__permask {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.hh-studio__permask-card {
+  max-width: 22rem;
+  padding: 20px;
+  border: 1px solid var(--hh-border);
+  border-radius: 16px;
+  background: var(--hh-bg-secondary);
+  text-align: center;
+}
+.hh-studio__permask-card h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--hh-text);
+}
+.hh-studio__permask-card p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--hh-text-secondary);
+}
+.hh-studio__permask-hint { font-size: 12px !important; color: var(--hh-text-muted) !important; }
+.hh-studio__permask-card button { width: 100%; min-height: 46px; margin-top: 8px; }
+
+/* Rail icons: sized off the button's font-size, subtle stroke weight. */
+.hh-studio__rbtn svg { display: block; }
+
+/* A sheet parks ON TOP of the transport rather than covering it, so START
+   STREAM stays reachable while chat is open. */
+.hh-studio__body--mobile .hh-sheet {
+  bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+}
+/* CHAT ONLY: the rails stay above the (transparent) chat sheet so the host can
+   control the stream while reading chat, and the chat body is inset so text
+   doesn't run under them. Every OTHER sheet (mic, share, restream, …) sits ON
+   TOP of the rails and is dismissed with its own ✕. */
+.hh-studio__body--mobile.hh-studio__body--chatsheet .hh-studio__rail {
+  z-index: 70;
+}
+.hh-studio__body--chatsheet .hh-sheet__body {
+  padding-left: 4.2rem;
+  padding-right: 4.2rem;
+}
+
+.hh-studio__device-error {
+  margin: 4px 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--hh-danger);
+}
+.hh-studio__device-tag {
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--hh-primary) 22%, transparent);
+  color: var(--hh-primary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Unfilled-post nudge on the Post button, cleared once the stream starts. */
+.hh-studio__rbtn-dot {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.6rem;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ff3b30;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);
+}
+.hh-studio__rbtn { position: relative; }
+
+/* Same "you haven't looked at this yet" dot on the desktop Post tab. The tab is
+   a text button, so the dot rides at its top-right corner rather than inset. */
+.hh-studio__tab { position: relative; }
+.hh-studio__tab .hh-studio__rbtn-dot {
+  top: 0.25rem;
+  right: 0.3rem;
+}
+
+/* Transport glyphs, drawn rather than iconised so they read at a glance. */
+/* Red play triangle — reads as "start" rather than "record". */
+.hh-studio__rbtn-go-icon {
+  color: #ff3b30 !important;
+  font-size: 26px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85));
+}
+/* Real glyphs — the old CSS pause drew its two bars with left/right borders on
+   an 18px box, which read as one thick rectangle. */
+.hh-studio__rbtn-live-icon,
+.hh-studio__rbtn-stop-icon {
+  font-size: 24px;
+  color: #fff !important;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85));
+}
+.hh-studio__rbtn--go { background-color: rgba(255, 59, 48, 0.28); }
+.hh-studio__rbtn--live { background-color: rgba(255, 59, 48, 0.5); }
+.hh-studio__rbtn--end { background-color: rgba(0, 0, 0, 0.45); }
+
+/* Sheets sit on the floor again now that the transport bar is gone. */
+.hh-studio__body--mobile .hh-sheet { bottom: 0; }
+
+/* Belt and braces: nothing composer-shaped inside the see-through chat sheet. */
+.hh-sheet--transparent .hh-chat__guest-prompt,
+.hh-sheet--transparent .hh-chat__compose {
+  display: none;
+}
+
+/* --- microphone sheet: device list + the desktop mixer's own fader --------- */
+.hh-studio__mic-sheet {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+  min-height: 0;
+  flex: 1;
+}
+.hh-studio__mic-sheet .hh-studio__devices {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+/* Smaller than the standalone picker — the fader needs the room. */
+.hh-studio__devices--compact .hh-studio__device {
+  min-height: 38px;
+  padding: 7px 10px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+.hh-studio__mic-fader {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+}
+/* The fader carries an inline --fader-h (desktop mixer sizing); !important is
+   what lets a stylesheet win against an inline custom property. */
+.hh-studio__mic-fader .hh-studio__fader {
+  --fader-h: 100% !important;
+  height: 100%;
+}
+.hh-studio__mic-fader .hh-studio__fader-body {
+  flex: 1;
+  min-height: 120px;
+}
+
+/* --- share sheet ---------------------------------------------------------- */
+.hh-studio__share-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hh-studio__share-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--hh-text-secondary);
+}
+/* Plain text, not an input — still selectable if the host wants to copy by
+   hand, but it doesn't read as a form to fill in. */
+.hh-studio__share-url {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--hh-bg);
+  color: var(--hh-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-all;
+  user-select: all;
+}
+.hh-studio__share-url strong {
+  color: var(--hh-text);
+  font-weight: 700;
+}
+.hh-studio__share-warn {
+  margin: 2px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--hh-danger);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--hh-danger) 12%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--hh-text);
+}
+
+/* Unread chat count on the rail's Chat button. */
+.hh-studio__rbtn-badge {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.3rem;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);
+}
+
+/* Create-room dialog: what happens to the broadcast when the stream ends.
+   Same treatment as the studio's .hh-post__vod rows so the two places the host
+   can set this look like the same control. */
+.hh-cd__recording {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.hh-cd__recording .hh-cd__label { margin-bottom: 0.1rem; }
+.hh-cd__reccheck {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  font-size: 0.87rem;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.hh-cd__reccheck input { margin-top: 0.15rem; flex: 0 0 auto; }
+.hh-cd__reccheck span { display: flex; flex-direction: column; gap: 0.15rem; }
+.hh-cd__reccheck em {
+  font-style: normal;
+  font-size: 0.78rem;
+  opacity: 0.6;
+}
+.hh-cd__reccheck--locked { cursor: not-allowed; }
+.hh-cd__reccheck--locked > span { opacity: 0.7; }
+.hh-cd__reccheck--locked input { cursor: not-allowed; }
+
+/* --- chat moderation ------------------------------------------------------
+   The host taps a chatter's name in chat to get kick/ban. Only the host ever
+   sees a tappable name, and never on their own messages. */
+.hh-chat__msg-name--tappable {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.hh-chat__msg-name--tappable:hover { text-decoration: underline; }
+
+.hh-modsheet {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.hh-modsheet__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+/* Bottom sheet, matching the house convention that anything popup-shaped
+   arrives from the bottom on a phone. */
+.hh-modsheet__panel {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.9rem;
+  border-radius: 14px 14px 0 0;
+  background: var(--hh-surface, #1b1b1f);
+  color: var(--hh-text, #fff);
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.45);
+}
+.hh-modsheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.95rem;
+}
+.hh-modsheet__close {
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.hh-modsheet__error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #ff6b6b;
+}
+.hh-modsheet__action {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(128, 128, 128, 0.28);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+.hh-modsheet__action em {
+  font-style: normal;
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+.hh-modsheet__action:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Destructive actions are outlined red, never filled — house convention. */
+.hh-modsheet__action--danger {
+  border-color: rgba(224, 89, 75, 0.75);
+  color: #e0594b;
+}
+.hh-modsheet__action--danger.is-confirming {
+  border-color: #e0594b;
+  background: rgba(224, 89, 75, 0.1);
+}
+
+/* --- collab guests sheet --------------------------------------------------
+   Viewers asking to join, and whoever is currently on air. One at a time. */
+.hh-guests { display: flex; flex-direction: column; gap: 0.5rem; }
+.hh-guests__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 10px;
+}
+.hh-guests__row--live { border-color: rgba(224, 89, 75, 0.55); }
+.hh-guests__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 0.9rem; }
+.hh-guests__tag {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #e0594b;
+}
+.hh-guests__btn {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.hh-guests__btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.hh-guests__btn--primary { border-color: var(--st-accent, #4f8cff); color: var(--st-accent, #4f8cff); }
+/* Destructive = red OUTLINE, never a fill. */
+.hh-guests__btn--danger { border-color: rgba(224, 89, 75, 0.75); color: #e0594b; }
+.hh-guests__empty, .hh-guests__error { margin: 0; font-size: 0.82rem; opacity: 0.65; }
+.hh-guests__error { color: #ff6b6b; opacity: 1; }
+
+/* Viewer-side "ask to join" control. */
+.hh-collab__btn.is-active { border-color: var(--st-accent, #4f8cff); color: var(--st-accent, #4f8cff); }
+.hh-collab__glyph { font-size: 22px; line-height: 1; }
+
+/* --- boost dialog: keep it inside the viewport ----------------------------
+   The inputs carry padding + a border with no border-box, so at narrow widths
+   they measured wider than the dialog and spilled past its right edge. Scope
+   the fix to the dialog rather than touching a global reset. */
+.hh-boost-dialog,
+.hh-boost-dialog * {
+  box-sizing: border-box;
+}
+.hh-boost-dialog__amount,
+.hh-boost-dialog__asset,
+.hh-boost-dialog__message {
+  min-width: 0;      /* flex children default to min-content, which refuses to shrink */
+  max-width: 100%;
+}
+.hh-boost-dialog__message {
+  width: 100%;       /* a textarea's intrinsic `cols` width ignores the container */
+}
+.hh-boost-dialog__amount-row {
+  flex-wrap: wrap;   /* amount + asset side by side until they genuinely don't fit */
+}
+/* Tall content (message + hints) must scroll INSIDE the dialog, not push it
+   off-screen — an on-screen keyboard leaves very little height on a phone. */
+.hh-boost-dialog {
+  max-height: 90dvh;
+}
+.hh-boost-dialog__body {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* A mode tile that isn't available here (e.g. going live from an in-app
+   browser). Dimmed, not hidden — the host should see the option exists and
+   why it can't be used. */
+.hh-cd__tile.is-disabled,
+.hh-cd__tile:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Boost recipient picker — only rendered when a collab guest is on air, so the
+   sender can choose between them and the host. */
+.hh-boost-dialog__recipients {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.hh-boost-dialog__recipients-label {
+  font-size: 0.8rem;
+  opacity: 0.65;
+}
+.hh-boost-dialog__recipient {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.hh-boost-dialog__recipient em {
+  font-style: normal;
+  opacity: 0.55;
+}
+.hh-boost-dialog__recipient.is-active {
+  border-color: rgba(227, 19, 55, 0.8);
+  background: rgba(227, 19, 55, 0.15);
+}
+.hh-boost-dialog__recipient:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Lobby opened straight into the create form from a "Group chat" /
+   "Start stream" link — no title, no room list, just the form. */
+.hh-lobby--direct {
+  padding-top: 0;
+}
+
+/* Mode intro above the create form — what kind of room this is, and how the
+   stream studio differs between desktop and phone. */
+.hh-cd__intro {
+  margin-bottom: 0.35rem;
+}
+.hh-cd__intro-title {
+  margin: 0 0 0.2rem;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+.hh-cd__intro-desc {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  opacity: 0.7;
+}
+
+
+.hh-cd__intro-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+.hh-cd__intro-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+/* Small beta pill, so people know live streaming is still being tested. */
+.hh-cd__beta {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.08rem 0.32rem;
+  border-radius: 999px;
+  background: rgba(224, 89, 75, 0.18);
+  color: #e0594b;
+}
+.hh-cd__intro-eyebrow .hh-cd__beta { color: #e0594b; }
+
+/* Free-stream time-cap popup (non-Pro). Sits over the top of the studio in both
+   layouts, dismissible, distinct from the red error banner. */
+.hh-studio__timecap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  display: flex;
+  justify-content: center;
+  padding: 0.6rem;
+  pointer-events: none;
+}
+.hh-studio__timecap-card {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: 520px;
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(20, 20, 26, 0.96);
+  border: 1px solid rgba(240, 190, 90, 0.55);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  color: #fff;
+}
+.hh-studio__timecap-icon { font-size: 1.2rem; }
+.hh-studio__timecap-text { margin: 0; font-size: 0.85rem; line-height: 1.35; flex: 1; }
+.hh-studio__timecap-close {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+/* Mobile value-picker popup (quality / priority) — a bottom sheet with a
+   backdrop, matching the house "popups arrive from the bottom" convention. */
+.hh-optsheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.hh-optsheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: 82vh;
+  overflow-y: auto;
+  background: var(--hh-bg);
+  color: var(--st-text);
+  border-radius: 16px 16px 0 0;
+  padding: 0.5rem 0.85rem calc(1.2rem + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.4);
+}
+.hh-optsheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0 0.5rem;
+}
+.hh-optsheet__title { font-size: 1rem; font-weight: 700; }
+.hh-optsheet__close {
+  border: none; background: none; color: inherit;
+  font-size: 1.1rem; cursor: pointer; opacity: 0.7; padding: 0.2rem 0.3rem;
+}
+.hh-optsheet__intro {
+  margin: 0 0 0.7rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--st-muted);
+}
+.hh-optsheet__opt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.7rem 0.8rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--st-border-strong);
+  border-radius: 12px;
+  background: var(--hh-bg-secondary);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.hh-optsheet__opt:last-child { margin-bottom: 0; }
+/* Selected = red OUTLINE (house convention), not a fill. */
+.hh-optsheet__opt--on { border-color: var(--hh-primary); }
+.hh-optsheet__opt:disabled { opacity: 0.5; cursor: not-allowed; }
+.hh-optsheet__opt-label { font-size: 0.92rem; font-weight: 600; }
+.hh-optsheet__opt-desc { font-size: 0.78rem; line-height: 1.35; color: var(--st-muted); }
+
+
+.hh-cd__limit-hint {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  opacity: 0.8;
+}
+
+/* Elapsed / remaining stream time in the studio header. */
+.hh-studio__timer {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  white-space: nowrap;
+}
+.hh-studio__timer-left { opacity: 0.6; font-size: 0.72rem; }
+.hh-studio__timer--low { color: #ffcf6b; }
+.hh-studio__timer--low .hh-studio__timer-left { opacity: 0.9; }
+@media (max-width: 820px) {
+  /* Keep it compact on a phone — the "left" part carries the useful bit. */
+  .hh-studio__timer { font-size: 0.72rem; }
+}
+
+/* Per-track "Auto" limiter toggle in the mixer fader. */
+.hh-studio__fader-auto {
+  display: inline-flex; align-items: center; gap: 0.2rem;
+  font-size: 0.6rem; color: rgba(255, 255, 255, 0.75);
+  cursor: pointer; user-select: none;
+}
+.hh-studio__fader-auto input { width: 12px; height: 12px; accent-color: var(--st-accent, #4f8cff); }

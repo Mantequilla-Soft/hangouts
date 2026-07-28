@@ -2,6 +2,9 @@ import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useLocalParticipant, useLocalParticipantPermissions, useParticipants } from '@livekit/components-react';
 import { useChat } from '../../hooks/useChat.js';
 import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
+import { useHostControls } from '../../hooks/useHostControls.js';
+import { useModerators } from '../../hooks/useModerators.js';
+import { useStreamContext } from './StandaloneWatch.js';
 
 const QUICK_EMOJIS = ['👍','❤️','😂','🔥','👏','😮','🙌','💯','🎉','🤔','😎','✋'];
 
@@ -19,9 +22,22 @@ export interface ChatPanelProps {
    *  blocks data publishing for guest identities anyway, but hiding
    *  the input keeps the UI honest. */
   isGuest?: boolean;
+  /** Force read-only regardless of the LiveKit publish permission. Use for
+   *  watch-page embeds where anonymous viewers may hold a chat-capable guest
+   *  token but shouldn't be able to post (e.g. "sign in to chat"). */
+  readOnly?: boolean;
+  /** Message shown in place of the composer when chat is read-only. */
+  readOnlyNotice?: string;
+  /** Fired after a message is sent, so an integrator can mirror it elsewhere
+   *  (3Speak posts each line as a timecoded Hive comment). Must not throw —
+   *  it is intentionally not awaited, so chat never waits on a network call. */
+  onMessageSent?: (text: string) => void;
 }
 
-function ChatBubble({ identity, name, text, localName }: { identity: string; name: string; text: string; localName: string }) {
+function ChatBubble({ identity, name, text, localName, onModerate }: {
+  identity: string; name: string; text: string; localName: string;
+  onModerate?: (target: { identity: string; name: string }) => void;
+}) {
   const avatar = useHiveAvatar(identity, 'small');
   const segments = parseMentions(text);
   // Highlight this bubble if the local user is mentioned (match on display name or identity)
@@ -33,7 +49,18 @@ function ChatBubble({ identity, name, text, localName }: { identity: string; nam
     <div className={`hh-chat__msg${isMentioned ? ' hh-chat__msg--mentioned' : ''}`}>
       <img className="hh-chat__msg-avatar" src={avatar} alt={name} />
       <div className="hh-chat__msg-body">
-        <span className="hh-chat__msg-name">{name}</span>
+        {onModerate ? (
+          <button
+            type="button"
+            className="hh-chat__msg-name hh-chat__msg-name--tappable"
+            onClick={() => onModerate({ identity, name })}
+            title={`Moderate ${name}`}
+          >
+            {name}
+          </button>
+        ) : (
+          <span className="hh-chat__msg-name">{name}</span>
+        )}
         <span className="hh-chat__msg-text">
           {segments.map((seg, i) =>
             seg.type === 'mention'
@@ -46,12 +73,101 @@ function ChatBubble({ identity, name, text, localName }: { identity: string; nam
   );
 }
 
-export function ChatPanel({ onClose, isGuest = false }: ChatPanelProps = {}) {
+/**
+ * Moderation actions for one chatter, opened by tapping their name.
+ *
+ * Available to the host AND host-appointed moderators. Kick removes them from
+ * this stream (they can come back); ban is persistent for the room. Both are
+ * destructive and easy to mis-tap on a phone held one-handed while streaming,
+ * so ban asks for a second tap to confirm. Granting/revoking moderator is
+ * host-only and offered only for signed-in Hive users (who can authenticate
+ * their own moderation actions — anonymous guests can't be mods).
+ */
+function ModerationPopup({ target, roomName, isHost, targetIsMod, onClose }: {
+  target: { identity: string; name: string };
+  roomName: string;
+  isHost: boolean;
+  targetIsMod: boolean;
+  onClose: () => void;
+}) {
+  const { kick, ban, setModerator, pending } = useHostControls(roomName);
+  const [confirmBan, setConfirmBan] = useState(false);
+  const [error, setError] = useState('');
+  const busy = pending.has(target.identity) || pending.has(target.identity.toLowerCase());
+  // Only Hive users (identity === username) can be moderators; guests can't.
+  const canManageMods = isHost && !target.identity.startsWith('guest-');
+
+  const run = async (action: () => Promise<void>) => {
+    setError('');
+    try { await action(); onClose(); }
+    catch (err) { setError(err instanceof Error ? err.message : 'That did not work'); }
+  };
+
+  return (
+    <div className="hh-modsheet" role="dialog" aria-label={`Moderate ${target.name}`}>
+      <div className="hh-modsheet__backdrop" onClick={onClose} />
+      <div className="hh-modsheet__panel">
+        <div className="hh-modsheet__head">
+          <strong>@{target.name}</strong>
+          <button className="hh-modsheet__close" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+
+        {error && <p className="hh-modsheet__error">{error}</p>}
+
+        {canManageMods && (
+          <button
+            className="hh-modsheet__action"
+            disabled={busy}
+            onClick={() => void run(() => setModerator(target.identity, !targetIsMod))}
+          >
+            {targetIsMod ? '🛡️ Remove as moderator' : '🛡️ Make moderator'}
+            <em>{targetIsMod
+              ? 'They keep chatting but can no longer remove or ban others.'
+              : 'Lets them remove and ban disruptive viewers, like you can.'}</em>
+          </button>
+        )}
+
+        <button
+          className="hh-modsheet__action"
+          disabled={busy}
+          onClick={() => void run(() => kick(target.identity))}
+        >
+          👢 Remove from this stream
+          <em>They can rejoin if they still have the link.</em>
+        </button>
+
+        <button
+          className={`hh-modsheet__action hh-modsheet__action--danger${confirmBan ? ' is-confirming' : ''}`}
+          disabled={busy}
+          onClick={() => {
+            if (!confirmBan) { setConfirmBan(true); return; }
+            void run(() => ban(target.identity));
+          }}
+        >
+          {confirmBan ? '⛔ Tap again to confirm ban' : '⛔ Ban from this room'}
+          <em>Blocks them for the rest of the session.</em>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnlyNotice, onMessageSent }: ChatPanelProps = {}) {
   const { messages, sendMessage } = useChat();
   const permissions = useLocalParticipantPermissions();
   const { localParticipant } = useLocalParticipant();
   const participants = useParticipants();
-  const canChat = permissions ? (permissions.canPublishData ?? false) : !isGuest;
+  // Moderation is offered only to the stream's host, and never on their own
+  // messages. Outside a stream context (a plain conference) there is no host
+  // identity, so names stay inert.
+  const { hostIdentity, roomName: streamRoom } = useStreamContext();
+  const isHost = !!hostIdentity && !!localParticipant
+    && localParticipant.identity === hostIdentity;
+  // Host-appointed moderators can moderate too (see useModerators).
+  const { moderators, isCurrentUserMod } = useModerators();
+  const canModerate = isHost || isCurrentUserMod;
+  const [modTarget, setModTarget] = useState<{ identity: string; name: string } | null>(null);
+  const canChat = readOnly ? false : (permissions ? (permissions.canPublishData ?? false) : !isGuest);
 
   // The name to match against incoming @mentions for highlight
   const localName = localParticipant
@@ -100,13 +216,26 @@ export function ChatPanel({ onClose, isGuest = false }: ChatPanelProps = {}) {
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    const text = input.trim();
+    if (!text) return;
     sendMessage(input);
     setInput('');
+    // Deliberately not awaited: mirroring to Hive is slow and must never hold
+    // up the in-stream message.
+    try { onMessageSent?.(text); } catch { /* integrator's problem, not chat's */ }
   };
 
   return (
     <div className="hh-chat">
+      {modTarget && streamRoom && (
+        <ModerationPopup
+          target={modTarget}
+          roomName={streamRoom}
+          isHost={isHost}
+          targetIsMod={moderators.includes(modTarget.identity.toLowerCase())}
+          onClose={() => setModTarget(null)}
+        />
+      )}
       <div className="hh-chat__header">
         <span className="hh-chat__title">Chat</span>
         {onClose && (
@@ -125,14 +254,26 @@ export function ChatPanel({ onClose, isGuest = false }: ChatPanelProps = {}) {
           <div className="hh-chat__empty">No messages yet</div>
         )}
         {messages.map((msg) => (
-          <ChatBubble key={msg.id} identity={msg.identity} name={msg.name} text={msg.text} localName={localName} />
+          <ChatBubble
+            key={msg.id}
+            identity={msg.identity}
+            name={msg.name}
+            text={msg.text}
+            localName={localName}
+            onModerate={canModerate && msg.identity !== hostIdentity && msg.identity !== localParticipant?.identity ? setModTarget : undefined}
+          />
         ))}
         <div ref={bottomRef} />
       </div>
       {!canChat ? (
-        <div className="hh-chat__guest-prompt">
-          🔒 Sign in with Hive to chat.
-        </div>
+        /* An EMPTY notice means "render nothing" — `??` only falls back on
+           undefined, so passing '' previously produced an empty prompt box
+           that still carried its border and read as an input field. */
+        readOnlyNotice === '' ? null : (
+          <div className="hh-chat__guest-prompt">
+            {readOnlyNotice ?? '🔒 Sign in with Hive to chat.'}
+          </div>
+        )
       ) : (
         <div className="hh-chat__compose">
           {mentionCandidates.length > 0 && (

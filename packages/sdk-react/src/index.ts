@@ -6,6 +6,7 @@ export {
   loginWithSignFn,
   isKeychainAvailable,
   type Room,
+  type RoomMode,
   type AuthSession,
   type CreateRoomResponse,
   type JoinRoomResponse,
@@ -51,12 +52,25 @@ export { RoomHeader, type RoomHeaderProps } from './components/room/RoomHeader.j
 export { ChatPanel } from './components/room/ChatPanel.js';
 export { BoostOverlay } from './components/room/BoostOverlay.js';
 export { SendBoostDialog } from './components/room/SendBoostDialog.js';
+export { useWhipIngress, type UseWhipIngress } from './hooks/useWhipIngress.js';
+export { isChromium, isInAppBrowser, canBroadcast } from './lib/browser.js';
+export { CollabRequest, type CollabRequestProps } from './components/room/CollabRequest.js';
 export { BoostHistoryPanel } from './components/room/BoostHistoryPanel.js';
 export { BoostSettingsPanel } from './components/room/BoostSettingsPanel.js';
 export { RecordingControls, RecordingIndicator } from './components/room/RecordingControls.js';
 export { StreamingPanel, StopStreamingPanel, type StreamingPanelProps, type StopStreamingPanelProps } from './components/room/StreamingPanel.js';
 export { HangoutsErrorBoundary } from './components/room/HangoutsErrorBoundary.js';
 export { ScreenShareView } from './components/room/ScreenShareView.js';
+export { StandaloneStudio, type StandaloneStudioProps, type StudioSceneId, type PipCorner , type StreamVodResult } from './components/room/StandaloneStudio.js';
+export { StandaloneViewer, type StandaloneViewerProps } from './components/room/StandaloneViewer.js';
+export { StandaloneObsOverlay, type StandaloneObsOverlayProps } from './components/room/StandaloneObsOverlay.js';
+export {
+  StandaloneWatch, type StandaloneWatchProps,
+  StreamVideo, type StreamVideoProps,
+  StreamViewerCount, type StreamViewerCountProps,
+  StreamQualityControl,
+  useStreamContext, useStreamLive,
+} from './components/room/StandaloneWatch.js';
 
 // Hooks — Chat
 export { useChat, type ChatMessage } from './hooks/useChat.js';
@@ -85,8 +99,9 @@ export { GamePanel, type GamePanelProps } from './components/room/GamePanel.js';
 // Components — Lobby
 export { RoomLobby, type RoomLobbyProps } from './components/lobby/RoomLobby.js';
 export { RoomCard, type RoomCardProps } from './components/lobby/RoomCard.js';
-export { CreateRoomDialog, type CreateRoomDialogProps } from './components/lobby/CreateRoomDialog.js';
+export { CreateRoomDialog, type CreateRoomDialogProps, type AnnounceType } from './components/lobby/CreateRoomDialog.js';
 export { GuestNameModal, type GuestNameModalProps } from './components/lobby/GuestNameModal.js';
 export { ObsPanel, type ObsPanelProps } from './components/room/ObsPanel.js';
 
 // Styles — import this in your app: import '@hive-hangouts/react/styles'
+export { useIsMobile, MOBILE_QUERY } from './hooks/useIsMobile.js';

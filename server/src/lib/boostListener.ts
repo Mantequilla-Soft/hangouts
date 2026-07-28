@@ -22,6 +22,7 @@ import {
   upsertBoostLedgerReceived,
 } from './boostLedger.js';
 import { sendBoostPayout } from './boostPayout.js';
+import { recordBoost } from './streamStats.js';
 
 interface BoostTransferInput {
   txId: string;
@@ -158,11 +159,26 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
     return;
   }
 
-  const recipient = payoutAccount(meta);
-  if (!recipient) {
+  const hostAccount = payoutAccount(meta);
+  if (!hostAccount) {
     await handleRejected(id, 'internal_error', log, 'missing payout recipient');
     return;
   }
+
+  // A stream with a collab guest on air has TWO people the sender could be
+  // boosting, so the memo may name one. Validate it here rather than trusting
+  // it: the memo is written by the sender's client and nothing stops someone
+  // hand-crafting a transfer that names an unrelated account. Only the host and
+  // the room's current collab guest are payable; anything else falls back to
+  // the host rather than being rejected, so a stale pick still pays someone
+  // real instead of eating the sender's money.
+  const collabGuest = typeof meta.collabGuest === 'string'
+    ? meta.collabGuest.trim().toLowerCase()
+    : null;
+  const requested = memo.recipient;
+  const recipient = requested && (requested === hostAccount || requested === collabGuest)
+    ? requested
+    : hostAccount;
 
   const { feeAmount, payoutAmount } = splitBoostAmounts(amount, config.BOOST_PLATFORM_FEE_PERCENT);
   // Below-minimum boosts are flagged but still broadcast so the host's
@@ -198,6 +214,8 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
   try {
     await publishBoost(memo.room, event, lk);
     markBoostBroadcasted(id);
+    // Leaderboard: log the boost against its stream (sender + recipient + amount).
+    recordBoost(event.room, event.recipient, event.sender, event.usdAmount, event.message);
   } catch (err) {
     await handleRejected(id, 'internal_error', log, err);
     return;
@@ -217,7 +235,19 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
 }
 
 let started = false;
-let lastHistorySeq = Number.MAX_SAFE_INTEGER;
+/**
+ * Have we established where "already happened" ends?
+ *
+ * A separate flag rather than a sentinel value of lastHistorySeq. It used to be
+ * seeded to MAX_SAFE_INTEGER and only replaced when the first poll returned
+ * rows — so a platform account with NO transfer history never got seeded, the
+ * watermark stayed at MAX, and `seq <= lastHistorySeq` then silently skipped
+ * every transfer forever. A brand new boost wallet could therefore never
+ * receive its first boost: nothing logged, nothing in the ledger, the money
+ * simply vanished from the sender's point of view.
+ */
+let seeded = false;
+let lastHistorySeq = 0;
 
 async function pollPlatformWallet(log: (msg: string, detail?: unknown) => void): Promise<void> {
   const account = config.BOOST_PLATFORM_ACCOUNT.trim().toLowerCase();
@@ -230,6 +260,16 @@ async function pollPlatformWallet(log: (msg: string, detail?: unknown) => void):
 
   const rows = await hiveClient.database.getAccountHistory(account, -1, 200, transferMask);
   const ordered = [...rows].sort((a, b) => a[0] - b[0]);
+
+  // First poll only establishes the watermark — transfers that predate startup
+  // are history, not boosts to replay. An empty history seeds to 0, so the very
+  // first transfer the account ever receives still counts.
+  if (!seeded) {
+    seeded = true;
+    lastHistorySeq = ordered.length > 0 ? ordered[ordered.length - 1][0] : 0;
+    return;
+  }
+
   for (const [seq, applied] of ordered) {
     if (seq <= lastHistorySeq) continue;
     const op = applied as unknown as AccountHistoryTransferOp;
@@ -240,7 +280,11 @@ async function pollPlatformWallet(log: (msg: string, detail?: unknown) => void):
         txId: op.trx_id,
         opIndex: seq,
         blockNum: op.block,
-        timestamp: Date.parse(op.timestamp),
+        // Hive returns block times WITHOUT a timezone, and Date.parse reads a
+        // bare ISO date-time as LOCAL. This box is UTC so it happens to be
+        // right, but moving the server to any other zone would silently shift
+        // every boost's timestamp by the offset.
+        timestamp: Date.parse(/[Z+]|-\d\d:\d\d$/.test(op.timestamp) ? op.timestamp : `${op.timestamp}Z`),
         to: payload.to,
         amount: payload.amount,
         memo: payload.memo,
@@ -248,9 +292,6 @@ async function pollPlatformWallet(log: (msg: string, detail?: unknown) => void):
       log,
     );
     lastHistorySeq = seq;
-  }
-  if (ordered.length > 0 && lastHistorySeq === Number.MAX_SAFE_INTEGER) {
-    lastHistorySeq = ordered[ordered.length - 1][0];
   }
 }
 

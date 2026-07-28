@@ -25,7 +25,12 @@ export function RoomCard({ room, onJoin }: RoomCardProps) {
       <div className="hh-room-card__content">
         <img className="hh-room-card__avatar" src={hostAvatar} alt={room.host} />
         <div className="hh-room-card__info">
-          <h3 className="hh-room-card__title">{room.title}</h3>
+          <h3 className="hh-room-card__title">
+            {room.mode === 'standalone' && (
+              <span className="hh-room-card__badge" title="Standalone livestream — watch &amp; chat">📡 Stream</span>
+            )}
+            {room.title}
+          </h3>
           <div className="hh-room-card__meta">Hosted by {room.host}</div>
           {room.language && (
             <div className="hh-room-card__meta">Language: {room.language}</div>

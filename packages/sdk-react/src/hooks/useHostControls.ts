@@ -43,5 +43,12 @@ export function useHostControls(roomName: string | null) {
     await apiClient.deleteRoom(roomName);
   }, [apiClient, roomName]);
 
-  return { promote, demote, kick, ban, endRoom, pending };
+  // Grant/revoke moderator. Keyed by Hive username, which for an authenticated
+  // participant equals their LiveKit identity — so callers pass the identity.
+  const setModerator = useCallback(async (username: string, on: boolean) => {
+    if (!roomName) return;
+    await withPending(username, () => apiClient.setModerator(roomName, username, on).then(() => {}));
+  }, [apiClient, roomName, withPending]);
+
+  return { promote, demote, kick, ban, endRoom, setModerator, pending };
 }

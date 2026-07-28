@@ -4,7 +4,13 @@ import { useHangoutsContext } from '../context/HangoutsContext.js';
 
 const POLL_INTERVAL = 10_000;
 
-export function useRoomList() {
+/**
+ * @param fetchRooms Optional override for WHERE the list comes from. Integrators
+ *   running several OpenPods deployments pass a fetcher that aggregates across
+ *   all of them — joining still works by room name, since the room's own host is
+ *   resolved at join time.
+ */
+export function useRoomList(fetchRooms?: () => Promise<Room[]>) {
   const { apiClient } = useHangoutsContext();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -12,7 +18,7 @@ export function useRoomList() {
 
   const refresh = useCallback(async () => {
     try {
-      const data = await apiClient.listRooms();
+      const data = fetchRooms ? await fetchRooms() : await apiClient.listRooms();
       setRooms(data);
       setError(null);
     } catch (err) {
@@ -20,7 +26,7 @@ export function useRoomList() {
     } finally {
       setIsLoading(false);
     }
-  }, [apiClient]);
+  }, [apiClient, fetchRooms]);
 
   useEffect(() => {
     refresh();

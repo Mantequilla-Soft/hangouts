@@ -1,4 +1,4 @@
-import type { Room, RoomVisibility, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse, GameInfo, ActiveGame, GameStartResponse, GameActionResponse, WordCollection } from './types.js';
+import type { Room, RoomVisibility, RoomMode, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse, GameInfo, ActiveGame, GameStartResponse, GameActionResponse, WordCollection, StreamPost, WhipIngressInfo, StartWhipIngressOptions } from './types.js';
 import { HangoutsApiError } from './errors.js';
 
 export interface HangoutsApiClientOptions {
@@ -88,8 +88,9 @@ export class HangoutsApiClient {
     visibility?: RoomVisibility,
     language?: string,
     boost?: BoostConfig,
+    mode?: RoomMode,
   ): Promise<CreateRoomResponse> {
-    return this.request('POST', '/rooms', { title, description, backgroundImage, visibility, language, boost });
+    return this.request('POST', '/rooms', { title, description, backgroundImage, visibility, language, boost, mode });
   }
 
   async joinRoom(roomName: string): Promise<JoinRoomResponse> {
@@ -181,6 +182,33 @@ export class HangoutsApiClient {
     );
   }
 
+  /** Grant or revoke moderator for a Hive user (host only). Returns the new list. */
+  async setModerator(roomName: string, username: string, isMod: boolean): Promise<{ mods: string[] }> {
+    return this.request(
+      'PATCH',
+      `/rooms/${encodeURIComponent(roomName)}/mods/${encodeURIComponent(username)}`,
+      { isMod },
+    );
+  }
+
+  // DVR (clip the last ~30s) — host + Pro. See server routes/dvr.ts.
+  async startDvr(roomName: string): Promise<{ status: string; egressId?: string }> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/dvr/start`);
+  }
+
+  async stopDvr(roomName: string): Promise<{ status: string }> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/dvr/stop`);
+  }
+
+  /** Build a clip of the last ~30s. Returns a path under the API host. */
+  async clipDvr(roomName: string): Promise<{ path: string }> {
+    return this.request('POST', `/rooms/${encodeURIComponent(roomName)}/dvr/clip`);
+  }
+
+  async dvrStatus(roomName: string): Promise<{ recording: boolean }> {
+    return this.request('GET', `/rooms/${encodeURIComponent(roomName)}/dvr/status`);
+  }
+
   // Recording
 
   async startRecording(roomName: string, opts?: { mode?: RecordingMode; layout?: RecordingLayout }): Promise<RecordingStartResponse> {
@@ -266,7 +294,38 @@ export class HangoutsApiClient {
     return this.request('PATCH', `/rooms/${encodeURIComponent(roomName)}/boost`, config);
   }
 
+  /** Update the feed-post details (title/thumbnail/description/tags) for a
+   *  standalone stream. Host only. Merges into the stored post. */
+  async updateStreamPost(
+    roomName: string,
+    post: { title?: string; thumbnail?: string; description?: string; tags?: string[] },
+  ): Promise<{ post: StreamPost }> {
+    return this.request('PATCH', `/rooms/${encodeURIComponent(roomName)}/post`, post);
+  }
+
+  /** Set the "broadcasting" flag for a standalone stream (host only). The
+   *  studio calls this on Start/Resume (true) and Pause (false) — it's what
+   *  makes the stream appear in / disappear from the live feeds. */
+  async setBroadcasting(roomName: string, broadcasting: boolean): Promise<{ broadcasting: boolean }> {
+    return this.request('PATCH', `/rooms/${encodeURIComponent(roomName)}/broadcast`, { broadcasting });
+  }
+
   // Events
+
+  /**
+   * Create a WHIP ingress so the host can broadcast from OBS, ffmpeg or a
+   * hardware encoder instead of the in-browser camera. Host only.
+   */
+  async startWhipIngress(roomName: string, options?: StartWhipIngressOptions): Promise<WhipIngressInfo> {
+    return this.request<WhipIngressInfo>('POST', `/rooms/${encodeURIComponent(roomName)}/ingress`, {
+      transcode: options?.transcode !== false,
+    });
+  }
+
+  /** Tear down the room's WHIP ingress. Host only. Safe to call when none exists. */
+  async stopWhipIngress(roomName: string): Promise<void> {
+    await this.request<{ ok: boolean }>('DELETE', `/rooms/${encodeURIComponent(roomName)}/ingress`);
+  }
 
   async listEvents(opts?: { status?: EventStatus; host?: string; limit?: number }): Promise<HangoutsEvent[]> {
     const params = new URLSearchParams();

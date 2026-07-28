@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { Room, RoomVisibility } from '@snapie/hangouts-core';
+import type { Room, RoomVisibility, RoomMode } from '@snapie/hangouts-core';
 import { useHangoutsContext } from '../context/HangoutsContext.js';
 
 interface RoomState {
@@ -20,7 +20,7 @@ interface BoostConfigInput {
 }
 
 export function useHangoutsRoom() {
-  const { apiClient, apiBaseUrl, livekitServerUrl } = useHangoutsContext();
+  const { apiClient, apiBaseUrl, livekitServerUrl, username } = useHangoutsContext();
   const [state, setState] = useState<RoomState>({
     livekitToken: null,
     roomName: null,
@@ -38,6 +38,8 @@ export function useHangoutsRoom() {
     visibility?: RoomVisibility,
     language?: string,
     boost?: BoostConfigInput,
+    mode?: RoomMode,
+    tags?: string[],
   ) => {
     setIsLoading(true);
     try {
@@ -53,7 +55,7 @@ export function useHangoutsRoom() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ title, description, backgroundImage, visibility, language, boost }),
+        body: JSON.stringify({ title, description, backgroundImage, visibility, language, boost, mode, tags }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { message?: string };
@@ -77,11 +79,12 @@ export function useHangoutsRoom() {
   const join = useCallback(async (roomName: string) => {
     setIsLoading(true);
     try {
-      const [result, rooms] = await Promise.all([
+      // getRoom (not listRooms + find) so unlisted rooms keep their
+      // metadata too — mode, background, boost config all ride on it.
+      const [result, meta] = await Promise.all([
         apiClient.joinRoom(roomName),
-        apiClient.listRooms(),
+        apiClient.getRoom(roomName).catch(() => null),
       ]);
-      const meta = rooms.find((r) => r.name === roomName) ?? null;
       setState({
         livekitToken: result.token,
         roomName: result.roomName,
@@ -105,18 +108,23 @@ export function useHangoutsRoom() {
   const listen = useCallback(async (roomName: string, displayName?: string) => {
     setIsLoading(true);
     try {
-      const [result, rooms] = await Promise.all([
+      const [result, meta] = await Promise.all([
         apiClient.listenAsGuest(roomName, displayName),
-        apiClient.listRooms(),
+        apiClient.getRoom(roomName).catch(() => null),
       ]);
-      const meta = rooms.find((r) => r.name === roomName) ?? null;
       setState({
         livekitToken: result.token,
         roomName: result.roomName,
         roomMeta: meta,
         isHost: false,
         isPremium: false,
-        isGuest: true,
+        // NOT unconditionally true. /listen honours an optional session and
+        // hands a signed-in viewer their OWN Hive identity — and viewers of a
+        // standalone stream always arrive through listen(), because they are
+        // not room participants. Hardcoding `true` marked those real users as
+        // anonymous, which hides everything gated on being a known account
+        // (asking to join the stream, chatting as yourself).
+        isGuest: !username || result.identity !== username,
       });
       return result;
     } finally {

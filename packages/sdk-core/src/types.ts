@@ -1,6 +1,13 @@
 /** Visibility / access tier the host picked when creating the room. */
 export type RoomVisibility = 'public' | 'hive-internal' | 'unlisted';
 
+/** Room mode picked at creation:
+ *  - `conference` (default): classic multi-participant hangout.
+ *  - `standalone`: one-man livestream studio — only the host publishes a
+ *    client-composited program feed; everyone else is a watch-only viewer
+ *    with chat. */
+export type RoomMode = 'conference' | 'standalone';
+
 export interface BoostConfig {
   enabled: boolean;
   minBoostUsd: number;
@@ -60,6 +67,20 @@ export interface Room {
   language?: string;
   /** Boost/superchat configuration for this room. */
   boost?: BoostConfig;
+  /** `conference` (default) or `standalone` one-man livestream.
+   *  Optional; pre-existing rooms behave as `conference`. */
+  mode?: RoomMode;
+  /** Feed-post details for a standalone stream (composed in the studio's
+   *  post editor). Title falls back to `title`. */
+  post?: StreamPost;
+}
+
+/** Feed-post details attached to a standalone stream. */
+export interface StreamPost {
+  title?: string;
+  thumbnail?: string;
+  description?: string;
+  tags?: string[];
 }
 
 export interface CreateRoomResponse {
@@ -329,4 +350,26 @@ export interface WordCollection {
   id: string;
   name: string;
   wordCount: number;
+}
+
+/** A WHIP ingress: what OBS / ffmpeg / a hardware encoder needs to publish. */
+export interface WhipIngressInfo {
+  ingressId: string;
+  /** Paste this WHOLE url into OBS's WHIP output — the stream key is the last
+   *  path segment, so no bearer token is needed. */
+  whipUrl: string;
+  streamKey: string;
+  /** The ingress joins the room under this identity (`obs-ingress-<room>`). */
+  participantIdentity: string;
+}
+
+export interface StartWhipIngressOptions {
+  /**
+   * Re-encode the incoming stream to VP8 instead of forwarding OBS's H.264
+   * untouched. Defaults to true on the server, and you almost certainly want
+   * it: plenty of Firefox builds offer only VP8/VP9/AV1, and the SFU then
+   * cannot bind an H.264 track at all — the host sees a permanently black
+   * source. Pass false only if you know every viewer can receive H.264.
+   */
+  transcode?: boolean;
 }
