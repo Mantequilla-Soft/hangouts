@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConnectionState, useLocalParticipant, useParticipants, useTracks } from '@livekit/components-react';
 import { ConnectionQuality, ConnectionState, ParticipantEvent, Track } from 'livekit-client';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
+import { usePremiumStatus } from '../../hooks/usePremiumStatus.js';
 import { useWhipIngress } from '../../hooks/useWhipIngress.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
@@ -696,8 +697,11 @@ export interface StandaloneStudioProps {
   title: string;
   onEndRoom: () => void;
   shareUrl?: string | null;
-  /** 3Speak Pro flag from the server (create/join response). Video
-   *  recording is Pro-only — same gate the conference egress enforces. */
+  /** Premium OVERRIDE. Video recording, clipping, the 4h cap and the
+   *  watermark-free stream are Pro-only — the same gate the conference egress
+   *  enforces. Leave unset: the SDK resolves premium itself from the hangouts
+   *  API. Pass a boolean only to force the answer (e.g. from the create/join
+   *  response, which already carries `isPremium`). */
   isPremium?: boolean;
   /** @deprecated No longer called. Recording is entirely server-side now; the
    *  studio no longer captures a file in the browser, so there's nothing to
@@ -743,7 +747,13 @@ export interface StandaloneStudioProps {
   obsBaseUrl?: string;
 }
 
-export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium = false, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false, obsBaseUrl = 'https://hangout.3speak.tv' }: StandaloneStudioProps) {
+export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium: isPremiumOverride, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false, obsBaseUrl = 'https://hangout.3speak.tv' }: StandaloneStudioProps) {
+  // Resolves itself unless the integrator forces it. Starts false, so the
+  // free-tier watermark and the short cap apply until premium is confirmed —
+  // erring the safe way for a gate that's also enforced server-side.
+  const { isPremium: resolvedPremium } = usePremiumStatus(undefined, { enabled: isPremiumOverride === undefined });
+  const isPremium = isPremiumOverride ?? resolvedPremium;
+
   const { localParticipant } = useLocalParticipant();
   const localParticipantRef = useRef(localParticipant);
   localParticipantRef.current = localParticipant;

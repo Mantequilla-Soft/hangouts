@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import type { Room, RoomVisibility, RoomMode } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
+import { usePremiumStatus } from '../../hooks/usePremiumStatus.js';
+import { ProUpsellDialog } from '../pro/ProUpsellDialog.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
 import { AUTO_VOD_KEY, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
 import { isInAppBrowser, canBroadcast } from '../../lib/browser.js';
@@ -36,10 +38,17 @@ export interface CreateRoomDialogProps {
    *  markdown editor (e.g. 3Speak's MarkdownComposer). When omitted, the
    *  dialog falls back to its own textarea + formatting toolbar. */
   renderDescriptionEditor?: (value: string, onChange: (v: string) => void) => ReactNode;
-  /** 3Speak Pro host. Gates the recording options — non-Pro hosts see them
+  /** Premium OVERRIDE. Gates the recording options — non-Pro hosts see them
    *  locked with an explanation rather than not at all, so the feature is
-   *  discoverable. */
+   *  discoverable, plus an "Unlock with Pro" button that opens the upsell.
+   *
+   *  Leave unset (the default): the SDK resolves premium itself from the
+   *  hangouts API, so an integrator does not have to wire anything. Pass a
+   *  boolean only to force the answer. */
   isPremium?: boolean;
+  /** Replaces the built-in Pro upsell with your own handler (e.g. routing to
+   *  your app's own plans page) when the host taps "Unlock with Pro". */
+  onUpsell?: () => void;
   /** Open on this mode instead of whatever was used last. Set by the entry
    *  point the host came through — "Group chat" and "Start stream" are
    *  different intents, and each should land on its own kind of room. The
@@ -114,7 +123,20 @@ const VISIBILITIES: Array<{ id: RoomVisibility; icon: string; title: string; des
   { id: 'unlisted', icon: '🔗', title: 'Unlisted', desc: 'Link only access' },
 ];
 
-export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false, renderAnnounceOptions, renderDescriptionEditor, isPremium = false, defaultMode, allowSnapAnnounce = true }: CreateRoomDialogProps) {
+export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false, renderAnnounceOptions, renderDescriptionEditor, isPremium: isPremiumOverride, defaultMode, allowSnapAnnounce = true, onUpsell }: CreateRoomDialogProps) {
+  // Premium resolves itself so the integrator passes nothing; an explicit prop
+  // still wins. `isPremium` is false until the lookup settles, so the locked
+  // state renders first and unlocks — never the reverse, which would flash Pro
+  // options at a free host.
+  const { isPremium: resolvedPremium } = usePremiumStatus(undefined, { enabled: isPremiumOverride === undefined });
+  const isPremium = isPremiumOverride ?? resolvedPremium;
+  // null = closed. 'info' = opened from the "Unlock with Pro" button, so
+  // dismissing just returns to the form. 'gate' = opened by the submit button,
+  // where dismissing means "start streaming anyway" and creates the room.
+  const [upsellMode, setUpsellMode] = useState<null | 'info' | 'gate'>(null);
+  // The gate fires ONCE per dialog. A host who declined it and edited a field
+  // must not be re-offered on every subsequent attempt to start.
+  const proGateShownRef = useRef(false);
   // Pre-fill from the host's last session (shared with the studio's post
   // composer) so title/thumbnail/description/tags/language come back.
   // Which mode this dialog opens on, decided BEFORE the draft is read — each
@@ -297,9 +319,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
     boostEnabled, minBoostUsd, creatorPayoutAccount, notifyOnHive, announceType,
   ]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
+  const submitRoom = async () => {
     const bg = imageServerApiKey ? (backgroundImageUrl || undefined) : undefined;
     const minUsd = Number(minBoostUsd);
     const room = await create(
@@ -318,6 +338,21 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
     );
     const shouldNotify = visibility === 'unlisted' ? false : notifyOnHive;
     if (room) onCreated(room, { notifyOnHive: shouldNotify, announceType: effectiveAnnounceType });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    // Offer Pro at the moment the perks are about to be missed — the host has
+    // just seen the locked recording options and is one click from a capped,
+    // unrecorded stream. Deliberately BEFORE creation, so taking the trial
+    // leaves nothing to undo. Streams only: a conference has none of these perks.
+    if (isStandalone && !isPremium && !proGateShownRef.current) {
+      proGateShownRef.current = true;
+      setUpsellMode('gate');
+      return;
+    }
+    await submitRoom();
   };
 
   return (
@@ -630,6 +665,19 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
               </em>
             </span>
           </label>
+
+          {/* The way out of the padlocks. Sits with the locked options rather
+              than after room creation, so the offer lands while the host is
+              still looking at what they're missing. */}
+          {!isPremium && (
+            <button
+              type="button"
+              className="hh-cd__unlock"
+              onClick={() => (onUpsell ? onUpsell() : setUpsellMode('info'))}
+            >
+              👑 Unlock with Pro
+            </button>
+          )}
         </div>
       )}
 
@@ -655,6 +703,24 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
           <button className="hh-btn hh-btn--secondary" type="button" onClick={onCancel}>Cancel</button>
         )}
       </div>
+
+      {/* From the unlock button this is purely informational; from the submit
+          button it stands between the host and the studio, and dismissing it
+          proceeds. Claiming the trial returns to the form instead of creating,
+          so the host can tick the options they just unlocked — usePremiumStatus
+          refreshes as part of the claim, so they are already live. */}
+      <ProUpsellDialog
+        open={upsellMode !== null}
+        onContinue={() => {
+          const wasGate = upsellMode === 'gate';
+          setUpsellMode(null);
+          if (wasGate) void submitRoom();
+        }}
+        onClose={() => setUpsellMode(null)}
+        onTrialClaimed={() => setUpsellMode(null)}
+        heading={upsellMode === 'gate' ? 'Before you go live' : 'Get more from your stream'}
+        continueLabel={upsellMode === 'gate' ? 'Start streaming anyway' : 'Back to the room settings'}
+      />
     </form>
   );
 }

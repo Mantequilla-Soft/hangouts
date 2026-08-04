@@ -41,8 +41,10 @@ export interface RoomLobbyProps {
   createOnly?: boolean;
   /** Called when the host cancels the wizard in `createOnly` mode. */
   onCreateCancel?: () => void;
-  /** 3Speak Pro host — passed to CreateRoomDialog to unlock the recording
-   *  options. */
+  /** Premium OVERRIDE, passed to CreateRoomDialog to unlock the recording
+   *  options. Leave unset (the default): the SDK resolves premium itself from
+   *  the hangouts API, so an integrator does not have to wire it. Pass a
+   *  boolean only to force the answer. */
   isPremium?: boolean;
   /** Which kind of room the create dialog opens on. Straight through to
    *  CreateRoomDialog — see `defaultMode` there. */
@@ -59,7 +61,7 @@ export interface RoomLobbyProps {
   fetchRooms?: () => Promise<Room[]>;
 }
 
-export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false, allowStandalone = false, defaultCreateOpen = false, renderAnnounceOptions, renderDescriptionEditor, fetchRooms, isPremium = false, defaultMode, allowSnapAnnounce = true, hideEmptyState = false, createOnly = false, onCreateCancel }: RoomLobbyProps) {
+export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false, allowStandalone = false, defaultCreateOpen = false, renderAnnounceOptions, renderDescriptionEditor, fetchRooms, isPremium, defaultMode, allowSnapAnnounce = true, hideEmptyState = false, createOnly = false, onCreateCancel }: RoomLobbyProps) {
   const auth = useHangoutsAuth();
   const { rooms, isLoading, error } = useRoomList(fetchRooms);
   const [showCreate, setShowCreate] = useState(defaultCreateOpen);

@@ -11,6 +11,9 @@ export { buildLichessAnalysisUrl } from './chess-utils.js';
 export { formatWordGuessRecap } from './word-guess-utils.js';
 export { formatFastDrawRecap } from './fast-draw-utils.js';
 export type {
+  PremiumStatus,
+  PremiumSubscriber,
+  StartProTrialResponse,
   Room,
   RoomVisibility,
   RoomMode,
