@@ -1,16 +1,25 @@
-import type { Room, RoomVisibility, RoomMode, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse, GameInfo, ActiveGame, GameStartResponse, GameActionResponse, WordCollection, StreamPost, WhipIngressInfo, StartWhipIngressOptions } from './types.js';
+import type { Room, RoomVisibility, RoomMode, BoostConfig, CreateRoomResponse, JoinRoomResponse, AuthSession, ChallengeResponse, RecordingMode, RecordingLayout, RecordingStartResponse, RecordingStopResponse, RecordingStatusResponse, RecordingLayoutResponse, RecordingUploadResponse, RecordingFileResult, StreamPlatform, StreamStartResponse, StreamStopResponse, StreamStatusResponse, HangoutsEvent, CreateEventInput, UpdateEventInput, EventStatus, UserPresence, StartEventResponse, GameInfo, ActiveGame, GameStartResponse, GameActionResponse, WordCollection, StreamPost, WhipIngressInfo, StartWhipIngressOptions, PremiumStatus, PremiumSubscriber, StartProTrialResponse } from './types.js';
 import { HangoutsApiError } from './errors.js';
 
 export interface HangoutsApiClientOptions {
   baseUrl: string;
+  /**
+   * Optional separate host for the premium (Pro) endpoints. Defaults to
+   * `baseUrl`. Exists because premium status can legitimately be served by a
+   * different deployment than rooms — e.g. an app whose LiveKit/rooms API is
+   * hosted elsewhere but which still wants the SDK's Pro flow.
+   */
+  premiumBaseUrl?: string;
 }
 
 export class HangoutsApiClient {
   private baseUrl: string;
+  private premiumBaseUrl: string;
   private sessionToken: string | null = null;
 
   constructor(options: HangoutsApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
+    this.premiumBaseUrl = (options.premiumBaseUrl || options.baseUrl).replace(/\/$/, '');
   }
 
   setSessionToken(token: string): void {
@@ -25,7 +34,7 @@ export class HangoutsApiClient {
     return this.sessionToken;
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, baseUrl?: string): Promise<T> {
     const headers: Record<string, string> = {};
 
     if (body !== undefined) {
@@ -36,7 +45,7 @@ export class HangoutsApiClient {
       headers['Authorization'] = `Bearer ${this.sessionToken}`;
     }
 
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const response = await fetch(`${baseUrl ?? this.baseUrl}${path}`, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
@@ -408,5 +417,36 @@ export class HangoutsApiClient {
 
   async listWordCollections(): Promise<WordCollection[]> {
     return this.request('GET', '/game-collections');
+  }
+
+  // Premium (3Speak Pro)
+
+  /** Premium status for a user. Unauthenticated — the padlock UI has to render
+   *  before sign-in. */
+  async getPremiumStatus(username: string): Promise<PremiumStatus> {
+    return this.request('GET', `/premium/${encodeURIComponent(username)}`, undefined, this.premiumBaseUrl);
+  }
+
+  /** Currently-premium accounts, for the subscriber ticker. */
+  async listPremiumUsers(limit = 1000): Promise<PremiumSubscriber[]> {
+    const res = await this.request<{ count: number; subscribers: PremiumSubscriber[] }>(
+      'GET',
+      `/premium?limit=${encodeURIComponent(String(limit))}`,
+      undefined,
+      this.premiumBaseUrl,
+    );
+    return res.subscribers ?? [];
+  }
+
+  /**
+   * Claim the one-per-lifetime free Pro trial for the signed-in user.
+   * Throws `HangoutsApiError` with status 409 when it was already used (or the
+   * account is already Pro) and 403 when the deployment has trials switched off.
+   */
+  async startProTrial(): Promise<StartProTrialResponse> {
+    // No body on purpose: an empty payload sent with Content-Type:
+    // application/json is rejected by Fastify's JSON parser, and `request`
+    // only sets that header when a body is present.
+    return this.request('POST', '/premium/start-testing', undefined, this.premiumBaseUrl);
   }
 }

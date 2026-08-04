@@ -373,3 +373,33 @@ export interface StartWhipIngressOptions {
    */
   transcode?: boolean;
 }
+
+/** 3Speak Pro / premium status for one account. */
+export interface PremiumStatus {
+  username: string;
+  premium: boolean;
+  /** 'subs' (on-chain subscription), 'testing' (free trial), 'manual', or null. */
+  premium_source: string | null;
+  /** ISO timestamp, or null for perpetual/manual grants. */
+  premium_expires_at: string | null;
+  /** Sticky ISO timestamp of the user's one-and-only free-trial claim. */
+  testing_started: string | null;
+  /** Whether this deployment offers the free trial at all. Clients should use
+   *  this instead of their own flag, so the button can never be shown when the
+   *  server would only 403 it. */
+  testing_available: boolean;
+  testing_hours: number;
+}
+
+export interface PremiumSubscriber {
+  username: string;
+  premium_source: string | null;
+  premium_expires_at: string | null;
+}
+
+export interface StartProTrialResponse {
+  ok: true;
+  /** ISO timestamp when the trial lapses. */
+  expiresAt: string;
+  hours: number;
+}

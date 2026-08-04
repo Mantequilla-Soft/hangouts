@@ -47,6 +47,13 @@ const envSchema = z.object({
   // Public WHIP endpoint for OBS ingest (nginx → livekit/ingress). The stream
   // key is appended as a path segment: `${INGRESS_WHIP_URL}/<streamKey>`.
   INGRESS_WHIP_URL: z.string().url().default('https://livekit.okinoko.io/w'),
+  // Free one-per-lifetime Pro trial (POST /premium/start-testing). This is what
+  // makes the locked perks actionable — without it a non-premium user sees
+  // padlocks and no way through — so it defaults ON. Clients discover the
+  // setting from GET /premium/:username (`testing_available`) rather than
+  // carrying their own flag, so switching it off here also hides the button.
+  PRO_TESTING_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  PRO_TESTING_HOURS: z.coerce.number().positive().default(24),
   PORT: z.coerce.number().default(3002),
 });
 

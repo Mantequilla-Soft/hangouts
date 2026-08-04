@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
 import type { HangoutsApiClient, AiohaLike } from '@snapie/hangouts-core';
+import type { ResolvedProConfig } from '../lib/vscContract.js';
 
 export interface HangoutsContextValue {
   apiClient: HangoutsApiClient;
@@ -16,6 +17,20 @@ export interface HangoutsContextValue {
    * When absent, the SDK falls back to direct Hive Keychain.
    */
   aioha?: AiohaLike;
+  /**
+   * Pro (premium) configuration, already resolved against the 3Speak mainnet
+   * defaults. Always present — an integrator who passes nothing still gets a
+   * working checkout.
+   */
+  pro: ResolvedProConfig;
+  /** Resolved light/dark, or null when the app sets none (system preference
+   *  then applies). Mirrored onto `document.body` by the provider so portalled
+   *  dialogs inherit it. */
+  theme: string | null;
+  /** Resolved host for `/premium/*` — `premiumApiBaseUrl` or `apiBaseUrl`. */
+  premiumApiBaseUrl: string;
+  /** Obtain a hangouts session on demand. See `HangoutsProviderProps`. */
+  onRequestAuth?: () => Promise<string | null | void>;
 }
 
 export const HangoutsContext = createContext<HangoutsContextValue | null>(null);

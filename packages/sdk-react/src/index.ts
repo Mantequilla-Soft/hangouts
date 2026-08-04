@@ -21,6 +21,9 @@ export {
   type EventVisibility,
   type UserPresence,
   type StartEventResponse,
+  type PremiumStatus,
+  type PremiumSubscriber,
+  type StartProTrialResponse,
   type GameResultPayload,
   type ChessGameResult,
   type FastDrawGameResult,
@@ -102,6 +105,32 @@ export { RoomCard, type RoomCardProps } from './components/lobby/RoomCard.js';
 export { CreateRoomDialog, type CreateRoomDialogProps, type AnnounceType } from './components/lobby/CreateRoomDialog.js';
 export { GuestNameModal, type GuestNameModalProps } from './components/lobby/GuestNameModal.js';
 export { ObsPanel, type ObsPanelProps } from './components/room/ObsPanel.js';
+
+// Pro (premium): plans / checkout, upsell, subscriber ticker.
+// ProPlans also has a default export so it can be code-split with React.lazy —
+// that's what keeps the VSC + GraphQL code out of an integrator's boot chunk.
+export { ProPlans, type ProPlansProps } from './components/pro/ProPlans.js';
+export { ProUpsellDialog, DEFAULT_STREAM_PERKS, type ProUpsellDialogProps, type ProPerk } from './components/pro/ProUpsellDialog.js';
+export { SubscriberTicker, type SubscriberTickerProps } from './components/pro/SubscriberTicker.js';
+export { usePremiumStatus, invalidatePremiumStatus, type UsePremiumStatusResult } from './hooks/usePremiumStatus.js';
+export { useProTrial, type UseProTrialResult } from './hooks/useProTrial.js';
+export { useVscSubs } from './hooks/useVscSubs.js';
+export {
+  VscSubsClient,
+  resolveProConfig,
+  buildTransferIntent,
+  parseContractResponse,
+  DEFAULT_SUBS_CONTRACT_ID,
+  DEFAULT_SUB_OFFER_ID,
+  DEFAULT_ONETIME_OFFER_ID,
+  type ProConfig,
+  type ResolvedProConfig,
+  type HiveKeyType,
+  type HiveOperation,
+  type SignResult,
+  type TransferIntent,
+  type PollResult,
+} from './lib/vscContract.js';
 
 // Styles — import this in your app: import '@hive-hangouts/react/styles'
 export { useIsMobile, MOBILE_QUERY } from './hooks/useIsMobile.js';

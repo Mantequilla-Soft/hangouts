@@ -12,6 +12,7 @@ import { dvrRoutes } from './routes/dvr.js';
 import { boostRoutes } from './routes/boosts.js';
 import { eventRoutes } from './routes/events.js';
 import { gameRoutes } from './routes/games.js';
+import { premiumRoutes } from './routes/premium.js';
 import { seedWordCollections } from './lib/seed-word-collections.js';
 import './games/index.js';
 
@@ -39,6 +40,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await server.register(boostRoutes);
   await server.register(eventRoutes);
   await server.register(gameRoutes);
+  await server.register(premiumRoutes);
 
   return server;
 }
