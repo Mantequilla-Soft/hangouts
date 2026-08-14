@@ -211,7 +211,7 @@ export interface HangoutsRoomProps {
    * announcement) to the real go-live — with the studio-edited post — not room
    * creation. Not re-fired on pause/resume.
    */
-  onStreamStart?: (post?: { title?: string; description?: string; thumbnail?: string; tags?: string[] }) => void;
+  onStreamStart?: (post?: { title?: string; description?: string; thumbnail?: string; tags?: string[]; orientation?: 'landscape' | 'vertical' }) => void;
   /**
    * Standalone host (studio) only: extra controls rendered at the bottom of
    * the post-composer tab — e.g. a 3Speak community / payout / beneficiaries

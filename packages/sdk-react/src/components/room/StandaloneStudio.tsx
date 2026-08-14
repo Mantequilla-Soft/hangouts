@@ -722,7 +722,9 @@ export interface StandaloneStudioProps {
    *  values). Use it to defer side effects — e.g. posting the Hive
    *  announcement — until the stream is actually broadcasting, not at room
    *  creation. Not re-fired on pause/resume. */
-  onStreamStart?: (post?: { title?: string; description?: string; thumbnail?: string; tags?: string[] }) => void;
+  /** `orientation` is the composited output's shape, not the host's screen —
+   *  the integrator uses it to describe the stream in its Hive announcement. */
+  onStreamStart?: (post?: { title?: string; description?: string; thumbnail?: string; tags?: string[]; orientation?: 'landscape' | 'vertical' }) => void;
   /** Extra controls rendered at the bottom of the post-composer tab — e.g. a
    *  3Speak community / payout / beneficiaries picker for the Hive
    *  announcement. Editable right up until the host hits Start. */
@@ -1583,7 +1585,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       // so pausing doesn't buy extra time — the cap is on how long the stream
       // has been up, not on active broadcasting minutes.
       if (streamStartedAtRef.current == null) streamStartedAtRef.current = Date.now();
-      onStreamStart?.({ ...postRef.current });
+      // Orientation comes from the same ref that sizes the composite canvas, so
+      // what the integrator announces always matches what viewers actually get.
+      onStreamStart?.({ ...postRef.current, orientation: portraitRef.current ? 'vertical' : 'landscape' });
       // Tell the server we're live so it can stamp the moment (viewers anchor
       // chat timecodes to it) and record whether a VOD is coming. Fire-and-
       // forget: a failure here must never block going live.
