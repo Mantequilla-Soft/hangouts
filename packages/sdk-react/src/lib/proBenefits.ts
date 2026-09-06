@@ -47,10 +47,16 @@ export const UPLOAD_PERKS: ProPerk[] = [
   { icon: '📦', title: 'Higher upload limits', body: 'Bigger files, and more of them.' },
 ];
 
-/** Everything that isn't uploads or streaming. Kept as one group on purpose:
- *  as separate Earnings and Reach tabs they held a single perk each, which left
- *  most of the fixed-height panel empty. */
-export const BONUS_PERKS: ProPerk[] = [
+/** Everything that isn't uploads or streaming: the perks that apply to any
+ *  subscriber, whether or not they ever post. Kept as one group on purpose, as
+ *  separate Earnings and Reach tabs held a single perk each and left most of the
+ *  fixed-height panel empty. */
+export const GENERAL_PERKS: ProPerk[] = [
+  {
+    icon: '🚫',
+    title: 'No ads',
+    body: 'Videos play straight through, with no sponsor spots or banners.',
+  },
   {
     icon: '💰',
     title: 'Keep 100% of your rewards',
@@ -61,14 +67,21 @@ export const BONUS_PERKS: ProPerk[] = [
 
 /**
  * The plans-page perk list, grouped into tabs so the column stays short instead
- * of running the full height of the page. Uploads leads: it is what most people
- * on the wallet page are subscribing for. The stream upsell overrides this with
- * `initialGroupId="streaming"` so "See plans" opens on what was just read.
+ * of running the full height of the page.
+ *
+ * General leads, and ProPlans opens on `benefitGroups[0]`, so it is also the tab
+ * somebody sees first. That is the point of the order: General holds the perks
+ * that apply whoever you are, including not being shown ads, while Uploads and
+ * Live streaming only matter once you are publishing. Somebody weighing up a
+ * subscription should meet the universal reasons before the specialist ones.
+ *
+ * The stream upsell overrides the default with `initialGroupId="streaming"`, so
+ * "See plans" still opens on what was just being read.
  */
 export const PRO_PERK_GROUPS: ProPerkGroup[] = [
+  { id: 'general', heading: 'General', icon: '💎', perks: GENERAL_PERKS },
   { id: 'uploads', heading: 'Uploads', icon: '⬆️', perks: UPLOAD_PERKS },
   { id: 'streaming', heading: 'Live streaming', icon: '🎥', perks: STREAM_PERKS },
-  { id: 'bonus', heading: 'Bonus', icon: '💎', perks: BONUS_PERKS },
 ];
 
 /** Shown under the groups — not a perk, so it doesn't get a bullet of its own. */
