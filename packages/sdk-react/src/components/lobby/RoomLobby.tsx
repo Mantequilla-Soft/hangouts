@@ -3,7 +3,7 @@ import type { Room } from '@snapie/hangouts-core';
 import { useHangoutsAuth } from '../../hooks/useHangoutsAuth.js';
 import { useRoomList } from '../../hooks/useRoomList.js';
 import { RoomCard } from './RoomCard.js';
-import { CreateRoomDialog, type AnnounceType } from './CreateRoomDialog.js';
+import { CreateRoomDialog, type AnnounceType, type CreateRoomDraft } from './CreateRoomDialog.js';
 import type { RoomMode } from '@snapie/hangouts-core';
 
 export interface RoomLobbyProps {
@@ -59,9 +59,11 @@ export interface RoomLobbyProps {
   /** Override where the room list comes from — e.g. aggregated across several
    *  OpenPods deployments. Must be stable (useCallback) or the poll restarts. */
   fetchRooms?: () => Promise<Room[]>;
+  /** Straight through to CreateRoomDialog — see `renderStandaloneExtras` there. */
+  renderStandaloneExtras?: (draft: CreateRoomDraft) => ReactNode;
 }
 
-export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false, allowStandalone = false, defaultCreateOpen = false, renderAnnounceOptions, renderDescriptionEditor, fetchRooms, isPremium, defaultMode, allowSnapAnnounce = true, hideEmptyState = false, createOnly = false, onCreateCancel }: RoomLobbyProps) {
+export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false, allowStandalone = false, defaultCreateOpen = false, renderAnnounceOptions, renderDescriptionEditor, fetchRooms, isPremium, defaultMode, allowSnapAnnounce = true, hideEmptyState = false, createOnly = false, onCreateCancel, renderStandaloneExtras }: RoomLobbyProps) {
   const auth = useHangoutsAuth();
   const { rooms, isLoading, error } = useRoomList(fetchRooms);
   const [showCreate, setShowCreate] = useState(defaultCreateOpen);
@@ -130,6 +132,7 @@ export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false,
           isPremium={isPremium}
           defaultMode={defaultMode}
           allowSnapAnnounce={allowSnapAnnounce}
+          renderStandaloneExtras={renderStandaloneExtras}
         />
       </div>
     );
@@ -166,6 +169,7 @@ export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false,
           defaultMode={defaultMode}
           allowSnapAnnounce={allowSnapAnnounce}
           renderDescriptionEditor={renderDescriptionEditor}
+          renderStandaloneExtras={renderStandaloneExtras}
         />
       )}
 

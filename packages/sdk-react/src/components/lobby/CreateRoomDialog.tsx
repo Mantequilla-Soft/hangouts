@@ -13,6 +13,26 @@ import { FREE_STREAM_CAP_LABEL, PRO_STREAM_CAP_LABEL } from '../../lib/streamLim
 /** How the host wants to announce the session on Hive. */
 export type AnnounceType = 'snap' | 'post';
 
+/** A snapshot of the create form's current values, handed to
+ *  `renderStandaloneExtras` on every render. Recording flags are the EFFECTIVE
+ *  values (false for a non-Pro host, whatever is ticked). */
+export interface CreateRoomDraft {
+  mode: RoomMode;
+  title: string;
+  description: string;
+  /** Thumbnail / background image URL, '' when none. */
+  thumbnail: string;
+  tags: string[];
+  language: string;
+  visibility: RoomVisibility;
+  boost: { enabled: boolean; minBoostUsd: number; creatorPayoutAccount: string };
+  /** Announce on Hive (always false for an unlisted room). */
+  notifyOnHive: boolean;
+  announceType: AnnounceType;
+  recording: { autoVod: boolean; autoDownload: boolean; allowClips: boolean };
+  isPremium: boolean;
+}
+
 export interface CreateRoomDialogProps {
   /** Fired after the room is created. The second argument carries the host's
    *  announcement preference — the integrator does the actual Hive post
@@ -54,6 +74,12 @@ export interface CreateRoomDialogProps {
    *  different intents, and each should land on its own kind of room. The
    *  tiles stay switchable. */
   defaultMode?: RoomMode;
+  /** Extra integrator content rendered at the end of a STANDALONE form, just
+   *  above the submit button, with the form's current values. For actions that
+   *  reuse the host's setup without creating a room (e.g. saving it for later).
+   *  Anything interactive in it must be `type="button"`: it sits inside the
+   *  form. Not rendered for conference rooms. */
+  renderStandaloneExtras?: (draft: CreateRoomDraft) => ReactNode;
 }
 
 async function uploadTo3Speak(file: File, apiKey: string): Promise<string> {
@@ -123,7 +149,7 @@ const VISIBILITIES: Array<{ id: RoomVisibility; icon: string; title: string; des
   { id: 'unlisted', icon: '🔗', title: 'Unlisted', desc: 'Link only access' },
 ];
 
-export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false, renderAnnounceOptions, renderDescriptionEditor, isPremium: isPremiumOverride, defaultMode, allowSnapAnnounce = true, onUpsell }: CreateRoomDialogProps) {
+export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false, renderAnnounceOptions, renderDescriptionEditor, isPremium: isPremiumOverride, defaultMode, allowSnapAnnounce = true, onUpsell, renderStandaloneExtras }: CreateRoomDialogProps) {
   // Premium resolves itself so the integrator passes nothing; an explicit prop
   // still wins. `isPremium` is false until the lookup settles, so the locked
   // state renders first and unlocks — never the reverse, which would flash Pro
@@ -693,6 +719,30 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
           )}
         </p>
       )}
+
+      {/* Integrator extras for a stream (see renderStandaloneExtras). */}
+      {isStandalone && renderStandaloneExtras?.({
+        mode,
+        title: title.trim(),
+        description: description.trim(),
+        thumbnail: imageServerApiKey ? backgroundImageUrl : '',
+        tags,
+        language: language.trim(),
+        visibility,
+        boost: {
+          enabled: boostEnabled,
+          minBoostUsd: Number.isFinite(Number(minBoostUsd)) ? Math.max(0, Number(minBoostUsd)) : 0,
+          creatorPayoutAccount: creatorPayoutAccount.trim(),
+        },
+        notifyOnHive: visibility === 'unlisted' ? false : notifyOnHive,
+        announceType: effectiveAnnounceType,
+        recording: {
+          autoVod: isPremium && autoVod,
+          autoDownload: isPremium && autoDownload,
+          allowClips: isPremium && allowClips,
+        },
+        isPremium,
+      })}
 
       {/* 11 · Actions */}
       <div className="hh-cd__actions">

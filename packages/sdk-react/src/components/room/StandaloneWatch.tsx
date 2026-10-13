@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { RoomAudio } from './RoomAudio.js';
-import { LiveKitRoom,  StartAudio, useParticipants, useTracks, VideoTrack, useRoomInfo } from '@livekit/components-react';
-import { Track, VideoQuality, type RemoteTrackPublication } from 'livekit-client';
+import { LiveKitRoom,  StartAudio, useParticipants, useTracks, VideoTrack, useRoomInfo, useConnectionState } from '@livekit/components-react';
+import { ConnectionState, Track, VideoQuality, type RemoteTrackPublication } from 'livekit-client';
 import type { BoostConfig } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
@@ -144,17 +144,45 @@ export interface StreamVideoProps {
   /** Overlay a small LIVE/OFFLINE badge (top-left). Default true. */
   showLiveBadge?: boolean;
 }
+/** How long after connecting an absent host still counts as "not here yet"
+ *  rather than offline. The participant list arrives a moment after the room
+ *  connects, so without this every viewer saw "The streamer is offline" flash
+ *  before a perfectly live stream appeared. */
+const OFFLINE_GRACE_MS = 4000;
+
+/** True once the room has been connected for OFFLINE_GRACE_MS, and from then
+ *  on. A connection that drops after that (the stream ended, the room closed)
+ *  is NOT "connecting" again: it stays settled, so the viewer reads "offline". */
+function useConnectionSettled(): boolean {
+  const state = useConnectionState();
+  const [settled, setSettled] = useState(false);
+  const wasConnected = useRef(false);
+  useEffect(() => {
+    if (state === ConnectionState.Connected) {
+      wasConnected.current = true;
+      const timer = setTimeout(() => setSettled(true), OFFLINE_GRACE_MS);
+      return () => clearTimeout(timer);
+    }
+    if (state === ConnectionState.Disconnected && wasConnected.current) setSettled(true);
+    // Connecting / Reconnecting: keep what we had.
+    return undefined;
+  }, [state]);
+  return settled;
+}
+
 export function StreamVideo({ showLiveBadge = true }: StreamVideoProps) {
   const track = useProgramTrack();
   const live = useStreamLive();
+  const settled = useConnectionSettled();
+  const placeholder = live ? 'Stream is starting…' : (settled ? 'The streamer is offline' : 'Connecting…');
   return (
     <div className="hh-stream-video">
       {track ? (
         <VideoTrack trackRef={track} className="hh-stream-video__el" />
       ) : (
-        <div className="hh-stream-video__placeholder">{live ? 'Stream is starting…' : 'The streamer is offline'}</div>
+        <div className="hh-stream-video__placeholder">{placeholder}</div>
       )}
-      {showLiveBadge && (
+      {showLiveBadge && (live || settled) && (
         <span className={`hh-stream-badge${live ? '' : ' hh-stream-badge--off'}`}>{live ? '● LIVE' : '○ OFFLINE'}</span>
       )}
       {/* No <BoostOverlay/> here on purpose. The studio now composites boosts
