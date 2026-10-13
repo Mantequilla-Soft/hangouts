@@ -13,6 +13,8 @@ import { boostRoutes } from './routes/boosts.js';
 import { eventRoutes } from './routes/events.js';
 import { gameRoutes } from './routes/games.js';
 import { premiumRoutes } from './routes/premium.js';
+import { templateRoutes } from './routes/templates.js';
+import { whipRoutes } from './routes/whip.js';
 import { seedWordCollections } from './lib/seed-word-collections.js';
 import './games/index.js';
 
@@ -41,6 +43,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await server.register(eventRoutes);
   await server.register(gameRoutes);
   await server.register(premiumRoutes);
+  await server.register(templateRoutes);
+  await server.register(whipRoutes);
 
   return server;
 }

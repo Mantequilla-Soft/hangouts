@@ -47,6 +47,21 @@ const envSchema = z.object({
   // Public WHIP endpoint for OBS ingest (nginx → livekit/ingress). The stream
   // key is appended as a path segment: `${INGRESS_WHIP_URL}/<streamKey>`.
   INGRESS_WHIP_URL: z.string().url().default('https://livekit.okinoko.io/w'),
+  // --- Headless OBS streams (stream templates) -------------------------------
+  // Public WHIP base OBS is pointed at: `${PUBLIC_WHIP_BASE}/<owner>/<slug>`.
+  // This server proxies the WHIP signalling (so the LiveKit stream key never
+  // leaves the box); media flows OBS ↔ ingress directly over UDP.
+  PUBLIC_WHIP_BASE: z.string().url().default('https://hangouts.okinoko.io/whip'),
+  // Where the ingress's own WHIP handler listens (loopback, no TLS).
+  INGRESS_WHIP_INTERNAL_URL: z.string().url().default('http://127.0.0.1:8086/w'),
+  // 3Speak API that posts the Hive announcement for a headless stream
+  // (POST /api/openpods/announce, gated by OPENPODS_ANNOUNCE_SECRET).
+  ANNOUNCE_API_URL: z.string().url().default('http://127.0.0.1:4021'),
+  OPENPODS_ANNOUNCE_SECRET: z.string().default(''),
+  // Keys the per-user streaming secret's lookup hash + at-rest encryption.
+  // Empty ⇒ derived from SESSION_SECRET. Changing whichever one is in use
+  // invalidates every stored streaming secret (users must reset theirs).
+  STREAM_KEY_SECRET: z.string().default(''),
   // Free one-per-lifetime Pro trial (POST /premium/start-testing). This is what
   // makes the locked perks actionable — without it a non-premium user sees
   // padlocks and no way through — so it defaults ON. Clients discover the
