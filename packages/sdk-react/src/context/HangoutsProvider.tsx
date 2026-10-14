@@ -137,6 +137,18 @@ export function HangoutsProvider({
     }
   }, [sessionToken, externalUsername, apiClient]);
 
+  // The host app's token and username are the truth whenever it passes them,
+  // so they are used in THIS render rather than one later through the state
+  // above. A child that mounts in the same commit as a freshly arrived token
+  // (a stream page holds <StandaloneWatch> back until the handover lands) runs
+  // its join effect BEFORE this provider's effects: reading the stale state it
+  // saw itself as signed out, listened as a guest ("guest-…" in the chat), and
+  // the late upgrade did not always follow. Setting the token on the client is
+  // idempotent, like the sync init in the memo above.
+  if (sessionToken && apiClient.getSessionToken() !== sessionToken) apiClient.setSessionToken(sessionToken);
+  const effectiveToken = sessionToken ?? activeToken;
+  const effectiveUser = sessionToken && externalUsername ? externalUsername : username;
+
   const setAuth = (name: string | null) => {
     setUsername(name);
     if (!name) {
@@ -164,8 +176,8 @@ export function HangoutsProvider({
     apiClient,
     apiBaseUrl,
     livekitServerUrl,
-    username,
-    isAuthenticated: !!username && !!activeToken,
+    username: effectiveUser,
+    isAuthenticated: !!effectiveUser && !!effectiveToken,
     setAuth,
     imageServerApiKey,
     aioha,
@@ -173,7 +185,7 @@ export function HangoutsProvider({
     theme: resolvedTheme,
     premiumApiBaseUrl: premiumApiBaseUrl || apiBaseUrl,
     onRequestAuth,
-  }), [apiClient, apiBaseUrl, livekitServerUrl, username, activeToken, imageServerApiKey, aioha, proConfig, resolvedTheme, premiumApiBaseUrl, onRequestAuth]);
+  }), [apiClient, apiBaseUrl, livekitServerUrl, effectiveUser, effectiveToken, imageServerApiKey, aioha, proConfig, resolvedTheme, premiumApiBaseUrl, onRequestAuth]);
 
   return (
     <HangoutsContext.Provider value={value}>

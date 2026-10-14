@@ -37,12 +37,16 @@ export interface StandaloneWatchProps {
   children: ReactNode;
   /** Shown while connecting. */
   connecting?: ReactNode;
+  /** Silence the stream's sound without leaving the room, e.g. while the page
+   *  plays an ad over it. The picture keeps running underneath. */
+  audioMuted?: boolean;
 }
 
-export function StandaloneWatch({ roomName, children, connecting }: StandaloneWatchProps) {
+export function StandaloneWatch({ roomName, children, connecting, audioMuted = false }: StandaloneWatchProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
   const joinedForRef = useRef<string | null>(null);
+  const upgradeFailedRef = useRef<string | null>(null);
 
   useEffect(() => {
     // A cold load (opening a stream by URL) authenticates AFTER the first
@@ -50,7 +54,10 @@ export function StandaloneWatch({ roomName, children, connecting }: StandaloneWa
     // state and survives a remount, so without this the viewer is stuck as a
     // guest for the whole session — wrong chat name, and the server blocks
     // their messages. Upgrade the connection once the session lands.
-    const upgradeToAuthed = isAuthenticated && !!room.livekitToken && room.isGuest;
+    // An upgrade that already failed for this room is not retried: the fallback
+    // below listens as a guest again, which would otherwise re-trigger it forever.
+    const upgradeToAuthed = isAuthenticated && !!room.livekitToken && room.isGuest
+      && upgradeFailedRef.current !== roomName;
     if (room.livekitToken && !upgradeToAuthed) return;
     if (joinedForRef.current === roomName && !upgradeToAuthed) return;
     joinedForRef.current = roomName;
@@ -59,12 +66,16 @@ export function StandaloneWatch({ roomName, children, connecting }: StandaloneWa
         if (isAuthenticated) await room.join(roomName);
         else await room.listen(roomName);
       } catch {
+        if (isAuthenticated) upgradeFailedRef.current = roomName;
         // Authed join failed (not a participant / token issue) — fall back
         // to an anonymous guest listen so watching still works.
         try { await room.listen(roomName); } catch { /* room gone */ }
       }
     })();
-  }, [roomName, isAuthenticated, room]);
+    // livekitToken / isGuest explicitly: the upgrade has to be re-checked when a
+    // guest listen that was already in flight completes, even if `room` itself
+    // is the same object.
+  }, [roomName, isAuthenticated, room, room.livekitToken, room.isGuest]);
 
   if (!room.livekitToken) {
     return <>{connecting ?? <div className="hh-stream-connecting">Connecting to the stream…</div>}</>;
@@ -80,7 +91,7 @@ export function StandaloneWatch({ roomName, children, connecting }: StandaloneWa
       options={{ adaptiveStream: true, dynacast: true }}
     >
       <StreamContextBridge roomName={roomName} isGuest={room.isGuest} joinMeta={room.roomMeta}>
-        <RoomAudio programOnly />
+        <RoomAudio programOnly muted={audioMuted} />
         <StartAudio label="Click to enable audio" className="hh-start-audio" />
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
           {children}

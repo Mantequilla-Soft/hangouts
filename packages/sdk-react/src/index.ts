@@ -102,7 +102,7 @@ export { GamePanel, type GamePanelProps } from './components/room/GamePanel.js';
 // Components — Lobby
 export { RoomLobby, type RoomLobbyProps } from './components/lobby/RoomLobby.js';
 export { RoomCard, type RoomCardProps } from './components/lobby/RoomCard.js';
-export { CreateRoomDialog, type CreateRoomDialogProps, type AnnounceType, type CreateRoomDraft } from './components/lobby/CreateRoomDialog.js';
+export { CreateRoomDialog, type CreateRoomDialogProps, type AnnounceType, type CreateRoomDraft, type StepLabels } from './components/lobby/CreateRoomDialog.js';
 export { GuestNameModal, type GuestNameModalProps } from './components/lobby/GuestNameModal.js';
 export { ObsPanel, type ObsPanelProps } from './components/room/ObsPanel.js';
 

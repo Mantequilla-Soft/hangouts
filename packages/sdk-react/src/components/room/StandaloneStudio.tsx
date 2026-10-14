@@ -10,6 +10,7 @@ import { ChatPanel } from './ChatPanel.js';
 import { AUTO_VOD_KEY, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
 import { resolveStreamCap } from '../../lib/streamLimits.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
+import { readStudioSetup, writeStudioSetup, saveStudioFile, deleteStudioFile, loadStudioFiles } from '../../lib/studioSetup.js';
 import { isChromium } from '../../lib/browser.js';
 import { MOBILE_QUERY, useIsMobile } from '../../hooks/useIsMobile.js';
 // The SDK's OWN chat hook — NOT LiveKit's. ChatPanel speaks this protocol; the
@@ -775,7 +776,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   }, [localParticipant]);
 
   const participants = useParticipants();
-  const { imageServerApiKey, apiClient, apiBaseUrl, livekitServerUrl } = useHangoutsContext();
+  const { imageServerApiKey, apiClient, apiBaseUrl, livekitServerUrl, username: setupUser } = useHangoutsContext();
+  // The host's last studio setup (lib/studioSetup), as the starting values
+  // below when the host is already known at the first render. The restore
+  // effect ("restore the last setup") applies it again once the username is
+  // there, and brings back the scene and the media/sound files.
+  const savedSetup = useMemo(() => readStudioSetup(setupUser), []);  // eslint-disable-line react-hooks/exhaustive-deps
+  const savedNum = (v: unknown, lo: number, hi: number, dflt: number) =>
+    (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : dflt);
   // OBS/WHIP ingest goes through the SDK hook rather than a hand-rolled fetch,
   // so integrators get the same path we do. The hook keeps the raw-fetch
   // fallback for older bundled cores.
@@ -847,7 +855,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   })();
   const [pipCorner, setPipCorner] = useState<PipCorner>(camLookInit.corner);
   const [pipSize, setPipSize] = useState(camLookInit.size);
-  const [splitRatio, setSplitRatio] = useState(0.5);
+  const [splitRatio, setSplitRatio] = useState(() => savedNum(savedSetup.splitRatio, 0.15, 0.85, 0.5));
   const [camShape, setCamShape] = useState<CamShape>(camLookInit.shape);
   const [camRadius, setCamRadius] = useState(camLookInit.radius);
   const [camZoom, setCamZoom] = useState(camLookInit.zoom);
@@ -916,13 +924,13 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [sounds, setSounds] = useState<SoundListItem[]>([]);
   const [micOn, setMicOn] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
-  const [micGain, setMicGain] = useState(1);
-  const [mediaGain, setMediaGain] = useState(1);
-  const [mediaMuted, setMediaMuted] = useState(false);
+  const [micGain, setMicGain] = useState(() => savedNum(savedSetup.micGain, 0, 1.5, 1));
+  const [mediaGain, setMediaGain] = useState(() => savedNum(savedSetup.mediaGain, 0, 1.5, 1));
+  const [mediaMuted, setMediaMuted] = useState(() => savedSetup.mediaMuted === true);
   const [auxDevices, setAuxDevices] = useState<Array<{ deviceId: string; label: string }>>([]);
   const [auxDeviceId, setAuxDeviceId] = useState('');
-  const [auxGain, setAuxGain] = useState(1);
-  const [auxMuted, setAuxMuted] = useState(false);
+  const [auxGain, setAuxGain] = useState(() => savedNum(savedSetup.auxGain, 0, 1.5, 1));
+  const [auxMuted, setAuxMuted] = useState(() => savedSetup.auxMuted === true);
   const [mediaError, setMediaError] = useState('');
   const [boostHistoryOpen, setBoostHistoryOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -939,8 +947,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // doesn't produce — so the scene couldn't be brought back).
   const [obsRestoreTick, setObsRestoreTick] = useState(0);
   const restoreObs = useCallback(() => setObsRestoreTick((t) => t + 1), []);
-  const [streamQuality, setStreamQuality] = useState<StreamQuality>('medium');
-  const streamQualityRef = useRef<StreamQuality>('medium');
+  const [streamQuality, setStreamQuality] = useState<StreamQuality>(() => (
+    savedSetup.streamQuality && savedSetup.streamQuality in STREAM_QUALITY ? savedSetup.streamQuality as StreamQuality : 'medium'));
+  const streamQualityRef = useRef<StreamQuality>(streamQuality);
   streamQualityRef.current = streamQuality;
   // How the encoder should give ground when it can't hold both, streamer's
   // choice, on desktop and mobile alike.
@@ -953,7 +962,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // live via setDegradationPreference — no republish. (matchMedia, not the
   // useIsMobile hook, because that hook is set up further down.)
   const [degradePref, setDegradePref] = useState<RTCDegradationPreference>(
-    () => (typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches ? 'balanced' : 'maintain-resolution'),
+    () => (['balanced', 'maintain-framerate', 'maintain-resolution'].includes(savedSetup.degradePref || '')
+      ? savedSetup.degradePref as RTCDegradationPreference
+      : (typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches ? 'balanced' : 'maintain-resolution')),
   );
   const degradePrefRef = useRef<RTCDegradationPreference>(degradePref);
   degradePrefRef.current = degradePref;
@@ -999,12 +1010,12 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const postLocked = streamState !== 'standby';
 
   // ---- panel sizing ------------------------------------------------------
-  const [leftW, setLeftW] = useState(184);
-  const [chatW, setChatW] = useState(430);
-  const [faderH, setFaderH] = useState(120);
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [chatCollapsed, setChatCollapsed] = useState(false);
-  const [mixerCollapsed, setMixerCollapsed] = useState(false);
+  const [leftW, setLeftW] = useState(() => savedNum(savedSetup.leftW, 150, 340, 184));
+  const [chatW, setChatW] = useState(() => savedNum(savedSetup.chatW, 230, 480, 430));
+  const [faderH, setFaderH] = useState(() => savedNum(savedSetup.faderH, 70, 240, 120));
+  const [leftCollapsed, setLeftCollapsed] = useState(() => savedSetup.leftCollapsed === true);
+  const [chatCollapsed, setChatCollapsed] = useState(() => savedSetup.chatCollapsed === true);
+  const [mixerCollapsed, setMixerCollapsed] = useState(() => savedSetup.mixerCollapsed === true);
 
   // ---- mobile ------------------------------------------------------------
   const isMobile = useIsMobile();
@@ -1384,7 +1395,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     delete analysersRef.current[id];
     delete meterFillRefs.current[id];
     setSounds((prev) => prev.filter((s) => s.id !== id));
-  }, []);
+    void deleteStudioFile(setupUser, id);
+  }, [setupUser]);
 
   useEffect(() => {
     streamStateRef.current = streamState;
@@ -2719,14 +2731,17 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     return () => { disposed = true; navigator.mediaDevices?.removeEventListener?.('devicechange', refresh); };
   }, [micOn]);
 
-  const addMediaFiles = useCallback(async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    for (const file of Array.from(files)) {
-      if (file.size > MAX_MEDIA_BYTES) { setMediaError(`${file.name}: too large`); continue; }
+  // One media file in. `presetId` is set when the file comes back from the
+  // saved setup (keeps its id, so the saved active source still points at it);
+  // a file the host just picked is also stored for next time.
+  const addMediaFile = useCallback(async (file: File, presetId?: string) => {
+    {
+      if (file.size > MAX_MEDIA_BYTES) { setMediaError(`${file.name}: too large`); return; }
       const isVideo = file.type.startsWith('video/');
       const isImage = file.type.startsWith('image/');
-      if (!isVideo && !isImage) { setMediaError(`${file.name}: unsupported type`); continue; }
-      const id = Math.random().toString(36).slice(2, 10);
+      if (!isVideo && !isImage) { setMediaError(`${file.name}: unsupported type`); return; }
+      const id = presetId || Math.random().toString(36).slice(2, 10);
+      if (!presetId) void saveStudioFile(setupUser, 'media', id, file);
       const url = URL.createObjectURL(file);
       const entry: MediaEntry = { id, name: file.name, kind: 'image', url };
       if (isVideo) {
@@ -2743,7 +2758,11 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       mediaMapRef.current.set(id, entry);
       setMediaItems((prev) => [...prev, { id, name: file.name, kind: entry.kind, url }]);
     }
-  }, []);
+  }, [setupUser]);
+  const addMediaFiles = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    for (const file of Array.from(files)) await addMediaFile(file);
+  }, [addMediaFile]);
   const removeMedia = useCallback((id: string) => {
     const entry = mediaMapRef.current.get(id);
     if (entry) {
@@ -2755,19 +2774,24 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     }
     setMediaItems((prev) => prev.filter((m) => m.id !== id));
     setSource((s) => (s === `media:${id}` ? null : s));
-  }, []);
+    void deleteStudioFile(setupUser, id);
+  }, [setupUser]);
 
-  const addSoundFiles = useCallback((files: FileList | null) => {
-    if (!files) return;
-    for (const file of Array.from(files)) {
-      if (!file.type.startsWith('audio/')) { setMediaError(`${file.name}: not an audio file`); continue; }
-      const id = Math.random().toString(36).slice(2, 10);
+  // One sound in. From the saved setup (`saved`) it keeps its id, level, mute
+  // and loop, and comes back STOPPED: a clip blaring the moment the studio opens
+  // would be a nasty surprise. A file the host just picked plays and is stored.
+  const addSoundFile = useCallback((file: File, saved?: { id: string; gain: number; muted: boolean; loop: boolean }) => {
+    {
+      if (!file.type.startsWith('audio/')) { setMediaError(`${file.name}: not an audio file`); return; }
+      const id = saved?.id || Math.random().toString(36).slice(2, 10);
+      if (!saved) void saveStudioFile(setupUser, 'sound', id, file);
       const url = URL.createObjectURL(file);
       const el = document.createElement('audio');
       el.src = url; el.loop = true; el.crossOrigin = 'anonymous';
       const ctx = ensureAudioGraph();
       const gainNode = ctx.createGain();
-      gainNode.gain.value = 1;
+      gainNode.gain.value = saved ? (saved.muted ? 0 : saved.gain) : 1;
+      if (saved) el.loop = saved.loop;
       connectAudioTrack(id, gainNode);
       gainNode.connect(ctx.destination); // local monitor
       const node = ctx.createMediaElementSource(el);
@@ -2780,11 +2804,17 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       el.addEventListener('ended', () => {
         if (!el.loop) setSounds((prev) => prev.map((s) => (s.id === id ? { ...s, playing: false } : s)));
       });
-      void el.play().catch(() => { /* gesture */ });
+      if (!saved) void el.play().catch(() => { /* gesture */ });
       soundsMapRef.current.set(id, { id, label: file.name, el, gainNode, analyser });
-      setSounds((prev) => [...prev, { id, label: file.name, gain: 1, muted: false, playing: true, loop: true }]);
+      setSounds((prev) => [...prev, saved
+        ? { id, label: file.name, gain: saved.gain, muted: saved.muted, playing: false, loop: saved.loop }
+        : { id, label: file.name, gain: 1, muted: false, playing: true, loop: true }]);
     }
-  }, [ensureAudioGraph]);
+  }, [ensureAudioGraph, setupUser]);
+  const addSoundFiles = useCallback((files: FileList | null) => {
+    if (!files) return;
+    for (const file of Array.from(files)) addSoundFile(file);
+  }, [addSoundFile]);
 
   const toggleSoundPlay = useCallback((id: string) => {
     const e = soundsMapRef.current.get(id);
@@ -2799,6 +2829,111 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     setSounds((prev) => prev.map((s) => (s.id === id ? { ...s, loop: e.el.loop } : s)));
   }, []);
 
+
+  // ---- restore the last setup (lib/studioSetup) --------------------------
+  // The saved media and sounds come back first (same ids, from IndexedDB); the
+  // saved scene is applied after that, once what it shows exists: its media
+  // source, and the camera for a two-up scene. A scene that showed a screen
+  // share is not restored (the share is gone), and nothing waits forever: a
+  // camera that is not on within 15 s leaves the studio on its default scene.
+  // Run ONCE per studio, guarded by a ref rather than cancelled on cleanup, so
+  // a development double-mount neither restores twice nor aborts the restore.
+  //
+  // 🚨 Waits for the USERNAME. The studio can mount before the host's session
+  // has landed; restoring then found nothing, marked itself done, and the save
+  // below wrote the studio's defaults (no camera, no media) over the real setup
+  // the moment the username arrived.
+  const [setupRestored, setSetupRestored] = useState(false);
+  const restoreStartedRef = useRef(false);
+  const pendingSceneRef = useRef<{ scene: StudioSceneId; source: SourceKey; until: number } | null>(null);
+  useEffect(() => {
+    if (!setupUser || restoreStartedRef.current) return;
+    restoreStartedRef.current = true;
+    const saved = readStudioSetup(setupUser);
+    // The starting values above only had the setup if the username was known at
+    // the first render; set them again either way.
+    if (typeof saved.splitRatio === 'number') setSplitRatio(savedNum(saved.splitRatio, 0.15, 0.85, 0.5));
+    if (typeof saved.micGain === 'number') setMicGain(savedNum(saved.micGain, 0, 1.5, 1));
+    if (typeof saved.mediaGain === 'number') setMediaGain(savedNum(saved.mediaGain, 0, 1.5, 1));
+    if (typeof saved.mediaMuted === 'boolean') setMediaMuted(saved.mediaMuted);
+    if (typeof saved.auxGain === 'number') setAuxGain(savedNum(saved.auxGain, 0, 1.5, 1));
+    if (typeof saved.auxMuted === 'boolean') setAuxMuted(saved.auxMuted);
+    if (saved.streamQuality && saved.streamQuality in STREAM_QUALITY) setStreamQuality(saved.streamQuality as StreamQuality);
+    if (['balanced', 'maintain-framerate', 'maintain-resolution'].includes(saved.degradePref || '')) {
+      setDegradePref(saved.degradePref as RTCDegradationPreference);
+    }
+    if (typeof saved.leftW === 'number') setLeftW(savedNum(saved.leftW, 150, 340, 184));
+    if (typeof saved.chatW === 'number') setChatW(savedNum(saved.chatW, 230, 480, 430));
+    if (typeof saved.faderH === 'number') setFaderH(savedNum(saved.faderH, 70, 240, 120));
+    if (typeof saved.leftCollapsed === 'boolean') setLeftCollapsed(saved.leftCollapsed);
+    if (typeof saved.chatCollapsed === 'boolean') setChatCollapsed(saved.chatCollapsed);
+    if (typeof saved.mixerCollapsed === 'boolean') setMixerCollapsed(saved.mixerCollapsed);
+    void (async () => {
+      try {
+        const files = await loadStudioFiles(setupUser);
+        const byId = new Map(files.map((f) => [f.id, f]));
+        const used = new Set<string>();
+        for (const m of saved.media ?? []) {
+          const f = byId.get(m.id);
+          if (f && f.kind === 'media' && !used.has(m.id)) { used.add(m.id); await addMediaFile(f.file, m.id); }
+        }
+        for (const snd of saved.sounds ?? []) {
+          const f = byId.get(snd.id);
+          if (f && f.kind === 'sound' && !used.has(snd.id)) { used.add(snd.id); addSoundFile(f.file, snd); }
+        }
+        // Files no saved setup refers to any more (e.g. a tab closed mid-change).
+        for (const f of files) if (!used.has(f.id)) void deleteStudioFile(setupUser, f.id);
+        // Camera / mic back on if they were. Phones open them on their own (see
+        // requestDevices); on a desktop the host otherwise has to add them again.
+        // With the permission already granted this asks nothing.
+        // One line in the console, so "my setup did not come back" can be read
+        // off the host's own browser (no file names, no content).
+        console.info(`[studio] restoring setup for @${setupUser}: cam=${!!saved.camOn} mic=${!!saved.micOn} scene=${saved.scene || '-'} media=${used.size}/${(saved.media || []).length} sounds=${(saved.sounds || []).length}${isMobileRef.current ? ' (phone: camera starts on its own)' : ''}`);
+        if (!isMobileRef.current) {
+          try {
+            if (saved.camOn) await startCam();
+            else if (saved.micOn && !micStreamRef.current) await startMic();
+          } catch (err) { console.warn('[studio] could not restore the camera/mic', err); }
+        }
+        const src = saved.source;
+        if (saved.scene && saved.scene !== 'cam' && typeof src === 'string'
+          && src.startsWith('media:') && used.has(src.slice(6))) {
+          pendingSceneRef.current = { scene: saved.scene, source: src as SourceKey, until: Date.now() + 15000 };
+        }
+      } finally {
+        setSetupRestored(true);
+      }
+    })();
+  }, [setupUser]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const p = pendingSceneRef.current;
+    if (!p || !setupRestored) return;
+    if (Date.now() > p.until || !mediaMapRef.current.has(p.source.slice(6))) { pendingSceneRef.current = null; return; }
+    // Side by side is a landscape shape, stacked a portrait one.
+    const scene: StudioSceneId = portraitRef.current
+      ? (p.scene === 'split' ? 'splitv' : p.scene)
+      : (p.scene === 'splitv' ? 'split' : p.scene);
+    if ((scene === 'overlay' || scene === 'split' || scene === 'splitv') && !camOn) return;   // wait for the camera
+    pendingSceneRef.current = null;
+    setSource(p.source);
+    setScene(scene);
+  }, [setupRestored, camOn, mediaItems]);
+
+  // Saved on every change, once the restore is done (so the defaults the studio
+  // starts with never overwrite the setup being restored).
+  useEffect(() => {
+    if (!setupRestored) return;
+    writeStudioSetup(setupUser, {
+      scene,
+      source: source && source.startsWith('media:') ? source : null,
+      splitRatio, camOn, micOn, micGain, mediaGain, mediaMuted, auxGain, auxMuted, streamQuality, degradePref,
+      leftW, chatW, faderH, leftCollapsed, chatCollapsed, mixerCollapsed,
+      media: mediaItems.map((m) => ({ id: m.id, name: m.name })),
+      sounds: sounds.map((x) => ({ id: x.id, label: x.label, gain: x.gain, muted: x.muted, loop: x.loop })),
+    });
+  }, [setupRestored, setupUser, scene, source, splitRatio, camOn, micOn, micGain, mediaGain, mediaMuted, auxGain, auxMuted,
+    streamQuality, degradePref, leftW, chatW, faderH, leftCollapsed, chatCollapsed, mixerCollapsed, mediaItems, sounds]);
 
   // Media video playback follows the active source.
   useEffect(() => {

@@ -3,7 +3,7 @@ import type { Room } from '@snapie/hangouts-core';
 import { useHangoutsAuth } from '../../hooks/useHangoutsAuth.js';
 import { useRoomList } from '../../hooks/useRoomList.js';
 import { RoomCard } from './RoomCard.js';
-import { CreateRoomDialog, type AnnounceType, type CreateRoomDraft } from './CreateRoomDialog.js';
+import { CreateRoomDialog, type AnnounceType, type CreateRoomDraft, type StepLabels } from './CreateRoomDialog.js';
 import type { RoomMode } from '@snapie/hangouts-core';
 
 export interface RoomLobbyProps {
@@ -61,9 +61,13 @@ export interface RoomLobbyProps {
   fetchRooms?: () => Promise<Room[]>;
   /** Straight through to CreateRoomDialog — see `renderStandaloneExtras` there. */
   renderStandaloneExtras?: (draft: CreateRoomDraft) => ReactNode;
+  /** Straight through to CreateRoomDialog — see `stepped` there. */
+  stepped?: boolean;
+  /** Straight through to CreateRoomDialog — see `stepLabels` there. */
+  stepLabels?: Partial<StepLabels>;
 }
 
-export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false, allowStandalone = false, defaultCreateOpen = false, renderAnnounceOptions, renderDescriptionEditor, fetchRooms, isPremium, defaultMode, allowSnapAnnounce = true, hideEmptyState = false, createOnly = false, onCreateCancel, renderStandaloneExtras }: RoomLobbyProps) {
+export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false, allowStandalone = false, defaultCreateOpen = false, renderAnnounceOptions, renderDescriptionEditor, fetchRooms, isPremium, defaultMode, allowSnapAnnounce = true, hideEmptyState = false, createOnly = false, onCreateCancel, renderStandaloneExtras, stepped, stepLabels }: RoomLobbyProps) {
   const auth = useHangoutsAuth();
   const { rooms, isLoading, error } = useRoomList(fetchRooms);
   const [showCreate, setShowCreate] = useState(defaultCreateOpen);
@@ -133,6 +137,8 @@ export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false,
           defaultMode={defaultMode}
           allowSnapAnnounce={allowSnapAnnounce}
           renderStandaloneExtras={renderStandaloneExtras}
+          stepped={stepped}
+          stepLabels={stepLabels}
         />
       </div>
     );
@@ -170,6 +176,8 @@ export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false,
           allowSnapAnnounce={allowSnapAnnounce}
           renderDescriptionEditor={renderDescriptionEditor}
           renderStandaloneExtras={renderStandaloneExtras}
+          stepped={stepped}
+          stepLabels={stepLabels}
         />
       )}
 

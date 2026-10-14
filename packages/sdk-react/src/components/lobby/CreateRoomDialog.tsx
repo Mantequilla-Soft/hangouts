@@ -80,7 +80,39 @@ export interface CreateRoomDialogProps {
    *  Anything interactive in it must be `type="button"`: it sits inside the
    *  form. Not rendered for conference rooms. */
   renderStandaloneExtras?: (draft: CreateRoomDraft) => ReactNode;
+  /** Split the form into steps (Basics, Details, Boosts & sharing, and for a
+   *  stream Go live) with a stepper on top and Back/Next buttons above and
+   *  below each step. Off by default: the form stays one page. */
+  stepped?: boolean;
+  /** Text for the stepped form, for integrators that translate it. Anything
+   *  left out falls back to English. */
+  stepLabels?: Partial<StepLabels>;
 }
+
+/** The stepped form's own text (see `stepped`). */
+export interface StepLabels {
+  basics: string;
+  details: string;
+  sharing: string;
+  goLive: string;
+  back: string;
+  next: string;
+  cancel: string;
+  titleRequired: string;
+}
+
+const DEFAULT_STEP_LABELS: StepLabels = {
+  basics: 'Basics',
+  details: 'Details',
+  sharing: 'Boosts & sharing',
+  goLive: 'Go live',
+  back: 'Back',
+  next: 'Next',
+  cancel: 'Cancel',
+  titleRequired: 'Add a title to continue.',
+};
+
+type StepId = 'setup' | 'details' | 'audience' | 'finish';
 
 async function uploadTo3Speak(file: File, apiKey: string): Promise<string> {
   const formData = new FormData();
@@ -149,7 +181,7 @@ const VISIBILITIES: Array<{ id: RoomVisibility; icon: string; title: string; des
   { id: 'unlisted', icon: '🔗', title: 'Unlisted', desc: 'Link only access' },
 ];
 
-export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false, renderAnnounceOptions, renderDescriptionEditor, isPremium: isPremiumOverride, defaultMode, allowSnapAnnounce = true, onUpsell, renderStandaloneExtras }: CreateRoomDialogProps) {
+export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false, renderAnnounceOptions, renderDescriptionEditor, isPremium: isPremiumOverride, defaultMode, allowSnapAnnounce = true, onUpsell, renderStandaloneExtras, stepped = false, stepLabels }: CreateRoomDialogProps) {
   // Premium resolves itself so the integrator passes nothing; an explicit prop
   // still wins. `isPremium` is false until the lookup settles, so the locked
   // state renders first and unlocks — never the reverse, which would flash Pro
@@ -276,9 +308,15 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
     });
   };
 
+  // The host's last uploaded background, but only when the saved draft has no
+  // thumbnail. This used to set the field from that key alone, and to clear it
+  // while the username was still unknown on the first render; the draft writer
+  // below then saved the empty value, so the last setup's thumbnail was lost on
+  // every reload (and one chosen in the studio never came back at all).
   useEffect(() => {
-    if (!imageServerApiKey || !username) { setBackgroundImageUrl(''); return; }
-    setBackgroundImageUrl(localStorage.getItem(getBgStorageKey(username)) ?? '');
+    if (!imageServerApiKey || !username) return;
+    const saved = localStorage.getItem(getBgStorageKey(username)) ?? '';
+    if (saved) setBackgroundImageUrl((cur) => cur || saved);
   }, [username, imageServerApiKey]);
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -369,6 +407,8 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+    // Stepped: only the last step's button creates the room.
+    if (stepped && curStep < lastStep) return;
     // Offer Pro at the moment the perks are about to be missed — the host has
     // just seen the locked recording options and is one click from a capped,
     // unrecorded stream. Deliberately BEFORE creation, so taking the trial
@@ -381,9 +421,108 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
     await submitRoom();
   };
 
+  // --- Stepped form (opt-in, see `stepped`) ---------------------------------
+  // Every field keeps its state while its step is hidden; only what is shown
+  // changes. A stream gets a fourth "Go live" step for the recording options
+  // and the integrator extras; a conference has neither, so it ends on the
+  // sharing step, which then carries the submit button.
+  const stepText: StepLabels = { ...DEFAULT_STEP_LABELS, ...stepLabels };
+  const stepIds: StepId[] = isStandalone ? ['setup', 'details', 'audience', 'finish'] : ['setup', 'details', 'audience'];
+  const stepName: Record<StepId, string> = {
+    setup: stepText.basics, details: stepText.details, audience: stepText.sharing, finish: stepText.goLive,
+  };
+  const [stepIdx, setStepIdx] = useState(0);
+  const [titleMissing, setTitleMissing] = useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const lastStep = stepIds.length - 1;
+  const curStep = Math.min(stepIdx, lastStep);
+  const show = (id: StepId) => !stepped || stepIds[curStep] === id;
+
+  const goToStep = (i: number) => {
+    if (i === curStep || i < 0 || i > lastStep) return;
+    // Everything after the first step needs a title (the room cannot be
+    // created without one), so say so on the spot instead of at the end.
+    if (i > 0 && !title.trim()) {
+      setTitleMissing(true);
+      if (curStep !== 0) setStepIdx(0);
+      requestAnimationFrame(() => titleRef.current?.focus());
+      return;
+    }
+    // A tag still being typed is added on blur, which not every browser fires
+    // when the field just disappears.
+    if (tagInput.trim()) addTag();
+    setStepIdx(i);
+  };
+
+  // A new step starts at its top: bring the form's head back into view when it
+  // was scrolled past (long steps, phones).
+  const shownStepRef = useRef(curStep);
+  useEffect(() => {
+    if (shownStepRef.current === curStep) return;
+    shownStepRef.current = curStep;
+    const top = formRef.current?.getBoundingClientRect().top ?? 0;
+    if (top < 0) formRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [curStep]);
+
+  const submitButton = (
+    <button key="submit" className="hh-btn hh-btn--primary hh-cd__submit" type="submit" disabled={!title.trim() || isLoading || uploading}>
+      {isLoading ? 'Creating…' : mode === 'standalone' ? '📡 Open Stream Studio' : '🚀 Start Session'}
+    </button>
+  );
+
+  // Rendered above and below the step. The Next and submit buttons carry
+  // different keys on purpose: reusing one DOM node would turn the clicked Next
+  // into a submit button before the click finishes and create the room.
+  const stepNav = (where: 'top' | 'bottom') => (
+    <div className={`hh-cd__actions hh-cd__actions--steps hh-cd__actions--${where}`}>
+      {curStep === 0
+        ? (onCancel
+            ? <button key="cancel" className="hh-btn hh-btn--secondary" type="button" onClick={onCancel}>{stepText.cancel}</button>
+            : <span />)
+        : <button key="back" className="hh-btn hh-btn--secondary" type="button" onClick={() => goToStep(curStep - 1)}>← {stepText.back}</button>}
+      {curStep < lastStep
+        ? <button key="next" className="hh-btn hh-btn--primary hh-cd__next" type="button" disabled={uploading} onClick={() => goToStep(curStep + 1)}>{stepText.next} →</button>
+        : submitButton}
+    </div>
+  );
+
+  const stepper = stepped && (
+    <nav className="hh-cd-steps" aria-label={stepName[stepIds[curStep]]}>
+      <ol className="hh-cd-steps__row">
+        {stepIds.map((id, i) => {
+          const state = i < curStep ? 'done' : i === curStep ? 'active' : 'todo';
+          return (
+            <li key={id} className="hh-cd-steps__item">
+              <button
+                type="button"
+                className={`hh-cd-steps__step is-${state}`}
+                aria-current={state === 'active' ? 'step' : undefined}
+                onClick={() => goToStep(i)}
+              >
+                <span className="hh-cd-steps__ring">
+                  {state === 'done' ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : i + 1}
+                </span>
+                <span className="hh-cd-steps__label">{stepName[id]}</span>
+              </button>
+              {i < lastStep && <span className={`hh-cd-steps__line${i < curStep ? ' is-done' : ''}`} aria-hidden="true" />}
+            </li>
+          );
+        })}
+      </ol>
+      {/* Phones: no room for labels in the row, so the current one sits below. */}
+      <div className="hh-cd-steps__caption">{stepName[stepIds[curStep]]}</div>
+    </nav>
+  );
+
   return (
     <form
-      className="hh-cd"
+      ref={formRef}
+      className={`hh-cd${stepped ? ' hh-cd--stepped' : ''}`}
       onSubmit={handleSubmit}
       onKeyDown={(e) => {
         // Enter in a single-line field must NOT create the room. Submitting
@@ -404,355 +543,368 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
         <p className="hh-cd__intro-desc">{modeIntro.desc}</p>
       </div>
 
-      {/* 1 · Mode — hidden when the host arrived via a link that already said
-          which kind of room they want ("Group chat" / "Start stream"). Asking
-          again would be asking a question they just answered. */}
-      {allowStandalone && !defaultMode && (
-        <div className="hh-cd__section">
-          <span className="hh-cd__label">What are you starting?</span>
-          <div className="hh-cd__tiles">
-            <button type="button" className={`hh-cd__tile${mode === 'conference' ? ' is-active' : ''}`} onClick={() => setMode('conference')}>
-              <span className="hh-cd__tile-icon">👥</span>
-              <span className="hh-cd__tile-title">Room</span>
-              <span className="hh-cd__tile-desc">Everyone can join &amp; talk</span>
-            </button>
-            <button
-              type="button"
-              className={`hh-cd__tile${mode === 'standalone' ? ' is-active' : ''}${cannotBroadcast ? ' is-disabled' : ''}`}
-              disabled={cannotBroadcast}
-              title={cannotBroadcast ? 'Open 3Speak in your browser to go live' : undefined}
-              onClick={() => setMode('standalone')}
-            >
-              <span className="hh-cd__tile-icon">📡</span>
-              <span className="hh-cd__tile-title">Standalone</span>
-              <span className="hh-cd__tile-desc">
-                {cannotBroadcast ? 'Not available in this app’s browser' : 'Solo livestream studio'}
-              </span>
-            </button>
-          </div>
-        </div>
-      )}
+      {stepper}
+      {stepped && stepNav('top')}
 
-      {/* 2 · Visibility */}
-      <div className="hh-cd__section">
-        <span className="hh-cd__label">Who can find it?</span>
-        <div className="hh-cd__tiles hh-cd__tiles--3">
-          {VISIBILITIES.map((v) => (
-            <button key={v.id} type="button" className={`hh-cd__tile${visibility === v.id ? ' is-active' : ''}`} onClick={() => setVisibility(v.id)}>
-              <span className="hh-cd__tile-icon">{v.icon}</span>
-              <span className="hh-cd__tile-title">{v.title}</span>
-              <span className="hh-cd__tile-desc">{v.desc}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 3 · Title */}
-      <div className="hh-cd__section">
-        <span className="hh-cd__label">Title</span>
-        {/* No autoFocus: focusing the title on open scrolls the dialog past its
-            own heading/mode tiles straight to this field, so the host never
-            sees the intro or which mode they're on. Let the form open at the
-            top and let them tab/click into it. */}
-        <input className="hh-cd__input" type="text" placeholder="Give it a catchy title…" value={title}
-          onChange={(e) => setTitle(e.target.value)} maxLength={64} />
-      </div>
-
-      {/* 4 · Thumbnail / background */}
-      {imageServerApiKey && (
-        <div className="hh-cd__section">
-          <span className="hh-cd__label">Thumbnail / background</span>
-          <div className="hh-bg-picker">
-            {backgroundImageUrl ? (
-              <div className="hh-bg-picker__preview-wrap">
-                <div className="hh-bg-picker__preview" style={{ backgroundImage: `url(${backgroundImageUrl})` }}>
-                  <span className="hh-bg-picker__preview-label">16:9 preview</span>
-                </div>
-                <div className="hh-bg-picker__actions">
-                  <button type="button" className="hh-btn hh-btn--secondary hh-btn--small" onClick={() => fileInputRef.current?.click()} disabled={uploading}>Change</button>
-                  <button type="button" className="hh-btn hh-btn--ghost hh-btn--small" onClick={clearBackground}>Remove</button>
-                </div>
-              </div>
-            ) : (
-              <button type="button" className="hh-bg-picker__upload-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                {uploading ? 'Uploading…' : '🖼️ Add a thumbnail (16:9)'}
+      {show('setup') && (<>
+        {/* 1 · Mode — hidden when the host arrived via a link that already said
+            which kind of room they want ("Group chat" / "Start stream"). Asking
+            again would be asking a question they just answered. */}
+        {allowStandalone && !defaultMode && (
+          <div className="hh-cd__section">
+            <span className="hh-cd__label">What are you starting?</span>
+            <div className="hh-cd__tiles">
+              <button type="button" className={`hh-cd__tile${mode === 'conference' ? ' is-active' : ''}`} onClick={() => setMode('conference')}>
+                <span className="hh-cd__tile-icon">👥</span>
+                <span className="hh-cd__tile-title">Room</span>
+                <span className="hh-cd__tile-desc">Everyone can join &amp; talk</span>
               </button>
-            )}
-            <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageChange} />
-            {uploadError && <p className="hh-bg-picker__error">{uploadError}</p>}
+              <button
+                type="button"
+                className={`hh-cd__tile${mode === 'standalone' ? ' is-active' : ''}${cannotBroadcast ? ' is-disabled' : ''}`}
+                disabled={cannotBroadcast}
+                title={cannotBroadcast ? 'Open 3Speak in your browser to go live' : undefined}
+                onClick={() => setMode('standalone')}
+              >
+                <span className="hh-cd__tile-icon">📡</span>
+                <span className="hh-cd__tile-title">Standalone</span>
+                <span className="hh-cd__tile-desc">
+                  {cannotBroadcast ? 'Not available in this app’s browser' : 'Solo livestream studio'}
+                </span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 2 · Visibility */}
+        <div className="hh-cd__section">
+          <span className="hh-cd__label">Who can find it?</span>
+          <div className="hh-cd__tiles hh-cd__tiles--3">
+            {VISIBILITIES.map((v) => (
+              <button key={v.id} type="button" className={`hh-cd__tile${visibility === v.id ? ' is-active' : ''}`} onClick={() => setVisibility(v.id)}>
+                <span className="hh-cd__tile-icon">{v.icon}</span>
+                <span className="hh-cd__tile-title">{v.title}</span>
+                <span className="hh-cd__tile-desc">{v.desc}</span>
+              </button>
+            ))}
           </div>
         </div>
-      )}
 
-      {/* 5 · Description (markdown) */}
-      <div className="hh-cd__section">
-        <div className="hh-cd__label-row">
-          <span className="hh-cd__label">Description</span>
-          {!renderDescriptionEditor && (
-            <div className="hh-cd__md-tabs">
-              <button type="button" className={!descPreview ? 'is-active' : ''} onClick={() => setDescPreview(false)}>Write</button>
-              <button type="button" className={descPreview ? 'is-active' : ''} onClick={() => setDescPreview(true)}>Preview</button>
-              <span className="hh-cd__md-hint">Markdown</span>
-            </div>
-          )}
-        </div>
-        {renderDescriptionEditor
-          ? renderDescriptionEditor(description, setDescription)
-          : <>
-              {!descPreview && (
-                <div className="hh-cd__md-toolbar" role="toolbar" aria-label="Formatting">
-                  <button type="button" title="Bold" onClick={() => applyMd('bold')}><b>B</b></button>
-                  <button type="button" title="Italic" onClick={() => applyMd('italic')}><i>I</i></button>
-                  <button type="button" title="Heading" onClick={() => applyMd('h')}>H</button>
-                  <button type="button" title="Link" onClick={() => applyMd('link')}>🔗</button>
-                  <button type="button" title="Bulleted list" onClick={() => applyMd('list')}>• List</button>
-                  <button type="button" title="Quote" onClick={() => applyMd('quote')}>❝</button>
-                  <button type="button" title="Inline code" onClick={() => applyMd('code')}>{'</>'}</button>
-                </div>
-              )}
-              {descPreview
-                ? <div className="hh-cd__md-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(description || '_Nothing yet._') }} />
-                : <textarea ref={descRef} className="hh-cd__textarea" placeholder="What's it about? (markdown supported)" value={description}
-                    rows={4} maxLength={5000} onChange={(e) => setDescription(e.target.value)} />}
-            </>}
-      </div>
-
-      {/* 6 · Tags */}
-      <div className="hh-cd__section">
-        <span className="hh-cd__label">Tags <em className="hh-cd__label-note">({tags.length}/{MAX_TAGS})</em></span>
-        <div className="hh-cd__tags">
-          {tags.map((t) => (
-            <span key={t} className="hh-cd__tag">{t}<button type="button" onClick={() => setTags((p) => p.filter((x) => x !== t))} aria-label={`Remove ${t}`}>×</button></span>
-          ))}
-          {tags.length < MAX_TAGS && (
-            <input className="hh-cd__tag-input" type="text" placeholder={tags.length ? 'add another…' : 'add tags — space to add'} value={tagInput}
-              onChange={(e) => { const v = e.target.value; if (/[\s,]/.test(v)) addTag(v); else setTagInput(v); }}
-              onKeyDown={(e) => { if (e.key === ',') { e.preventDefault(); addTag(); } }}
-              onBlur={() => addTag()} />
-          )}
-        </div>
-      </div>
-
-      {/* 7 · Language */}
-      <div className="hh-cd__section">
-        <span className="hh-cd__label">Language</span>
-        <select className="hh-cd__select" value={language} onChange={(e) => setLanguage(e.target.value)}>
-          {LANGUAGES.map((l) => (<option key={l.code} value={l.code}>{l.name}</option>))}
-        </select>
-      </div>
-
-      {/* 8 · Boost toggle */}
-      <div className="hh-cd__section">
-        <label className="hh-cd__switch">
-          <input type="checkbox" checked={boostEnabled} onChange={(e) => setBoostEnabled(e.target.checked)} />
-          <span className="hh-cd__switch-track"><span className="hh-cd__switch-thumb" /></span>
-          <span className="hh-cd__switch-label">🚀 Enable Boost messages</span>
-        </label>
-      </div>
-
-      {/* 9 · Minimum boost + payout account */}
-      {boostEnabled && (
-        <div className="hh-cd__section hh-cd__row2">
-          <label className="hh-cd__field">
-            <span className="hh-cd__label">Minimum boost (USD)</span>
-            <input className="hh-cd__input" type="number" min="0" step="0.01" value={minBoostUsd} onChange={(e) => setMinBoostUsd(e.target.value)} />
-          </label>
-          <label className="hh-cd__field">
-            <span className="hh-cd__label">Payout account</span>
-            <input className="hh-cd__input" type="text" value={creatorPayoutAccount} maxLength={16}
-              placeholder="defaults to you" onChange={(e) => setCreatorPayoutAccount(e.target.value)} />
-          </label>
-        </div>
-      )}
-
-      {/* 10 · Announce */}
-      {visibility !== 'unlisted' && (
+        {/* 3 · Title */}
         <div className="hh-cd__section">
-          <label className="hh-cd__check">
-            <input type="checkbox" checked={notifyOnHive} onChange={(e) => setNotifyOnHive(e.target.checked)} />
-            <span>
-              {isStandalone
-                ? '📣 Share this stream on Hive and 3Speak'
-                : '📣 Announce this session on Hive'}
-            </span>
-          </label>
-          {notifyOnHive && (
-            <div className="hh-cd__announce">
-              {/* A standalone stream is always a full post — never a snap. The
-                  whole downstream workflow hangs off a real post: it's what the
-                  3Speak watch page renders (votes, payout, comments), what the
-                  VOD is attached to when the stream ends, and what live-chat
-                  messages are commented onto. A snap is a comment and can hold
-                  none of that, so the choice isn't offered. */}
-              {!postOnly && (
-                <div className="hh-cd__seg" role="tablist" aria-label="Announcement type">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={announceType === 'snap'}
-                    className={announceType === 'snap' ? 'is-active' : ''}
-                    onClick={() => setAnnounceType('snap')}
-                  >
-                    💬 Quick snap
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={announceType === 'post'}
-                    className={announceType === 'post' ? 'is-active' : ''}
-                    onClick={() => setAnnounceType('post')}
-                  >
-                    📝 Full post
-                  </button>
-                </div>
-              )}
-              <p className={`hh-cd__announce-hint${postOnly ? ' hh-cd__announce-hint--solo' : ''}`}>
-                {isStandalone ? (
-                  <><strong>Posts to Hive and publishes the stream on 3Speak</strong> — pick a community, payout and beneficiaries below.</>
-                ) : effectiveAnnounceType === 'snap' ? (
-                  <><strong>A short snap</strong> linking to your live session.</>
-                ) : (
-                  <><strong>A full top-level Hive post</strong> — pick a community, payout and beneficiaries below.</>
-                )}
-              </p>
-              {renderAnnounceOptions?.(effectiveAnnounceType)}
-            </div>
-          )}
+          <span className="hh-cd__label">Title</span>
+          {/* No autoFocus: focusing the title on open scrolls the dialog past its
+              own heading/mode tiles straight to this field, so the host never
+              sees the intro or which mode they're on. Let the form open at the
+              top and let them tab/click into it. */}
+          <input ref={titleRef} className="hh-cd__input" type="text" placeholder="Give it a catchy title…" value={title}
+            aria-invalid={titleMissing || undefined}
+            onChange={(e) => { setTitle(e.target.value); if (e.target.value.trim()) setTitleMissing(false); }} maxLength={64} />
+          {titleMissing && <p className="hh-cd__field-error" role="alert">{stepText.titleRequired}</p>}
         </div>
-      )}
 
-      {/* What happens to the broadcast once it ends. Standalone streams only —
-          a conference has no program feed to record. Both are also in the
-          studio's post tab (same stored prefs), but a host who never opens that
-          tab would otherwise lose the recording without ever being offered it.
-          Shown to non-Pro hosts too, locked with the reason — that's how the
-          feature gets discovered at all. */}
-      {mode === 'standalone' && (
-        <div className="hh-cd__recording">
-          <span className="hh-cd__label">When the stream ends</span>
+        {/* 4 · Thumbnail / background */}
+        {imageServerApiKey && (
+          <div className="hh-cd__section">
+            <span className="hh-cd__label">Thumbnail / background</span>
+            <div className="hh-bg-picker">
+              {backgroundImageUrl ? (
+                <div className="hh-bg-picker__preview-wrap">
+                  <div className="hh-bg-picker__preview" style={{ backgroundImage: `url(${backgroundImageUrl})` }}>
+                    <span className="hh-bg-picker__preview-label">16:9 preview</span>
+                  </div>
+                  <div className="hh-bg-picker__actions">
+                    <button type="button" className="hh-btn hh-btn--secondary hh-btn--small" onClick={() => fileInputRef.current?.click()} disabled={uploading}>Change</button>
+                    <button type="button" className="hh-btn hh-btn--ghost hh-btn--small" onClick={clearBackground}>Remove</button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="hh-bg-picker__upload-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                  {uploading ? 'Uploading…' : '🖼️ Add a thumbnail (16:9)'}
+                </button>
+              )}
+              <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageChange} />
+              {uploadError && <p className="hh-bg-picker__error">{uploadError}</p>}
+            </div>
+          </div>
+        )}
+      </>)}
 
-          {/* Bound to the announcement: the VOD replaces the announcement post's
-              video, so with nothing announced there is no post to add it to and
-              the option is meaningless rather than merely unavailable. Hidden,
-              not locked — a lock implies "upgrade and you get this", which
-              would be wrong here. */}
-          {notifyOnHive && visibility !== 'unlisted' && (
+      {show('details') && (<>
+        {/* 5 · Description (markdown) */}
+        <div className="hh-cd__section">
+          <div className="hh-cd__label-row">
+            <span className="hh-cd__label">Description</span>
+            {!renderDescriptionEditor && (
+              <div className="hh-cd__md-tabs">
+                <button type="button" className={!descPreview ? 'is-active' : ''} onClick={() => setDescPreview(false)}>Write</button>
+                <button type="button" className={descPreview ? 'is-active' : ''} onClick={() => setDescPreview(true)}>Preview</button>
+                <span className="hh-cd__md-hint">Markdown</span>
+              </div>
+            )}
+          </div>
+          {renderDescriptionEditor
+            ? renderDescriptionEditor(description, setDescription)
+            : <>
+                {!descPreview && (
+                  <div className="hh-cd__md-toolbar" role="toolbar" aria-label="Formatting">
+                    <button type="button" title="Bold" onClick={() => applyMd('bold')}><b>B</b></button>
+                    <button type="button" title="Italic" onClick={() => applyMd('italic')}><i>I</i></button>
+                    <button type="button" title="Heading" onClick={() => applyMd('h')}>H</button>
+                    <button type="button" title="Link" onClick={() => applyMd('link')}>🔗</button>
+                    <button type="button" title="Bulleted list" onClick={() => applyMd('list')}>• List</button>
+                    <button type="button" title="Quote" onClick={() => applyMd('quote')}>❝</button>
+                    <button type="button" title="Inline code" onClick={() => applyMd('code')}>{'</>'}</button>
+                  </div>
+                )}
+                {descPreview
+                  ? <div className="hh-cd__md-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(description || '_Nothing yet._') }} />
+                  : <textarea ref={descRef} className="hh-cd__textarea" placeholder="What's it about? (markdown supported)" value={description}
+                      rows={4} maxLength={5000} onChange={(e) => setDescription(e.target.value)} />}
+              </>}
+        </div>
+
+        {/* 6 · Tags */}
+        <div className="hh-cd__section">
+          <span className="hh-cd__label">Tags <em className="hh-cd__label-note">({tags.length}/{MAX_TAGS})</em></span>
+          <div className="hh-cd__tags">
+            {tags.map((t) => (
+              <span key={t} className="hh-cd__tag">{t}<button type="button" onClick={() => setTags((p) => p.filter((x) => x !== t))} aria-label={`Remove ${t}`}>×</button></span>
+            ))}
+            {tags.length < MAX_TAGS && (
+              <input className="hh-cd__tag-input" type="text" placeholder={tags.length ? 'add another…' : 'add tags — space to add'} value={tagInput}
+                onChange={(e) => { const v = e.target.value; if (/[\s,]/.test(v)) addTag(v); else setTagInput(v); }}
+                onKeyDown={(e) => { if (e.key === ',') { e.preventDefault(); addTag(); } }}
+                onBlur={() => addTag()} />
+            )}
+          </div>
+        </div>
+
+        {/* 7 · Language */}
+        <div className="hh-cd__section">
+          <span className="hh-cd__label">Language</span>
+          <select className="hh-cd__select" value={language} onChange={(e) => setLanguage(e.target.value)}>
+            {LANGUAGES.map((l) => (<option key={l.code} value={l.code}>{l.name}</option>))}
+          </select>
+        </div>
+      </>)}
+
+      {show('audience') && (<>
+        {/* 8 · Boost toggle */}
+        <div className="hh-cd__section">
+          <label className="hh-cd__switch">
+            <input type="checkbox" checked={boostEnabled} onChange={(e) => setBoostEnabled(e.target.checked)} />
+            <span className="hh-cd__switch-track"><span className="hh-cd__switch-thumb" /></span>
+            <span className="hh-cd__switch-label">🚀 Enable Boost messages</span>
+          </label>
+        </div>
+
+        {/* 9 · Minimum boost + payout account */}
+        {boostEnabled && (
+          <div className="hh-cd__section hh-cd__row2">
+            <label className="hh-cd__field">
+              <span className="hh-cd__label">Minimum boost (USD)</span>
+              <input className="hh-cd__input" type="number" min="0" step="0.01" value={minBoostUsd} onChange={(e) => setMinBoostUsd(e.target.value)} />
+            </label>
+            <label className="hh-cd__field">
+              <span className="hh-cd__label">Payout account</span>
+              <input className="hh-cd__input" type="text" value={creatorPayoutAccount} maxLength={16}
+                placeholder="defaults to you" onChange={(e) => setCreatorPayoutAccount(e.target.value)} />
+            </label>
+          </div>
+        )}
+
+        {/* 10 · Announce */}
+        {visibility !== 'unlisted' && (
+          <div className="hh-cd__section">
+            <label className="hh-cd__check">
+              <input type="checkbox" checked={notifyOnHive} onChange={(e) => setNotifyOnHive(e.target.checked)} />
+              <span>
+                {isStandalone
+                  ? '📣 Share this stream on Hive and 3Speak'
+                  : '📣 Announce this session on Hive'}
+              </span>
+            </label>
+            {notifyOnHive && (
+              <div className="hh-cd__announce">
+                {/* A standalone stream is always a full post — never a snap. The
+                    whole downstream workflow hangs off a real post: it's what the
+                    3Speak watch page renders (votes, payout, comments), what the
+                    VOD is attached to when the stream ends, and what live-chat
+                    messages are commented onto. A snap is a comment and can hold
+                    none of that, so the choice isn't offered. */}
+                {!postOnly && (
+                  <div className="hh-cd__seg" role="tablist" aria-label="Announcement type">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={announceType === 'snap'}
+                      className={announceType === 'snap' ? 'is-active' : ''}
+                      onClick={() => setAnnounceType('snap')}
+                    >
+                      💬 Quick snap
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={announceType === 'post'}
+                      className={announceType === 'post' ? 'is-active' : ''}
+                      onClick={() => setAnnounceType('post')}
+                    >
+                      📝 Full post
+                    </button>
+                  </div>
+                )}
+                <p className={`hh-cd__announce-hint${postOnly ? ' hh-cd__announce-hint--solo' : ''}`}>
+                  {isStandalone ? (
+                    <><strong>Posts to Hive and publishes the stream on 3Speak</strong> — pick a community, payout and beneficiaries below.</>
+                  ) : effectiveAnnounceType === 'snap' ? (
+                    <><strong>A short snap</strong> linking to your live session.</>
+                  ) : (
+                    <><strong>A full top-level Hive post</strong> — pick a community, payout and beneficiaries below.</>
+                  )}
+                </p>
+                {renderAnnounceOptions?.(effectiveAnnounceType)}
+              </div>
+            )}
+          </div>
+        )}
+      </>)}
+
+      {show('finish') && (<>
+        {/* What happens to the broadcast once it ends. Standalone streams only —
+            a conference has no program feed to record. Both are also in the
+            studio's post tab (same stored prefs), but a host who never opens that
+            tab would otherwise lose the recording without ever being offered it.
+            Shown to non-Pro hosts too, locked with the reason — that's how the
+            feature gets discovered at all. */}
+        {mode === 'standalone' && (
+          <div className="hh-cd__recording">
+            <span className="hh-cd__label">When the stream ends</span>
+
+            {/* Bound to the announcement: the VOD replaces the announcement post's
+                video, so with nothing announced there is no post to add it to and
+                the option is meaningless rather than merely unavailable. Hidden,
+                not locked — a lock implies "upgrade and you get this", which
+                would be wrong here. */}
+            {notifyOnHive && visibility !== 'unlisted' && (
+              <label className={`hh-cd__reccheck${isPremium ? '' : ' hh-cd__reccheck--locked'}`}>
+                <input
+                  type="checkbox"
+                  checked={autoVod && isPremium}
+                  disabled={!isPremium}
+                  onChange={(e) => setAutoVod(e.target.checked)}
+                />
+                <span>
+                  🎬 Replace the stream with a video when it ends
+                  {!isPremium && ' 🔒'}
+                  <em>
+                    {isPremium
+                      ? 'Records the whole broadcast and adds it as the VOD on your announcement post, so the same link plays the replay afterwards.'
+                      : 'Only available with 3Speak Pro \u2014 records the broadcast and adds it as VOD to the announcement post.'}
+                  </em>
+                </span>
+              </label>
+            )}
+
             <label className={`hh-cd__reccheck${isPremium ? '' : ' hh-cd__reccheck--locked'}`}>
               <input
                 type="checkbox"
-                checked={autoVod && isPremium}
+                checked={autoDownload && isPremium}
                 disabled={!isPremium}
-                onChange={(e) => setAutoVod(e.target.checked)}
+                onChange={(e) => setAutoDownload(e.target.checked)}
               />
               <span>
-                🎬 Replace the stream with a video when it ends
+                💾 Record the session and download it when it ends
                 {!isPremium && ' 🔒'}
                 <em>
                   {isPremium
-                    ? 'Records the whole broadcast and adds it as the VOD on your announcement post, so the same link plays the replay afterwards.'
-                    : 'Only available with 3Speak Pro \u2014 records the broadcast and adds it as VOD to the announcement post.'}
+                    ? 'Saves a copy to your computer when you end the stream.'
+                    : 'Only available with 3Speak Pro — records the broadcast to a file on your computer.'}
                 </em>
               </span>
             </label>
-          )}
 
-          <label className={`hh-cd__reccheck${isPremium ? '' : ' hh-cd__reccheck--locked'}`}>
-            <input
-              type="checkbox"
-              checked={autoDownload && isPremium}
-              disabled={!isPremium}
-              onChange={(e) => setAutoDownload(e.target.checked)}
-            />
-            <span>
-              💾 Record the session and download it when it ends
-              {!isPremium && ' 🔒'}
-              <em>
-                {isPremium
-                  ? 'Saves a copy to your computer when you end the stream.'
-                  : 'Only available with 3Speak Pro — records the broadcast to a file on your computer.'}
-              </em>
-            </span>
-          </label>
+            <label className={`hh-cd__reccheck${isPremium ? '' : ' hh-cd__reccheck--locked'}`}>
+              <input
+                type="checkbox"
+                checked={allowClips && isPremium}
+                disabled={!isPremium}
+                onChange={(e) => setAllowClips(e.target.checked)}
+              />
+              <span>
+                ✂ Let viewers clip the last 30 seconds
+                {!isPremium && ' 🔒'}
+                <em>
+                  {isPremium
+                    ? 'Viewers get a “30 sec” button to save and share a clip of your live stream.'
+                    : 'Only available with 3Speak Pro — viewers can save and share a 30-second clip.'}
+                </em>
+              </span>
+            </label>
 
-          <label className={`hh-cd__reccheck${isPremium ? '' : ' hh-cd__reccheck--locked'}`}>
-            <input
-              type="checkbox"
-              checked={allowClips && isPremium}
-              disabled={!isPremium}
-              onChange={(e) => setAllowClips(e.target.checked)}
-            />
-            <span>
-              ✂ Let viewers clip the last 30 seconds
-              {!isPremium && ' 🔒'}
-              <em>
-                {isPremium
-                  ? 'Viewers get a “30 sec” button to save and share a clip of your live stream.'
-                  : 'Only available with 3Speak Pro — viewers can save and share a 30-second clip.'}
-              </em>
-            </span>
-          </label>
+            {/* The way out of the padlocks. Sits with the locked options rather
+                than after room creation, so the offer lands while the host is
+                still looking at what they're missing. */}
+            {!isPremium && (
+              <button
+                type="button"
+                className="hh-cd__unlock"
+                onClick={() => (onUpsell ? onUpsell() : setUpsellMode('info'))}
+              >
+                👑 Unlock with Pro
+              </button>
+            )}
+          </div>
+        )}
 
-          {/* The way out of the padlocks. Sits with the locked options rather
-              than after room creation, so the offer lands while the host is
-              still looking at what they're missing. */}
-          {!isPremium && (
-            <button
-              type="button"
-              className="hh-cd__unlock"
-              onClick={() => (onUpsell ? onUpsell() : setUpsellMode('info'))}
-            >
-              👑 Unlock with Pro
-            </button>
+        {/* Streams are time-capped; say so before the host commits. Free gets a
+            short cap, Pro a long one (a safety ceiling). Stream modes only. */}
+        {isStandalone && (
+          <p className="hh-cd__limit-hint">
+            {isPremium ? (
+              <>⏳ Streams can run up to {PRO_STREAM_CAP_LABEL}.</>
+            ) : (
+              <>⏳ Free streams are limited to {FREE_STREAM_CAP_LABEL}. Upgrade to{' '}
+                <strong>3Speak Pro</strong> for longer streams (up to {PRO_STREAM_CAP_LABEL}).</>
+            )}
+          </p>
+        )}
+
+        {/* Integrator extras for a stream (see renderStandaloneExtras). */}
+        {isStandalone && renderStandaloneExtras?.({
+          mode,
+          title: title.trim(),
+          description: description.trim(),
+          thumbnail: imageServerApiKey ? backgroundImageUrl : '',
+          tags,
+          language: language.trim(),
+          visibility,
+          boost: {
+            enabled: boostEnabled,
+            minBoostUsd: Number.isFinite(Number(minBoostUsd)) ? Math.max(0, Number(minBoostUsd)) : 0,
+            creatorPayoutAccount: creatorPayoutAccount.trim(),
+          },
+          notifyOnHive: visibility === 'unlisted' ? false : notifyOnHive,
+          announceType: effectiveAnnounceType,
+          recording: {
+            autoVod: isPremium && autoVod,
+            autoDownload: isPremium && autoDownload,
+            allowClips: isPremium && allowClips,
+          },
+          isPremium,
+        })}
+      </>)}
+
+      {/* 11 · Actions */}
+      {stepped ? stepNav('bottom') : (
+        <div className="hh-cd__actions">
+          {submitButton}
+          {onCancel && (
+            <button className="hh-btn hh-btn--secondary" type="button" onClick={onCancel}>Cancel</button>
           )}
         </div>
       )}
-
-      {/* Streams are time-capped; say so before the host commits. Free gets a
-          short cap, Pro a long one (a safety ceiling). Stream modes only. */}
-      {isStandalone && (
-        <p className="hh-cd__limit-hint">
-          {isPremium ? (
-            <>⏳ Streams can run up to {PRO_STREAM_CAP_LABEL}.</>
-          ) : (
-            <>⏳ Free streams are limited to {FREE_STREAM_CAP_LABEL}. Upgrade to{' '}
-              <strong>3Speak Pro</strong> for longer streams (up to {PRO_STREAM_CAP_LABEL}).</>
-          )}
-        </p>
-      )}
-
-      {/* Integrator extras for a stream (see renderStandaloneExtras). */}
-      {isStandalone && renderStandaloneExtras?.({
-        mode,
-        title: title.trim(),
-        description: description.trim(),
-        thumbnail: imageServerApiKey ? backgroundImageUrl : '',
-        tags,
-        language: language.trim(),
-        visibility,
-        boost: {
-          enabled: boostEnabled,
-          minBoostUsd: Number.isFinite(Number(minBoostUsd)) ? Math.max(0, Number(minBoostUsd)) : 0,
-          creatorPayoutAccount: creatorPayoutAccount.trim(),
-        },
-        notifyOnHive: visibility === 'unlisted' ? false : notifyOnHive,
-        announceType: effectiveAnnounceType,
-        recording: {
-          autoVod: isPremium && autoVod,
-          autoDownload: isPremium && autoDownload,
-          allowClips: isPremium && allowClips,
-        },
-        isPremium,
-      })}
-
-      {/* 11 · Actions */}
-      <div className="hh-cd__actions">
-        <button className="hh-btn hh-btn--primary hh-cd__submit" type="submit" disabled={!title.trim() || isLoading || uploading}>
-          {isLoading ? 'Creating…' : mode === 'standalone' ? '📡 Open Stream Studio' : '🚀 Start Session'}
-        </button>
-        {onCancel && (
-          <button className="hh-btn hh-btn--secondary" type="button" onClick={onCancel}>Cancel</button>
-        )}
-      </div>
 
       {/* From the unlock button this is purely informational; from the submit
           button it stands between the host and the studio, and dismissing it
