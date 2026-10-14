@@ -4674,6 +4674,36 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               </button>
             ))}
 
+            {/* Inputs: the camera and mic, listed while they are on, so the rail
+                shows everything that is live (a restored setup brings them back
+                without the host touching "Add source"). Deliberately NOT styled
+                or behaving like the scene / source buttons above: they switch
+                nothing. Mic: clicking mutes/unmutes. × turns either off, the same
+                as the Add source menu. */}
+            {(camOn || micOn) && (
+              <div className="hh-studio__inputs">
+                <div className="hh-studio__rail-label hh-studio__rail-label--media">Inputs</div>
+                {camOn && (
+                  <div className="hh-studio__input" title="Camera">
+                    <video className="hh-studio__media-thumb" muted autoPlay playsInline aria-hidden="true"
+                      ref={(v) => { if (v && camStreamRef.current && v.srcObject !== camStreamRef.current) v.srcObject = camStreamRef.current; }} />
+                    <span className="hh-studio__input-name">Camera</span>
+                    <button type="button" className="hh-studio__input-off" aria-label="Turn the camera off" title="Turn the camera off" onClick={() => stopCam()}>×</button>
+                  </div>
+                )}
+                {micOn && (
+                  <div className={`hh-studio__input${micMuted ? ' is-muted' : ''}`}>
+                    <button type="button" className="hh-studio__input-main" onClick={() => setMicMuted((v) => !v)}
+                      title={micMuted ? 'Microphone is muted — click to unmute' : 'Click to mute the microphone'}>
+                      <span className="hh-studio__source-glyph" aria-hidden="true">🎤</span>
+                      <span className="hh-studio__input-name">{micMuted ? 'Microphone (muted)' : 'Microphone'}</span>
+                    </button>
+                    <button type="button" className="hh-studio__input-off" aria-label="Turn the microphone off" title="Turn the microphone off" onClick={() => stopMic()}>×</button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Camera look — only useful once there's a camera, and only the
                 PiP scenes actually show the mask. Everything here persists. */}
             {camOn && (

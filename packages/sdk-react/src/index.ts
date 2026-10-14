@@ -134,3 +134,9 @@ export {
 
 // Styles — import this in your app: import '@hive-hangouts/react/styles'
 export { useIsMobile, MOBILE_QUERY } from './hooks/useIsMobile.js';
+
+// The create form's remembered setup and the stream recording preferences, so
+// an integrator can pre-fill the form (e.g. from a saved stream template) in
+// the same format the form reads, instead of copying storage keys.
+export { readPostDraft, writePostDraft, type PostDraft, type DraftMode } from './lib/postDraft.js';
+export { AUTO_VOD_KEY, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from './utils/streamRecordingPrefs.js';

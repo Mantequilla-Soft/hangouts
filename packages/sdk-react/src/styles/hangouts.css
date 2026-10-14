@@ -4117,6 +4117,81 @@
   background: #000;
 }
 
+/* The mic's entry in Sources: a badge the size of a media thumbnail. */
+.hh-studio__source-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 20px;
+  border: 1px solid var(--st-muted);
+  border-radius: 4px;
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1;
+}
+/* Inputs (camera, mic) in the left rail: flat rows, no panel border and no
+   active state, so they never read as one of the scene / source switches. */
+.hh-studio__inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-top: 0.55rem;
+  margin-top: 0.15rem;
+  border-top: 1px solid var(--st-border);
+}
+.hh-studio__input {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.25rem 0.25rem;
+  color: var(--st-text);
+  font-size: 0.82rem;
+  min-width: 0;
+}
+.hh-studio__input-main {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.hh-studio__input-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hh-studio__input.is-muted .hh-studio__input-name { text-decoration: line-through; opacity: 0.7; }
+/* Off: an OUTLINE on hover, never a red fill. */
+.hh-studio__input-off {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 18px;
+  text-align: center;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--st-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.hh-studio__input-off:hover,
+.hh-studio__input-off:focus-visible {
+  border-color: var(--st-accent);
+  color: var(--st-accent);
+}
+
 .hh-studio__media-name {
   flex: 1;
   min-width: 0;
