@@ -7628,14 +7628,23 @@
 .hh-upsell__btn--trial { border-color: var(--hh-pro-gold); background: var(--hh-pro-gold-soft); }
 .hh-upsell__btn--trial:hover:not(:disabled) { background: var(--hh-pro-gold-strong); }
 .hh-upsell__btn--plans:hover { background: var(--hh-bg-hover); }
+/* The way on without Pro ("Start streaming anyway" in front of the studio):
+   a real full-width button, not a footnote, so a free host never has to hunt
+   for it. Neutral outline; the accent only as an outline on hover. */
 .hh-upsell__skip {
   display: block; width: 100%;
-  margin-top: 0.85rem; padding: 0.4rem;
-  border: none; background: none; color: var(--hh-text-secondary);
-  font: inherit; font-size: 0.82rem;
+  margin-top: 1rem; padding: 0.8rem 1rem;
+  border: 1px solid var(--hh-input-border); border-radius: 10px;
+  background: transparent; color: var(--hh-text);
+  font: inherit; font-size: 1rem; font-weight: 700;
   cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
 }
-.hh-upsell__skip:hover { color: var(--hh-text); text-decoration: underline; }
+.hh-upsell__skip:hover,
+.hh-upsell__skip:focus-visible {
+  border-color: var(--hh-primary, #e31337);
+  background: var(--hh-bg-hover);
+}
 
 /* The way out of the padlocked recording options in the create dialog. */
 .hh-cd__unlock {
