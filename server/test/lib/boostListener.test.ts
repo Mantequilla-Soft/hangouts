@@ -10,6 +10,8 @@ vi.mock('../../src/config.js', () => ({
     BOOST_HIVE_USD_CACHE_MS: 120000,
     BOOSTS_ENABLED: true,
     BOOST_PLATFORM_ACTIVE_KEY: '',
+    CHECKER_URL: 'https://checker.test',
+    STREAM_STATS_SECRET: '',
   },
 }));
 

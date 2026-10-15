@@ -79,12 +79,12 @@ describe('boostTypes', () => {
     }))).toBeNull();
   });
 
-  it('accepts a message that is exactly 280 characters', () => {
+  it('accepts a message that is exactly 280 characters, trimmed to 140 for display', () => {
     const result = parseBoostMemo(JSON.stringify({
       version: 1, room: 'alice-room-abc123', message: 'a'.repeat(280), sender: 'bob', nonce: 'abc_123-xyz',
     }));
     expect(result).not.toBeNull();
-    expect(result?.message.length).toBe(280);
+    expect(result?.message.length).toBe(140);
   });
 
   it('truncates displayName to 64 characters', () => {
