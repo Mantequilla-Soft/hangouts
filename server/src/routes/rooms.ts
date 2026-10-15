@@ -4,17 +4,18 @@ import {
   VideoCodec, TrackSource,
 } from 'livekit-server-sdk';
 import { config } from '../config.js';
-import { roomService, generateRoomName, createLivekitToken } from '../lib/livekit.js';
+import { roomService, createLivekitToken } from '../lib/livekit.js';
 import { mutateRoomMetadata } from '../lib/roomMeta.js';
 import { verifySessionToken } from '../lib/session.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { getUserStatus } from '../lib/users.js';
-import { recordGuestIp, isGuestBanned, clearRoomBans } from '../lib/guestBans.js';
+import { recordGuestIp, isGuestBanned } from '../lib/guestBans.js';
 import { recordViewerJoin } from '../lib/streamStats.js';
-
-type RoomVisibility = 'public' | 'hive-internal' | 'unlisted';
-const ROOM_VISIBILITIES: readonly RoomVisibility[] = ['public', 'hive-internal', 'unlisted'];
+import {
+  type RoomMetadata, ROOM_VISIBILITIES, ROOM_MODES, createStreamRoom, closeStreamRoom,
+} from '../lib/streamRoom.js';
+import { endHeadlessStreamForRoom, headlessViewerIdentity } from '../lib/headlessStreams.js';
 
 // OBS/WHIP ingest. Same credentials as roomService — the ingress service reads
 // the identical key pair from its own config and talks to LiveKit over loopback.
@@ -23,92 +24,6 @@ const ingressClient = new IngressClient(
   config.LIVEKIT_API_KEY,
   config.LIVEKIT_API_SECRET,
 );
-const LANGUAGE_RE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/;
-function isRoomVisibility(v: unknown): v is RoomVisibility {
-  return typeof v === 'string' && (ROOM_VISIBILITIES as readonly string[]).includes(v);
-}
-
-type RoomMode = 'conference' | 'standalone';
-const ROOM_MODES: readonly RoomMode[] = ['conference', 'standalone'];
-function isRoomMode(v: unknown): v is RoomMode {
-  return typeof v === 'string' && (ROOM_MODES as readonly string[]).includes(v);
-}
-
-interface BoostConfig {
-  enabled: boolean;
-  minBoostUsd: number;
-  creatorPayoutAccount?: string;
-}
-
-interface RoomMetadata {
-  title: string;
-  description?: string;
-  host: string;
-  createdAt: string;
-  backgroundImage?: string;
-  /** When false, the room rejects guest-listener tokens. Default true.
-   *  Derived from `visibility` for new rooms; retained for legacy rooms
-   *  that pre-date the visibility model. */
-  allowGuests?: boolean;
-  /** Hostname (e.g. "3speak.tv") of the site that issued the create request.
-   *  Used by clients to pick a share URL that drops the recipient back into
-   *  the same product surface. Optional; pre-existing rooms have none. */
-  origin?: string;
-  /**
-   * Visibility / access tier for the room:
-   *  - `public` (default): listed in the lobby, guests can listen.
-   *  - `hive-internal`: listed in the lobby, but only Hive accounts can
-   *    join — guest-listener tokens are rejected.
-   *  - `unlisted`: hidden from the public lobby; reachable only via
-   *    direct link. Guest listening is still allowed (the link is the
-   *    auth).
-   *  Optional; pre-existing rooms with no value behave as `public`.
-   */
-  visibility?: RoomVisibility;
-  /** Optional language tag (BCP-47 style) displayed in room lists. */
-  language?: string;
-  /** Boost/superchat settings. */
-  boost?: BoostConfig;
-  /** True when the broadcast is portrait (a phone). Drives the recorder's
-   *  output dimensions. */
-  portrait?: boolean;
-  /** Identity of the viewer currently holding the stream's single collab slot
-   *  (host-approved co-broadcaster). Set by the permissions route. */
-  collabGuest?: string;
-  /** ISO timestamp of the FIRST time the host went live, stamped server-side.
-   *  Anchors live-chat timecodes to the recording's timeline — see the
-   *  PATCH /rooms/:name/live handler for why neither `createdAt` nor the Hive
-   *  announcement's own timestamp will do. */
-  liveAt?: string;
-  /** The host asked for the broadcast to be published as a VOD when it ends.
-   *  Lets the watch page show "the recording is processing" the moment they
-   *  leave, rather than guessing from encoder state. */
-  willPublishVod?: boolean;
-  /** Standalone streams: true once the host hits Start (cleared on Pause /
-   *  never set in standby). Drives the "actually live" flag in /streams. */
-  broadcasting?: boolean;
-  /**
-   * Feed-post details for a standalone stream (composed in the studio's
-   * post editor). Surfaced on the watch page and — later — as a discover
-   * card / published Hive post. Title falls back to the room title.
-   */
-  post?: {
-    title?: string;
-    thumbnail?: string;
-    description?: string;
-    tags?: string[];
-  };
-  /**
-   * Room mode:
-   *  - `conference` (default): the classic multi-participant hangout.
-   *  - `standalone`: a one-man livestream studio — only the host
-   *    publishes (a client-composited program feed); everyone else is
-   *    a watch-only viewer with chat. Non-host joins never get publish
-   *    permission, regardless of later promote attempts.
-   *  Optional; pre-existing rooms with no value behave as `conference`.
-   */
-  mode?: RoomMode;
-}
 
 /** Identity prefix used for unauthenticated guest listeners. */
 const GUEST_PREFIX = 'guest-';
@@ -342,6 +257,10 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       // So a studio that was discarded and reloaded can tell it is mid-stream
       // and pick up where it left off instead of sitting in standby.
       broadcasting: meta.broadcasting,
+      // OBS-driven stream (no studio), and whether viewers should see the
+      // non-Pro watermark the studio would otherwise have drawn in.
+      headless: meta.headless === true ? true : undefined,
+      watermark: meta.headless === true ? meta.watermark === true : undefined,
     });
   });
 
@@ -391,11 +310,6 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     const host = request.username;
     const { premium } = await getUserStatus(host);
 
-    // Default to `public` for older clients that don't send the field.
-    const visibility: RoomVisibility = isRoomVisibility(bodyVisibility) ? bodyVisibility : 'public';
-    // Default to `conference` for older clients that don't send the field.
-    const mode: RoomMode = isRoomMode(bodyMode) ? bodyMode : 'conference';
-
     // Capture which surface created the room. Browsers always send Origin
     // on cross-origin POSTs; same-origin tools can fall back to Referer.
     // We store hostname only — never paths or query — to avoid leaking
@@ -406,56 +320,14 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       try { origin = new URL(originHeader).hostname; } catch { /* ignore malformed */ }
     }
 
-    const language = typeof rawLanguage === 'string' && LANGUAGE_RE.test(rawLanguage.trim())
-      ? rawLanguage.trim()
-      : undefined;
-    // Always write a boost field so the host can update it later via
-    // PATCH /rooms/:name/boost without needing to recreate the room.
-    // Old clients that don't send boost are given sensible defaults.
-    const boost: BoostConfig = rawBoost
-      ? {
-          enabled: rawBoost.enabled !== false,
-          minBoostUsd: Number.isFinite(rawBoost.minBoostUsd) ? Math.max(0, Number(rawBoost.minBoostUsd ?? 0)) : 0,
-          creatorPayoutAccount: rawBoost.creatorPayoutAccount?.trim().toLowerCase() || host,
-        }
-      : {
-          enabled: true,
-          minBoostUsd: 0,
-          creatorPayoutAccount: host,
-        };
-
-    const roomName = generateRoomName(host, title);
-    const metadata: RoomMetadata = {
-      title,
-      description,
-      host,
-      createdAt: new Date().toISOString(),
-      backgroundImage,
-      origin,
-      visibility,
-      // Mirror visibility into allowGuests so older lookup paths that
-      // still consult that field stay correct.
-      allowGuests: visibility !== 'hive-internal',
-      language,
-      boost,
-      mode,
-      // Seed the feed-post from the create inputs so the studio composer,
-      // watch page, and /streams all have title/description/thumbnail/tags
-      // without a separate save step.
-      post: {
-        title,
-        description,
-        thumbnail: backgroundImage,
-        tags: Array.isArray(rawTags) ? rawTags.slice(0, 10) : undefined,
-      },
-    };
-
-    const room = await roomService.createRoom({
-      name: roomName,
-      maxParticipants: 500,
-      emptyTimeout: 300,
-      metadata: JSON.stringify(metadata),
+    // Shared with headless OBS streams (lib/streamRoom.ts) so both paths
+    // produce identical room metadata.
+    const { name: roomName, metadata } = await createStreamRoom({
+      host, title, description, backgroundImage, origin,
+      visibility: bodyVisibility, language: rawLanguage, mode: bodyMode,
+      tags: rawTags, boost: rawBoost,
     });
+    const room = { name: roomName };
 
     // Issue a host token — premium gets video, non-premium gets audio only
     const token = await createLivekitToken(roomName, host, {
@@ -508,7 +380,14 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     // Check if this user is the host — if so, give publish permissions
     let meta: Partial<RoomMetadata> = {};
     try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
-    const isHost = meta.host === identity;
+    // Headless (OBS) stream: the ingress is connected AS `meta.host`. Handing
+    // the host a token with that same identity would make LiveKit kick the
+    // ingress (DUPLICATE_IDENTITY) the moment they open their own watch page —
+    // ending their stream. They watch under a distinct identity instead, as a
+    // plain viewer: there is no studio to drive, OBS is the broadcaster.
+    const headlessHost = !!meta.headless && meta.host === identity;
+    const lkIdentity = headlessHost ? headlessViewerIdentity(identity) : identity;
+    const isHost = meta.host === identity && !headlessHost;
     // The approved collab guest keeps publish rights across a RECONNECT. The
     // host's promote sets permissions on the LIVE participant only, so a guest
     // whose phone dropped (airplane mode → page discarded → rejoin) would come
@@ -517,13 +396,15 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     // re-grant it here and CollabRequest puts them straight back on air.
     const isApprovedGuest = !!meta.collabGuest && meta.collabGuest === identity;
 
-    const token = await createLivekitToken(name, identity, {
+    const token = await createLivekitToken(name, lkIdentity, {
       canPublish: isHost || isApprovedGuest,
       canPublishData: true, // all participants can send data (hand raise, etc.)
       premium,
+      // Keep the chat name the plain account even under the ~watch identity.
+      name: headlessHost ? identity : undefined,
     });
 
-    return reply.send({ token, roomName: name, identity, isHost, isPremium: premium });
+    return reply.send({ token, roomName: name, identity: lkIdentity, isHost, isPremium: premium });
   });
 
   // Guest token (NO auth). Anyone with the room URL can drop in to listen
@@ -610,9 +491,14 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       } catch { /* expired or bogus — carry on as a guest */ }
     }
 
+    // Same duplicate-identity guard as /join: on a headless stream the ingress
+    // already holds the host's identity.
+    const viewerIdentity = authedUser && meta.headless && authedUser === meta.host
+      ? headlessViewerIdentity(authedUser)
+      : authedUser;
     const identity = silent
       ? generateObsIdentity()
-      : (authedUser ?? generateGuestIdentity());
+      : (viewerIdentity ?? generateGuestIdentity());
     const token = await createLivekitToken(name, identity, {
       canPublish: false,
       canPublishData: !silent, // obs observers are purely read-only
@@ -628,7 +514,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Leaderboard: a real viewer joining a livestream (not the OBS overlay, not
     // the host/co-host). streamId = roomName. Best-effort, never blocks the join.
-    if (!silent && meta.mode === 'standalone' && identity !== meta.host && identity !== meta.collabGuest) {
+    if (!silent && meta.mode === 'standalone' && authedUser !== meta.host && identity !== meta.collabGuest) {
       recordViewerJoin(name, typeof meta.host === 'string' ? meta.host.toLowerCase() : undefined);
     }
 
@@ -972,9 +858,13 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     let liveAt = '';
     let forbidden = false;
     let notFound = false;
+    let headless = false;
     try {
       await mutateRoomMetadata(name, (meta) => {
         if (meta.host !== request.username) { forbidden = true; return null; }
+        // An OBS-driven stream's live state is owned by the server (it follows
+        // the ingress); a studio tab must not fight it.
+        if (meta.headless) { headless = true; return null; }
         // First go-live wins — a pause/resume must not restart the clock, or
         // every timecode after the break is measured from the wrong origin.
         liveAt = (typeof meta.liveAt === 'string' && meta.liveAt) || new Date().toISOString();
@@ -988,6 +878,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     } catch { notFound = true; }
     if (notFound) return reply.notFound('Room not found');
     if (forbidden) return reply.forbidden('Only the host can start the stream');
+    if (headless) return reply.conflict('This stream is driven by OBS');
     return reply.send({ liveAt, willPublishVod: !!willPublishVod, portrait: !!portrait });
   });
 
@@ -1003,14 +894,18 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
 
     let forbidden = false;
     let notFound = false;
+    let headless = false;
     try {
       await mutateRoomMetadata(name, (meta) => {
         if (meta.host !== request.username) { forbidden = true; return null; }
+        // Server-owned for OBS streams (see /live).
+        if (meta.headless) { headless = true; return null; }
         return { ...meta, broadcasting };
       });
     } catch { notFound = true; }
     if (notFound) return reply.notFound('Room not found');
     if (forbidden) return reply.forbidden('Only the host can change broadcast state');
+    if (headless) return reply.conflict('This stream is driven by OBS');
     return reply.send({ broadcasting });
   });
 
@@ -1093,8 +988,15 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.forbidden('Only the host can close the room');
     }
 
-    await roomService.deleteRoom(name);
-    clearRoomBans(name);
+    // A headless (OBS) stream also owns an ingress, recordings and a WHIP
+    // session — end all of it, not just the room, or the ingress would sit
+    // there waiting for a publisher that has nowhere to go.
+    if (meta.headless) {
+      await endHeadlessStreamForRoom(name, 'host_closed');
+      return reply.code(204).send();
+    }
+
+    await closeStreamRoom(name);
     return reply.code(204).send();
   });
 };

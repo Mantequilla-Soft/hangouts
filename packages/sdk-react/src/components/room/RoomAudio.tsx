@@ -38,9 +38,13 @@ export interface RoomAudioProps {
    * Leave OFF for a conference room, where raw participant mics ARE the audio.
    */
   programOnly?: boolean;
+  /** Keep every track subscribed and in place but silent, e.g. while the page
+   *  plays something of its own over the stream. Unmuting is instant: nothing
+   *  is re-subscribed. */
+  muted?: boolean;
 }
 
-export function RoomAudio({ programOnly = false }: RoomAudioProps) {
+export function RoomAudio({ programOnly = false, muted = false }: RoomAudioProps) {
   // onlySubscribed:false so we can SEE (and then unsubscribe) tracks we won't
   // play — otherwise autoSubscribe silently pulls the host-monitor and the raw
   // guest mic to every viewer during a collab, a wasted Opus stream each.
@@ -100,7 +104,7 @@ export function RoomAudio({ programOnly = false }: RoomAudioProps) {
       {tracks
         .filter((t) => shouldPlay(t) && t.publication?.isSubscribed)
         .map((t) => (
-          <AudioTrack key={`${t.participant.identity}-${t.publication?.trackSid}`} trackRef={t} />
+          <AudioTrack key={`${t.participant.identity}-${t.publication?.trackSid}`} trackRef={t} muted={muted} />
         ))}
     </>
   );

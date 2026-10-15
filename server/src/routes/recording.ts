@@ -61,7 +61,7 @@ const hostLastSeen = new Map<string, number>();
  */
 async function finishAndPublishVod(
   roomName: string,
-  opts?: { stopEgress?: boolean; filePath?: string; duration?: number },
+  opts?: { stopEgress?: boolean; filePath?: string; duration?: number; background?: boolean },
 ): Promise<void> {
   const pending = pendingVods.get(roomName);
   if (!pending || hasPublish(roomName)) return;
@@ -81,24 +81,158 @@ async function finishAndPublishVod(
   hostLastSeen.delete(roomName);
 
   if (!pending.publish) return;
-  await publishRecordingToVod({
-    filePath,
-    roomName,
-    owner: pending.owner,
-    title: pending.title,
-    description: pending.description,
-    tags: pending.tags,
-    thumbnailUrl: pending.thumbnailUrl,
-    duration,
-  });
-  // Reclaim disk now for a publish-ONLY recording: the embed service has its
-  // own copy and nothing else needs this file. When a download was ALSO
-  // requested we leave it — the download endpoint + the 1h pendingDownloads
-  // sweeper own its lifetime — and the /opt/livekit egress-janitor (2-day
-  // retention, plus a low-disk emergency stop) is the backstop for everything.
-  if (!pending.download) {
-    await unlink(filePath).catch(() => { /* already gone */ });
+  const publish = async () => {
+    await publishRecordingToVod({
+      filePath,
+      roomName,
+      owner: pending.owner,
+      title: pending.title,
+      description: pending.description,
+      tags: pending.tags,
+      thumbnailUrl: pending.thumbnailUrl,
+      duration,
+    });
+    // Reclaim disk now for a publish-ONLY recording: the embed service has its
+    // own copy and nothing else needs this file. When a download was ALSO
+    // requested we leave it — the download endpoint + the 1h pendingDownloads
+    // sweeper own its lifetime — and the /opt/livekit egress-janitor (2-day
+    // retention, plus a low-disk emergency stop) is the backstop for everything.
+    if (!pending.download) {
+      await unlink(filePath).catch(() => { /* already gone */ });
+    }
+  };
+  // Background: the caller (headless teardown) only needs the egress STOPPED
+  // before it deletes the room; the upload can take many minutes and its
+  // progress is tracked in the publish-state map anyway.
+  if (opts?.background) {
+    void publish().catch(() => { /* state map carries the error */ });
+    return;
   }
+  await publish();
+}
+
+type LogLike = { warn: (obj: unknown, msg?: string) => void };
+
+/**
+ * Start the server-side recording of a STANDALONE stream and remember what it
+ * takes to publish it as the VOD. Shared by POST /record/start (browser studio)
+ * and headless OBS streams, which have no studio to call that route.
+ *
+ * Callers own the permission check (Pro) — this only does the egress.
+ */
+export async function startStandaloneVod(
+  name: string,
+  meta: { host?: string; portrait?: boolean; post?: Record<string, unknown>; backgroundImage?: string },
+  opts: { publish: boolean; download: boolean; owner: string },
+  log: LogLike,
+): Promise<{ egressId: string; filepath: string }> {
+  if (activeRecordings.has(name)) throw new Error('Room is already being recorded');
+  const filepath = `/tmp/livekit-recordings/${name}-${Date.now()}.mp4`;
+  const portrait = meta.portrait === true;
+  const output = new EncodedFileOutput({ fileType: EncodedFileType.MP4, filepath });
+
+  // TRACK-COMPOSITE over RoomComposite for a standalone stream.
+  //
+  // A standalone program is a SINGLE already-composited track — there's
+  // nothing to lay out server-side. RoomComposite renders it in a headless
+  // Chrome and screenshots that at a fixed 30fps, which RESAMPLES a jittery
+  // mobile stream and shows up as skipped frames in the recording. Muxing
+  // the published track directly keeps its real frame timing (and needs no
+  // Chrome, so it's far lighter). No output width/height, so the muxed
+  // track keeps its own orientation — portrait vs landscape is automatic.
+  let videoTrackId = '';
+  let audioTrackId = '';
+  let vw = 0;
+  let vh = 0;
+  try {
+    const parts = await roomService.listParticipants(name);
+    const host = parts.find((pt) => pt.identity === meta.host);
+    const videoInfo = host?.tracks.find((t) => t.type === TrackType.VIDEO && t.source === TrackSource.CAMERA);
+    videoTrackId = videoInfo?.sid ?? '';
+    vw = videoInfo?.width ?? 0;
+    vh = videoInfo?.height ?? 0;
+    // The host may publish TWO Microphone tracks: 'studio-mix' (the full
+    // program) and 'host-monitor' (the mix-minus track for a collab guest,
+    // which is MISSING the guest's audio). Always record the full mix — pick
+    // it by name, and only fall back to "first mic" when it isn't named.
+    const mics = host?.tracks.filter((t) => t.type === TrackType.AUDIO && t.source === TrackSource.MICROPHONE) ?? [];
+    audioTrackId = (mics.find((t) => t.name === 'studio-mix') ?? mics[0])?.sid ?? '';
+  } catch { /* fall back below */ }
+
+  let info;
+  try {
+    if (!videoTrackId) throw new Error('host video track not found');
+    // OUTPUT DIMENSIONS ARE MANDATORY. TrackComposite transcodes (VP8 → H.264
+    // for the MP4), and egress defaults a missing width/height to 16:9 — so
+    // a portrait stream comes out landscape. Use the published track's own
+    // dimensions (correct aspect + resolution); fall back to the orientation
+    // flag if the track didn't report them yet.
+    info = await egressClient.startTrackCompositeEgress(name, { file: output }, {
+      audioTrackId,
+      videoTrackId,
+      encodingOptions: new EncodingOptions({
+        width: vw || (portrait ? 720 : 1280),
+        height: vh || (portrait ? 1280 : 720),
+        framerate: 30,
+        videoBitrate: 3000,
+      }),
+    });
+  } catch (err) {
+    // Any problem (track not found, unsupported) → the known-good template
+    // composite, so a stream is never left un-recorded. Its explicit dims
+    // avoid letterboxing a portrait stream into a 16:9 box.
+    log.warn({ err }, 'track-composite egress failed; using room-composite');
+    info = await egressClient.startRoomCompositeEgress(name, { file: output }, {
+      customBaseUrl: config.EGRESS_STANDALONE_TEMPLATE_URL,
+      encodingOptions: new EncodingOptions({
+        width: portrait ? 720 : 1280,
+        height: portrait ? 1280 : 720,
+        framerate: 30,
+        videoBitrate: 3000,
+      }),
+    });
+  }
+
+  activeRecordings.set(name, { egressId: info.egressId, mode: 'video', layout: 'single', filepath });
+  // Remember what it takes to publish it — so the crash watchdog can finish
+  // the job even if the host never calls /record/stop.
+  const post = meta.post ?? {};
+  pendingVods.set(name, {
+    egressId: info.egressId,
+    owner: meta.host || opts.owner,
+    title: post.title as string | undefined,
+    description: post.description as string | undefined,
+    tags: Array.isArray(post.tags) ? post.tags as string[] : undefined,
+    thumbnailUrl: (post.thumbnail as string) || meta.backgroundImage || undefined,
+    filepath,
+    publish: opts.publish,
+    download: opts.download,
+  });
+  hostLastSeen.set(name, Date.now());
+  return { egressId: info.egressId, filepath };
+}
+
+/**
+ * End a standalone recording the way /record/stop does — stop egress, then
+ * publish the VOD if that was asked for — for a caller with no studio
+ * (headless teardown). Resolves once the egress is stopped; the publish runs
+ * on in the background. No-op when nothing is recording.
+ */
+export async function stopStandaloneVod(name: string): Promise<void> {
+  if (pendingVods.has(name)) {
+    await finishAndPublishVod(name, { stopEgress: true, background: true });
+    return;
+  }
+  const rec = activeRecordings.get(name);
+  if (rec) {
+    activeRecordings.delete(name);
+    await egressClient.stopEgress(rec.egressId).catch(() => { /* already stopped */ });
+  }
+}
+
+/** Is a recording running for this room? (headless status/idempotency) */
+export function isRecording(name: string): boolean {
+  return activeRecordings.has(name);
 }
 
 // Track recordings that have been stopped but the file hasn't yet been
@@ -235,78 +369,24 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
+    // A standalone stream records through its OWN path: the broadcaster's
+    // program track muxed straight to MP4 (see startStandaloneVod). The
+    // conference path below is untouched.
+    if (mode === 'video' && check.meta?.mode === 'standalone') {
+      const { egressId, filepath } = await startStandaloneVod(
+        name,
+        check.meta as Parameters<typeof startStandaloneVod>[1],
+        { publish, download, owner: request.username },
+        request.log,
+      );
+      return reply.send({ egressId, status: 'recording', mode, layout, filepath });
+    }
+
     const ext = mode === 'video' ? 'mp4' : 'mp3';
     const filepath = `/tmp/livekit-recordings/${name}-${Date.now()}.${ext}`;
 
     let info;
-    // A standalone stream records through its OWN template: a chrome-free
-    // full-bleed render of the broadcaster's program track, sized to the
-    // stream's real orientation. The conference path below is untouched.
-    if (mode === 'video' && check.meta?.mode === 'standalone') {
-      const portrait = check.meta.portrait === true;
-      const output = new EncodedFileOutput({ fileType: EncodedFileType.MP4, filepath });
-
-      // TRACK-COMPOSITE over RoomComposite for a standalone stream.
-      //
-      // A standalone program is a SINGLE already-composited track — there's
-      // nothing to lay out server-side. RoomComposite renders it in a headless
-      // Chrome and screenshots that at a fixed 30fps, which RESAMPLES a jittery
-      // mobile stream and shows up as skipped frames in the recording. Muxing
-      // the published track directly keeps its real frame timing (and needs no
-      // Chrome, so it's far lighter). No output width/height, so the muxed
-      // track keeps its own orientation — portrait vs landscape is automatic.
-      let videoTrackId = '';
-      let audioTrackId = '';
-      let vw = 0;
-      let vh = 0;
-      try {
-        const parts = await roomService.listParticipants(name);
-        const host = parts.find((pt) => pt.identity === check.meta!.host);
-        const videoInfo = host?.tracks.find((t) => t.type === TrackType.VIDEO && t.source === TrackSource.CAMERA);
-        videoTrackId = videoInfo?.sid ?? '';
-        vw = videoInfo?.width ?? 0;
-        vh = videoInfo?.height ?? 0;
-        // The host may publish TWO Microphone tracks: 'studio-mix' (the full
-        // program) and 'host-monitor' (the mix-minus track for a collab guest,
-        // which is MISSING the guest's audio). Always record the full mix — pick
-        // it by name, and only fall back to "first mic" when it isn't named.
-        const mics = host?.tracks.filter((t) => t.type === TrackType.AUDIO && t.source === TrackSource.MICROPHONE) ?? [];
-        audioTrackId = (mics.find((t) => t.name === 'studio-mix') ?? mics[0])?.sid ?? '';
-      } catch { /* fall back below */ }
-
-      try {
-        if (!videoTrackId) throw new Error('host video track not found');
-        // OUTPUT DIMENSIONS ARE MANDATORY. TrackComposite transcodes (VP8 → H.264
-        // for the MP4), and egress defaults a missing width/height to 16:9 — so
-        // a portrait stream comes out landscape. Use the published track's own
-        // dimensions (correct aspect + resolution); fall back to the orientation
-        // flag if the track didn't report them yet.
-        info = await egressClient.startTrackCompositeEgress(name, { file: output }, {
-          audioTrackId,
-          videoTrackId,
-          encodingOptions: new EncodingOptions({
-            width: vw || (portrait ? 720 : 1280),
-            height: vh || (portrait ? 1280 : 720),
-            framerate: 30,
-            videoBitrate: 3000,
-          }),
-        });
-      } catch (err) {
-        // Any problem (track not found, unsupported) → the known-good template
-        // composite, so a stream is never left un-recorded. Its explicit dims
-        // avoid letterboxing a portrait stream into a 16:9 box.
-        request.log.warn({ err }, 'track-composite egress failed; using room-composite');
-        info = await egressClient.startRoomCompositeEgress(name, { file: output }, {
-          customBaseUrl: config.EGRESS_STANDALONE_TEMPLATE_URL,
-          encodingOptions: new EncodingOptions({
-            width: portrait ? 720 : 1280,
-            height: portrait ? 1280 : 720,
-            framerate: 30,
-            videoBitrate: 3000,
-          }),
-        });
-      }
-    } else if (mode === 'video') {
+    if (mode === 'video') {
       // Stamp recordBg + recordLayout on the room metadata BEFORE starting
       // egress. The custom template reads this — recordBg is shown when no
       // video is published; recordLayout drives layout changes mid-recording.
@@ -337,23 +417,6 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     activeRecordings.set(name, { egressId: info.egressId, mode, layout, filepath });
-    // For a standalone VOD, remember what it takes to publish it — so the crash
-    // watchdog can finish the job even if the host never calls /record/stop.
-    if (mode === 'video' && check.meta?.mode === 'standalone') {
-      const post = (check.meta as { post?: Record<string, unknown> }).post ?? {};
-      pendingVods.set(name, {
-        egressId: info.egressId,
-        owner: (check.meta.host as string) || request.username,
-        title: post.title as string | undefined,
-        description: post.description as string | undefined,
-        tags: Array.isArray(post.tags) ? post.tags as string[] : undefined,
-        thumbnailUrl: (post.thumbnail as string) || (check.meta as { backgroundImage?: string }).backgroundImage || undefined,
-        filepath,
-        publish,
-        download,
-      });
-      hostLastSeen.set(name, Date.now());
-    }
 
     return reply.send({
       egressId: info.egressId,

@@ -10,6 +10,11 @@ export default defineConfig({
       LIVEKIT_API_KEY: 'test-key',
       LIVEKIT_API_SECRET: 'test-secret',
       SESSION_SECRET: 'test-session-secret-at-least-32chars!!',
+      // dotenv also loads server/.env in tests; pin what the headless/template
+      // code reads so tests never reach the real Mongo or announce secret.
+      MONGODB_URI: '',
+      OPENPODS_ANNOUNCE_SECRET: 'test-announce-secret',
+      STREAM_KEY_SECRET: '',
     },
   },
 });

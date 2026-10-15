@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { RoomAudio } from './RoomAudio.js';
-import { LiveKitRoom,  StartAudio, useParticipants, useTracks, VideoTrack, useRoomInfo } from '@livekit/components-react';
-import { Track, VideoQuality, type RemoteTrackPublication } from 'livekit-client';
+import { LiveKitRoom,  StartAudio, useParticipants, useTracks, VideoTrack, useRoomInfo, useConnectionState } from '@livekit/components-react';
+import { ConnectionState, Track, VideoQuality, type RemoteTrackPublication } from 'livekit-client';
 import type { BoostConfig } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
@@ -37,12 +37,16 @@ export interface StandaloneWatchProps {
   children: ReactNode;
   /** Shown while connecting. */
   connecting?: ReactNode;
+  /** Silence the stream's sound without leaving the room, e.g. while the page
+   *  plays an ad over it. The picture keeps running underneath. */
+  audioMuted?: boolean;
 }
 
-export function StandaloneWatch({ roomName, children, connecting }: StandaloneWatchProps) {
+export function StandaloneWatch({ roomName, children, connecting, audioMuted = false }: StandaloneWatchProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
   const joinedForRef = useRef<string | null>(null);
+  const upgradeFailedRef = useRef<string | null>(null);
 
   useEffect(() => {
     // A cold load (opening a stream by URL) authenticates AFTER the first
@@ -50,7 +54,10 @@ export function StandaloneWatch({ roomName, children, connecting }: StandaloneWa
     // state and survives a remount, so without this the viewer is stuck as a
     // guest for the whole session — wrong chat name, and the server blocks
     // their messages. Upgrade the connection once the session lands.
-    const upgradeToAuthed = isAuthenticated && !!room.livekitToken && room.isGuest;
+    // An upgrade that already failed for this room is not retried: the fallback
+    // below listens as a guest again, which would otherwise re-trigger it forever.
+    const upgradeToAuthed = isAuthenticated && !!room.livekitToken && room.isGuest
+      && upgradeFailedRef.current !== roomName;
     if (room.livekitToken && !upgradeToAuthed) return;
     if (joinedForRef.current === roomName && !upgradeToAuthed) return;
     joinedForRef.current = roomName;
@@ -59,12 +66,16 @@ export function StandaloneWatch({ roomName, children, connecting }: StandaloneWa
         if (isAuthenticated) await room.join(roomName);
         else await room.listen(roomName);
       } catch {
+        if (isAuthenticated) upgradeFailedRef.current = roomName;
         // Authed join failed (not a participant / token issue) — fall back
         // to an anonymous guest listen so watching still works.
         try { await room.listen(roomName); } catch { /* room gone */ }
       }
     })();
-  }, [roomName, isAuthenticated, room]);
+    // livekitToken / isGuest explicitly: the upgrade has to be re-checked when a
+    // guest listen that was already in flight completes, even if `room` itself
+    // is the same object.
+  }, [roomName, isAuthenticated, room, room.livekitToken, room.isGuest]);
 
   if (!room.livekitToken) {
     return <>{connecting ?? <div className="hh-stream-connecting">Connecting to the stream…</div>}</>;
@@ -80,7 +91,7 @@ export function StandaloneWatch({ roomName, children, connecting }: StandaloneWa
       options={{ adaptiveStream: true, dynacast: true }}
     >
       <StreamContextBridge roomName={roomName} isGuest={room.isGuest} joinMeta={room.roomMeta}>
-        <RoomAudio programOnly />
+        <RoomAudio programOnly muted={audioMuted} />
         <StartAudio label="Click to enable audio" className="hh-start-audio" />
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
           {children}
@@ -144,17 +155,45 @@ export interface StreamVideoProps {
   /** Overlay a small LIVE/OFFLINE badge (top-left). Default true. */
   showLiveBadge?: boolean;
 }
+/** How long after connecting an absent host still counts as "not here yet"
+ *  rather than offline. The participant list arrives a moment after the room
+ *  connects, so without this every viewer saw "The streamer is offline" flash
+ *  before a perfectly live stream appeared. */
+const OFFLINE_GRACE_MS = 4000;
+
+/** True once the room has been connected for OFFLINE_GRACE_MS, and from then
+ *  on. A connection that drops after that (the stream ended, the room closed)
+ *  is NOT "connecting" again: it stays settled, so the viewer reads "offline". */
+function useConnectionSettled(): boolean {
+  const state = useConnectionState();
+  const [settled, setSettled] = useState(false);
+  const wasConnected = useRef(false);
+  useEffect(() => {
+    if (state === ConnectionState.Connected) {
+      wasConnected.current = true;
+      const timer = setTimeout(() => setSettled(true), OFFLINE_GRACE_MS);
+      return () => clearTimeout(timer);
+    }
+    if (state === ConnectionState.Disconnected && wasConnected.current) setSettled(true);
+    // Connecting / Reconnecting: keep what we had.
+    return undefined;
+  }, [state]);
+  return settled;
+}
+
 export function StreamVideo({ showLiveBadge = true }: StreamVideoProps) {
   const track = useProgramTrack();
   const live = useStreamLive();
+  const settled = useConnectionSettled();
+  const placeholder = live ? 'Stream is starting…' : (settled ? 'The streamer is offline' : 'Connecting…');
   return (
     <div className="hh-stream-video">
       {track ? (
         <VideoTrack trackRef={track} className="hh-stream-video__el" />
       ) : (
-        <div className="hh-stream-video__placeholder">{live ? 'Stream is starting…' : 'The streamer is offline'}</div>
+        <div className="hh-stream-video__placeholder">{placeholder}</div>
       )}
-      {showLiveBadge && (
+      {showLiveBadge && (live || settled) && (
         <span className={`hh-stream-badge${live ? '' : ' hh-stream-badge--off'}`}>{live ? '● LIVE' : '○ OFFLINE'}</span>
       )}
       {/* No <BoostOverlay/> here on purpose. The studio now composites boosts

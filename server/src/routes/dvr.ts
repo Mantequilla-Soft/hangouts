@@ -89,6 +89,90 @@ async function teardown(name: string, entry: { egressId: string; dir: string; ja
   await rm(entry.dir, { recursive: true, force: true }).catch(() => { /* raced */ });
 }
 
+type LogLike = { warn: (obj: unknown, msg?: string) => void };
+
+/**
+ * Start the DVR egress for a room. Shared by POST /dvr/start (browser studio)
+ * and headless OBS streams. Callers own the gates (Pro, DVR_ENABLED, host).
+ * Idempotent: returns the running session's egress if there is one.
+ */
+export async function startDvrSession(
+  name: string,
+  meta: { host?: string; portrait?: boolean },
+  log: LogLike,
+): Promise<string> {
+  const existing = active.get(name);
+  if (existing) return existing.egressId;
+
+  const dir = join(DVR_DIR, safeName(name));
+  await mkdir(dir, { recursive: true });
+  // The egress container writes the segments as its OWN user; make the dirs
+  // world-writable so it can, whatever uid it runs as.
+  await chmod(DVR_DIR, 0o777).catch(() => { /* best effort */ });
+  await chmod(dir, 0o777).catch(() => { /* best effort */ });
+  const output = new SegmentedFileOutput({
+    protocol: SegmentedFileProtocol.HLS_PROTOCOL,
+    filenamePrefix: join(dir, 'seg'),
+    playlistName: join(dir, 'index.m3u8'),
+    livePlaylistName: join(dir, 'live.m3u8'),
+    segmentDuration: SEGMENT_SEC,
+  });
+  // Record the host's PROGRAM track — exactly what viewers see, at the real
+  // orientation — the same way the VOD egress does. A RoomComposite 'speaker'
+  // layout would follow whoever is talking and force 16:9; portrait mobile
+  // streams must stay 9:16.
+  const portrait = meta.portrait === true;
+  let videoTrackId = '';
+  let audioTrackId = '';
+  let vw = 0;
+  let vh = 0;
+  try {
+    const parts = await roomService.listParticipants(name);
+    const host = parts.find((pt) => pt.identity === meta.host);
+    const videoInfo = host?.tracks.find((t) => t.type === TrackType.VIDEO && t.source === TrackSource.CAMERA);
+    videoTrackId = videoInfo?.sid ?? '';
+    vw = videoInfo?.width ?? 0;
+    vh = videoInfo?.height ?? 0;
+    // 'studio-mix' is the FULL program audio (not 'host-monitor', the mix-minus).
+    const mics = host?.tracks.filter((t) => t.type === TrackType.AUDIO && t.source === TrackSource.MICROPHONE) ?? [];
+    audioTrackId = (mics.find((t) => t.name === 'studio-mix') ?? mics[0])?.sid ?? '';
+  } catch { /* fall through to the template composite */ }
+
+  const encodingOptions = new EncodingOptions({
+    width: vw || (portrait ? 720 : 1280),
+    height: vh || (portrait ? 1280 : 720),
+    framerate: 30,
+    videoBitrate: 3000,
+  });
+
+  let info;
+  try {
+    if (!videoTrackId) throw new Error('host program track not found');
+    info = await egressClient.startTrackCompositeEgress(name, { segments: output }, {
+      audioTrackId,
+      videoTrackId,
+      encodingOptions,
+    });
+  } catch (err) {
+    // Chrome-free full-bleed render of the program at the right dims — never a
+    // speaker layout, never letterboxed.
+    log.warn({ err }, '[dvr] track-composite failed; using standalone template');
+    info = await egressClient.startRoomCompositeEgress(name, { segments: output }, {
+      customBaseUrl: config.EGRESS_STANDALONE_TEMPLATE_URL,
+      encodingOptions,
+    });
+  }
+  const janitor = setInterval(() => void pruneSegments(dir), 30_000);
+  active.set(name, { egressId: info.egressId, dir, janitor });
+  return info.egressId;
+}
+
+/** Stop a room's DVR session, if any (headless teardown). */
+export async function stopDvrSession(name: string): Promise<void> {
+  const entry = active.get(name);
+  if (entry) await teardown(name, entry);
+}
+
 export const dvrRoutes: FastifyPluginAsync = async (fastify) => {
   // Serve a finished clip. No auth: the filename carries a random token, same
   // trust model as the VOD download link. TTL-swept.
@@ -115,68 +199,8 @@ export const dvrRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(402).send({ message: 'DVR (clip the last 30s) is a 3Speak Pro feature.' });
     }
     if (active.has(name)) return reply.send({ status: 'recording', egressId: active.get(name)!.egressId });
-
-    const dir = join(DVR_DIR, safeName(name));
-    await mkdir(dir, { recursive: true });
-    // The egress container writes the segments as its OWN user; make the dirs
-    // world-writable so it can, whatever uid it runs as.
-    await chmod(DVR_DIR, 0o777).catch(() => { /* best effort */ });
-    await chmod(dir, 0o777).catch(() => { /* best effort */ });
-    const output = new SegmentedFileOutput({
-      protocol: SegmentedFileProtocol.HLS_PROTOCOL,
-      filenamePrefix: join(dir, 'seg'),
-      playlistName: join(dir, 'index.m3u8'),
-      livePlaylistName: join(dir, 'live.m3u8'),
-      segmentDuration: SEGMENT_SEC,
-    });
-    // Record the host's PROGRAM track — exactly what viewers see, at the real
-    // orientation — the same way the VOD egress does. A RoomComposite 'speaker'
-    // layout would follow whoever is talking and force 16:9; portrait mobile
-    // streams must stay 9:16.
-    const portrait = check.meta?.portrait === true;
-    let videoTrackId = '';
-    let audioTrackId = '';
-    let vw = 0;
-    let vh = 0;
-    try {
-      const parts = await roomService.listParticipants(name);
-      const host = parts.find((pt) => pt.identity === check.meta?.host);
-      const videoInfo = host?.tracks.find((t) => t.type === TrackType.VIDEO && t.source === TrackSource.CAMERA);
-      videoTrackId = videoInfo?.sid ?? '';
-      vw = videoInfo?.width ?? 0;
-      vh = videoInfo?.height ?? 0;
-      // 'studio-mix' is the FULL program audio (not 'host-monitor', the mix-minus).
-      const mics = host?.tracks.filter((t) => t.type === TrackType.AUDIO && t.source === TrackSource.MICROPHONE) ?? [];
-      audioTrackId = (mics.find((t) => t.name === 'studio-mix') ?? mics[0])?.sid ?? '';
-    } catch { /* fall through to the template composite */ }
-
-    const encodingOptions = new EncodingOptions({
-      width: vw || (portrait ? 720 : 1280),
-      height: vh || (portrait ? 1280 : 720),
-      framerate: 30,
-      videoBitrate: 3000,
-    });
-
-    let info;
-    try {
-      if (!videoTrackId) throw new Error('host program track not found');
-      info = await egressClient.startTrackCompositeEgress(name, { segments: output }, {
-        audioTrackId,
-        videoTrackId,
-        encodingOptions,
-      });
-    } catch (err) {
-      // Chrome-free full-bleed render of the program at the right dims — never a
-      // speaker layout, never letterboxed.
-      request.log.warn({ err }, '[dvr] track-composite failed; using standalone template');
-      info = await egressClient.startRoomCompositeEgress(name, { segments: output }, {
-        customBaseUrl: config.EGRESS_STANDALONE_TEMPLATE_URL,
-        encodingOptions,
-      });
-    }
-    const janitor = setInterval(() => void pruneSegments(dir), 30_000);
-    active.set(name, { egressId: info.egressId, dir, janitor });
-    return reply.send({ status: 'recording', egressId: info.egressId });
+    const egressId = await startDvrSession(name, check.meta ?? {}, request.log);
+    return reply.send({ status: 'recording', egressId });
   });
 
   // Clip the last ~30s into a shareable MP4. VIEWER-facing: any watcher can

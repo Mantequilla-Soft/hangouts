@@ -4117,6 +4117,81 @@
   background: #000;
 }
 
+/* The mic's entry in Sources: a badge the size of a media thumbnail. */
+.hh-studio__source-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 20px;
+  border: 1px solid var(--st-muted);
+  border-radius: 4px;
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1;
+}
+/* Inputs (camera, mic) in the left rail: flat rows, no panel border and no
+   active state, so they never read as one of the scene / source switches. */
+.hh-studio__inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-top: 0.55rem;
+  margin-top: 0.15rem;
+  border-top: 1px solid var(--st-border);
+}
+.hh-studio__input {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.25rem 0.25rem;
+  color: var(--st-text);
+  font-size: 0.82rem;
+  min-width: 0;
+}
+.hh-studio__input-main {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.hh-studio__input-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hh-studio__input.is-muted .hh-studio__input-name { text-decoration: line-through; opacity: 0.7; }
+/* Off: an OUTLINE on hover, never a red fill. */
+.hh-studio__input-off {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 18px;
+  text-align: center;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--st-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.hh-studio__input-off:hover,
+.hh-studio__input-off:focus-visible {
+  border-color: var(--st-accent);
+  color: var(--st-accent);
+}
+
 .hh-studio__media-name {
   flex: 1;
   min-width: 0;
@@ -5629,6 +5704,119 @@
 /* --- actions --- */
 .hh-cd__actions { display: flex; gap: 0.5rem; margin-top: 0.25rem; }
 .hh-cd__submit { flex: 1; font-weight: 700; padding: 0.7rem 1rem; }
+
+/* --- stepped form (CreateRoomDialog `stepped`) ---
+   Numbered rings with their label, joined by lines that fill the row, so the
+   first step sits on the left edge and the last on the right. Rings are
+   OUTLINED in the accent (never a red fill), the current one with a halo. */
+.hh-cd-steps { width: 100%; }
+.hh-cd-steps__row {
+  display: flex;
+  align-items: center;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.hh-cd-steps__item { display: flex; align-items: center; flex: 1 1 0; min-width: 0; }
+.hh-cd-steps__item:last-child { flex: 0 0 auto; }
+.hh-cd-steps__step {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.hh-cd-steps__ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid var(--hh-border, #d0d0d0);
+  color: var(--hh-text-muted, #999);
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  transition: border-color 0.25s, color 0.25s, box-shadow 0.25s, background-color 0.25s;
+}
+.hh-cd-steps__label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--hh-text-muted, #999);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hh-cd-steps__step.is-done .hh-cd-steps__ring { border-color: var(--hh-primary, #e31337); color: var(--hh-primary, #e31337); }
+.hh-cd-steps__step.is-done .hh-cd-steps__label { color: var(--hh-text-secondary, #666); }
+.hh-cd-steps__step.is-active .hh-cd-steps__ring {
+  border-color: var(--hh-primary, #e31337);
+  color: var(--hh-primary, #e31337);
+  background: color-mix(in srgb, var(--hh-primary, #e31337) 12%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--hh-primary, #e31337) 16%, transparent);
+}
+.hh-cd-steps__step.is-active .hh-cd-steps__label { color: var(--hh-text, #1a1a1a); font-weight: 700; }
+.hh-cd-steps__step:hover:not(.is-active) .hh-cd-steps__label { color: var(--hh-text, #1a1a1a); }
+.hh-cd-steps__step:focus-visible { outline: 2px solid var(--hh-primary, #e31337); outline-offset: 4px; border-radius: 999px; }
+.hh-cd-steps__line {
+  flex: 1 1 auto;
+  min-width: 12px;
+  height: 2px;
+  margin: 0 0.8rem;
+  border-radius: 2px;
+  background: var(--hh-border, #d0d0d0);
+  transition: background-color 0.25s;
+}
+.hh-cd-steps__line.is-done { background: var(--hh-primary, #e31337); }
+.hh-cd-steps__caption { display: none; }
+
+/* Back on the left, Next / submit on the right. */
+.hh-cd__actions--steps { justify-content: space-between; align-items: center; margin-top: 0; }
+.hh-cd__actions--steps .hh-btn { min-width: 120px; }
+.hh-cd__actions--steps .hh-cd__submit { flex: 0 1 auto; }
+.hh-cd__actions--bottom { margin-top: 0.25rem; padding-top: 1rem; border-top: 1px solid var(--hh-border, #e0e0e0); }
+.hh-cd__next.hh-btn--primary {
+  background: transparent;
+  color: var(--hh-primary, #e31337);
+  border: 1px solid var(--hh-primary, #e31337);
+  font-weight: 700;
+  padding: 0.7rem 1rem;
+}
+.hh-cd__next.hh-btn--primary:hover:not(:disabled) { background: rgba(227, 19, 55, 0.08); }
+.hh-cd__field-error { margin: 0.1rem 0 0; font-size: 0.78rem; color: var(--hh-primary, #e31337); }
+.hh-cd__input[aria-invalid="true"] { border-color: var(--hh-primary, #e31337); }
+
+/* Tablets: only the current step keeps its label. */
+@media (min-width: 521px) and (max-width: 760px) {
+  .hh-cd-steps__step:not(.is-active) .hh-cd-steps__label { display: none; }
+  .hh-cd-steps__line { margin: 0 0.6rem; }
+}
+/* Phones: rings and lines only, the current step's name below; the two
+   buttons share the row. */
+@media (max-width: 520px) {
+  .hh-cd-steps__ring { width: 28px; height: 28px; font-size: 0.78rem; }
+  .hh-cd-steps__label { display: none; }
+  .hh-cd-steps__line { margin: 0 0.4rem; min-width: 8px; }
+  .hh-cd-steps__caption {
+    display: block;
+    margin-top: 0.6rem;
+    text-align: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--hh-text, #1a1a1a);
+  }
+  .hh-cd__actions--steps .hh-btn { flex: 1 1 0; min-width: 0; }
+}
 
 @media (max-width: 520px) {
   .hh-cd__row2 { grid-template-columns: 1fr; }
@@ -7440,14 +7628,23 @@
 .hh-upsell__btn--trial { border-color: var(--hh-pro-gold); background: var(--hh-pro-gold-soft); }
 .hh-upsell__btn--trial:hover:not(:disabled) { background: var(--hh-pro-gold-strong); }
 .hh-upsell__btn--plans:hover { background: var(--hh-bg-hover); }
+/* The way on without Pro ("Start streaming anyway" in front of the studio):
+   a real full-width button, not a footnote, so a free host never has to hunt
+   for it. Neutral outline; the accent only as an outline on hover. */
 .hh-upsell__skip {
   display: block; width: 100%;
-  margin-top: 0.85rem; padding: 0.4rem;
-  border: none; background: none; color: var(--hh-text-secondary);
-  font: inherit; font-size: 0.82rem;
+  margin-top: 1rem; padding: 0.8rem 1rem;
+  border: 1px solid var(--hh-input-border); border-radius: 10px;
+  background: transparent; color: var(--hh-text);
+  font: inherit; font-size: 1rem; font-weight: 700;
   cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
 }
-.hh-upsell__skip:hover { color: var(--hh-text); text-decoration: underline; }
+.hh-upsell__skip:hover,
+.hh-upsell__skip:focus-visible {
+  border-color: var(--hh-primary, #e31337);
+  background: var(--hh-bg-hover);
+}
 
 /* The way out of the padlocked recording options in the create dialog. */
 .hh-cd__unlock {

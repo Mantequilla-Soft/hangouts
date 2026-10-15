@@ -102,7 +102,7 @@ export { GamePanel, type GamePanelProps } from './components/room/GamePanel.js';
 // Components — Lobby
 export { RoomLobby, type RoomLobbyProps } from './components/lobby/RoomLobby.js';
 export { RoomCard, type RoomCardProps } from './components/lobby/RoomCard.js';
-export { CreateRoomDialog, type CreateRoomDialogProps, type AnnounceType } from './components/lobby/CreateRoomDialog.js';
+export { CreateRoomDialog, type CreateRoomDialogProps, type AnnounceType, type CreateRoomDraft, type StepLabels } from './components/lobby/CreateRoomDialog.js';
 export { GuestNameModal, type GuestNameModalProps } from './components/lobby/GuestNameModal.js';
 export { ObsPanel, type ObsPanelProps } from './components/room/ObsPanel.js';
 
@@ -134,3 +134,9 @@ export {
 
 // Styles — import this in your app: import '@hive-hangouts/react/styles'
 export { useIsMobile, MOBILE_QUERY } from './hooks/useIsMobile.js';
+
+// The create form's remembered setup and the stream recording preferences, so
+// an integrator can pre-fill the form (e.g. from a saved stream template) in
+// the same format the form reads, instead of copying storage keys.
+export { readPostDraft, writePostDraft, type PostDraft, type DraftMode } from './lib/postDraft.js';
+export { AUTO_VOD_KEY, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from './utils/streamRecordingPrefs.js';
