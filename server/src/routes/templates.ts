@@ -10,7 +10,7 @@ import {
   listTemplates, countTemplates, getTemplate, insertTemplate, updateTemplate, deleteTemplate,
   getOrCreateStreamSecret, resetStreamSecret, StoreUnavailableError, type TemplateDoc,
 } from '../lib/streamTemplates.js';
-import { isTemplateBusy, getHeadlessStatus, streamCapMs } from '../lib/headlessStreams.js';
+import { isTemplateBusy, getHeadlessStatus, getLastHeadlessEnd, streamCapMs } from '../lib/headlessStreams.js';
 
 /**
  * Stream templates (owner-scoped CRUD) + the owner's streaming secret.
@@ -147,6 +147,7 @@ export const templateRoutes: FastifyPluginAsync = async (fastify) => {
       state: 'idle', room: null, startedAt: null,
       capSeconds: streamCapMs(premium) / 1000,
       ingress: null, announced: null,
+      lastEnd: getLastHeadlessEnd(id),
     });
   }));
 

@@ -26,6 +26,7 @@ vi.mock('../../src/lib/streamTemplates.js', async () => {
 vi.mock('../../src/lib/headlessStreams.js', () => ({
   isTemplateBusy: vi.fn().mockReturnValue(false),
   getHeadlessStatus: vi.fn().mockReturnValue(null),
+  getLastHeadlessEnd: vi.fn().mockReturnValue(null),
   streamCapMs: (p: boolean) => (p ? 4 : 1) * 3600_000,
   capCooldownRemaining: vi.fn().mockReturnValue(0),
   startHeadlessStream: vi.fn(),
@@ -161,7 +162,11 @@ describe('template CRUD', () => {
     const hs = await import('../../src/lib/headlessStreams.js');
     const t = (await create(alice, { name: 'S', title: 't' })).json().template;
     const idle = await app.inject({ method: 'GET', url: `/templates/${t.id}/status`, headers: { authorization: alice } });
-    expect(idle.json()).toEqual({ state: 'idle', room: null, startedAt: null, capSeconds: 3600, ingress: null, announced: null });
+    expect(idle.json()).toEqual({ state: 'idle', room: null, startedAt: null, capSeconds: 3600, ingress: null, announced: null, lastEnd: null });
+
+    vi.mocked(hs.getLastHeadlessEnd).mockReturnValueOnce({ reason: 'never_published', at: 456 });
+    const stuck = await app.inject({ method: 'GET', url: `/templates/${t.id}/status`, headers: { authorization: alice } });
+    expect(stuck.json().lastEnd).toEqual({ reason: 'never_published', at: 456 });
 
     vi.mocked(hs.getHeadlessStatus).mockReturnValue({
       state: 'live', room: 'alice-abc1234', startedAt: 123,
