@@ -23,6 +23,10 @@ vi.mock('../../src/lib/streamTemplates.js', async () => {
   return createFakeStore();
 });
 
+vi.mock('../../src/lib/chatOverlay.js', () => ({
+  findLiveRoomForHost: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock('../../src/lib/headlessStreams.js', () => ({
   isTemplateBusy: vi.fn().mockReturnValue(false),
   getHeadlessStatus: vi.fn().mockReturnValue(null),
@@ -200,28 +204,23 @@ describe('stream secret', () => {
     expect(other.json().secret).not.toBe(s2);
   });
 
-  it('serves the overlay key to the owner and resolves it publicly to the live room', async () => {
-    const hs = await import('../../src/lib/headlessStreams.js');
-    const t = (await create(alice, { name: 'S', title: 't' })).json().template;
-    expect(t.chatOverlayKey).toMatch(new RegExp(`^${t.id}\\.[A-Za-z0-9_-]{22}$`));
+  it('serves each user an overlay key and resolves it publicly to their live room', async () => {
+    const co = await import('../../src/lib/chatOverlay.js');
+    await create(alice, { name: 'S', title: 't' });
+    const list = (await app.inject({ method: 'GET', url: '/templates', headers: { authorization: alice } })).json();
+    expect(list.chatOverlayKey).toMatch(/^alice\.[A-Za-z0-9_-]{22}$/);
+    expect(list.templates[0].chatOverlayKey).toBeUndefined();
 
-    const offline = await app.inject({ method: 'GET', url: `/overlay/${t.chatOverlayKey}` });
+    const offline = await app.inject({ method: 'GET', url: `/overlay/${list.chatOverlayKey}` });
     expect(offline.statusCode).toBe(200);
     expect(offline.headers['cache-control']).toBe('no-store');
     expect(offline.json()).toEqual({ live: false, room: null });
+    expect(vi.mocked(co.findLiveRoomForHost)).toHaveBeenLastCalledWith('alice');
 
-    vi.mocked(hs.getHeadlessStatus).mockReturnValue({
-      state: 'connecting', room: 'alice-abc1234', startedAt: 1, ingress: null, announced: null,
-    });
-    expect((await app.inject({ method: 'GET', url: `/overlay/${t.chatOverlayKey}` })).json()).toEqual({ live: false, room: null });
+    vi.mocked(co.findLiveRoomForHost).mockResolvedValueOnce('alice-abc1234');
+    expect((await app.inject({ method: 'GET', url: `/overlay/${list.chatOverlayKey}` })).json()).toEqual({ live: true, room: 'alice-abc1234' });
 
-    vi.mocked(hs.getHeadlessStatus).mockReturnValue({
-      state: 'live', room: 'alice-abc1234', startedAt: 1, ingress: null, announced: null,
-    });
-    expect((await app.inject({ method: 'GET', url: `/overlay/${t.chatOverlayKey}` })).json()).toEqual({ live: true, room: 'alice-abc1234' });
-    expect(vi.mocked(hs.getHeadlessStatus)).toHaveBeenLastCalledWith(t.id);
-
-    const forged = await app.inject({ method: 'GET', url: `/overlay/${t.id}.AAAAAAAAAAAAAAAAAAAAAA` });
+    const forged = await app.inject({ method: 'GET', url: '/overlay/alice.AAAAAAAAAAAAAAAAAAAAAA' });
     expect(forged.statusCode).toBe(404);
   });
 });

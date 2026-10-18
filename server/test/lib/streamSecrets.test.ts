@@ -53,23 +53,23 @@ describe('streaming secret crypto', () => {
 });
 
 describe('chat overlay keys', () => {
-  const id = '6acfe6fc855f45aab2360c77';
-
-  it('are stable per template and round-trip to the template ID', () => {
-    const key = chatOverlayKey(id);
-    expect(key).toMatch(/^6acfe6fc855f45aab2360c77\.[A-Za-z0-9_-]{22}$/);
-    expect(chatOverlayKey(id)).toBe(key);
-    expect(parseChatOverlayKey(key)).toBe(id);
+  it('are stable per user and round-trip to the username', () => {
+    const key = chatOverlayKey('badadib');
+    expect(key).toMatch(/^badadib\.[A-Za-z0-9_-]{22}$/);
+    expect(chatOverlayKey('badadib')).toBe(key);
+    expect(parseChatOverlayKey(key)).toBe('badadib');
+    // Hive names may contain dots and dashes.
+    expect(parseChatOverlayKey(chatOverlayKey('the.radio-x'))).toBe('the.radio-x');
   });
 
   it('reject a forged or swapped signature', () => {
-    const key = chatOverlayKey(id);
-    const other = chatOverlayKey('6acfe6fc855f45aab2360c78');
-    expect(parseChatOverlayKey(`${id}.${other.split('.')[1]}`)).toBeNull();
+    const key = chatOverlayKey('alice');
+    const other = chatOverlayKey('bob');
+    expect(parseChatOverlayKey(`alice.${other.split('.')[1]}`)).toBeNull();
     const sig = key.split('.')[1];
     const flipped = (sig[0] === 'A' ? 'B' : 'A') + sig.slice(1);
-    expect(parseChatOverlayKey(`${id}.${flipped}`)).toBeNull();
-    expect(parseChatOverlayKey(id)).toBeNull();
+    expect(parseChatOverlayKey(`alice.${flipped}`)).toBeNull();
+    expect(parseChatOverlayKey('alice')).toBeNull();
     expect(parseChatOverlayKey('')).toBeNull();
   });
 });

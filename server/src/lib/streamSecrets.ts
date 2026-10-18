@@ -84,23 +84,25 @@ function overlayKey(): Buffer {
   return overlayKeyBytes;
 }
 
-function overlaySignature(templateId: string): string {
-  return createHmac('sha256', overlayKey()).update(templateId, 'utf8').digest('base64url').slice(0, 22);
+function overlaySignature(username: string): string {
+  return createHmac('sha256', overlayKey()).update(username, 'utf8').digest('base64url').slice(0, 22);
 }
 
 /**
- * The key in a template's OBS chat overlay URL: `<templateId>.<signature>`.
- * Stable for the template's lifetime, so OBS keeps one Browser Source across
- * streams, and unguessable, so it can't be used to find unlisted streams.
+ * The key in a user's OBS chat overlay URL: `<username>.<signature>`. Bound to
+ * the user (one person streams one thing at a time), stable, so OBS keeps one
+ * dock across streams, and unguessable, so it can't be used to find unlisted
+ * streams.
  */
-export function chatOverlayKey(templateId: string): string {
-  return `${templateId}.${overlaySignature(templateId)}`;
+export function chatOverlayKey(username: string): string {
+  return `${username}.${overlaySignature(username)}`;
 }
 
-/** The template ID a chat overlay key was issued for, or null if it isn't valid. */
+/** The username a chat overlay key was issued for, or null if it isn't valid. */
 export function parseChatOverlayKey(key: string): string | null {
   if (typeof key !== 'string') return null;
-  const m = /^([0-9a-f]{24})\.([A-Za-z0-9_-]{22})$/.exec(key);
+  // Hive names may contain dots; the signature never does.
+  const m = /^([a-z0-9.-]{3,16})\.([A-Za-z0-9_-]{22})$/.exec(key);
   if (!m) return null;
   const a = Buffer.from(m[2], 'utf8');
   const b = Buffer.from(overlaySignature(m[1]), 'utf8');
