@@ -75,3 +75,34 @@ export function decryptStreamSecret(enc: string): string {
   decipher.setAuthTag(Buffer.from(tag, 'base64url'));
   return Buffer.concat([decipher.update(Buffer.from(ct, 'base64url')), decipher.final()]).toString('utf8');
 }
+
+// ── chat overlay keys ────────────────────────────────────────────────────────
+
+let overlayKeyBytes: Buffer | null = null;
+function overlayKey(): Buffer {
+  overlayKeyBytes ??= Buffer.from(hkdfSync('sha256', baseKey(), Buffer.from('hangouts-chat-overlay', 'utf8'), 'overlay-v1', 32));
+  return overlayKeyBytes;
+}
+
+function overlaySignature(templateId: string): string {
+  return createHmac('sha256', overlayKey()).update(templateId, 'utf8').digest('base64url').slice(0, 22);
+}
+
+/**
+ * The key in a template's OBS chat overlay URL: `<templateId>.<signature>`.
+ * Stable for the template's lifetime, so OBS keeps one Browser Source across
+ * streams, and unguessable, so it can't be used to find unlisted streams.
+ */
+export function chatOverlayKey(templateId: string): string {
+  return `${templateId}.${overlaySignature(templateId)}`;
+}
+
+/** The template ID a chat overlay key was issued for, or null if it isn't valid. */
+export function parseChatOverlayKey(key: string): string | null {
+  if (typeof key !== 'string') return null;
+  const m = /^([0-9a-f]{24})\.([A-Za-z0-9_-]{22})$/.exec(key);
+  if (!m) return null;
+  const a = Buffer.from(m[2], 'utf8');
+  const b = Buffer.from(overlaySignature(m[1]), 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b) ? m[1] : null;
+}

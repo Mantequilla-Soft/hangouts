@@ -199,4 +199,29 @@ describe('stream secret', () => {
     const other = await app.inject({ method: 'GET', url: '/stream-secret', headers: { authorization: bob } });
     expect(other.json().secret).not.toBe(s2);
   });
+
+  it('serves the overlay key to the owner and resolves it publicly to the live room', async () => {
+    const hs = await import('../../src/lib/headlessStreams.js');
+    const t = (await create(alice, { name: 'S', title: 't' })).json().template;
+    expect(t.chatOverlayKey).toMatch(new RegExp(`^${t.id}\\.[A-Za-z0-9_-]{22}$`));
+
+    const offline = await app.inject({ method: 'GET', url: `/overlay/${t.chatOverlayKey}` });
+    expect(offline.statusCode).toBe(200);
+    expect(offline.headers['cache-control']).toBe('no-store');
+    expect(offline.json()).toEqual({ live: false, room: null });
+
+    vi.mocked(hs.getHeadlessStatus).mockReturnValue({
+      state: 'connecting', room: 'alice-abc1234', startedAt: 1, ingress: null, announced: null,
+    });
+    expect((await app.inject({ method: 'GET', url: `/overlay/${t.chatOverlayKey}` })).json()).toEqual({ live: false, room: null });
+
+    vi.mocked(hs.getHeadlessStatus).mockReturnValue({
+      state: 'live', room: 'alice-abc1234', startedAt: 1, ingress: null, announced: null,
+    });
+    expect((await app.inject({ method: 'GET', url: `/overlay/${t.chatOverlayKey}` })).json()).toEqual({ live: true, room: 'alice-abc1234' });
+    expect(vi.mocked(hs.getHeadlessStatus)).toHaveBeenLastCalledWith(t.id);
+
+    const forged = await app.inject({ method: 'GET', url: `/overlay/${t.id}.AAAAAAAAAAAAAAAAAAAAAA` });
+    expect(forged.statusCode).toBe(404);
+  });
 });

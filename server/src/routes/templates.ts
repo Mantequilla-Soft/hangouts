@@ -10,6 +10,7 @@ import {
   listTemplates, countTemplates, getTemplate, insertTemplate, updateTemplate, deleteTemplate,
   getOrCreateStreamSecret, resetStreamSecret, StoreUnavailableError, type TemplateDoc,
 } from '../lib/streamTemplates.js';
+import { chatOverlayKey, parseChatOverlayKey } from '../lib/streamSecrets.js';
 import { isTemplateBusy, getHeadlessStatus, getLastHeadlessEnd, streamCapMs } from '../lib/headlessStreams.js';
 
 /**
@@ -33,6 +34,7 @@ export function templateView(doc: TemplateDoc) {
     name: doc.name,
     slug: doc.slug,
     whipUrl: `${whipBase()}/${doc.owner}/${doc.slug}`,
+    chatOverlayKey: chatOverlayKey(doc._id.toHexString()),
     title: doc.title,
     description: doc.description,
     thumbnail: doc.thumbnail,
@@ -154,6 +156,21 @@ export const templateRoutes: FastifyPluginAsync = async (fastify) => {
   // ── streaming secret ──────────────────────────────────────────────────────
   // One per user: OBS's "Bearer Token" for every template. Returned only to
   // the owner, never cached by anything in between.
+  // Public: the OBS chat overlay (a Browser Source, no login) polls this to
+  // find the room its template is live in. The key is the proof of access.
+  fastify.get('/overlay/:key', {
+    schema: { params: { type: 'object', required: ['key'], properties: { key: { type: 'string', maxLength: 64 } } } },
+    config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const { key } = request.params as { key: string };
+    const templateId = parseChatOverlayKey(key);
+    if (!templateId) return fail(reply, 404, 'not_found', 'Unknown overlay');
+    reply.header('Cache-Control', 'no-store');
+    const st = getHeadlessStatus(templateId);
+    const live = st?.state === 'live' && !!st.room;
+    return reply.send({ live, room: live ? st!.room : null });
+  });
+
   fastify.get('/stream-secret', {
     ...auth,
     config: { rateLimit: { max: 30, timeWindow: '5 minutes' } },

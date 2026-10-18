@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   generateStreamSecret, hashStreamSecret, verifyStreamSecret,
-  encryptStreamSecret, decryptStreamSecret,
+  encryptStreamSecret, decryptStreamSecret, chatOverlayKey, parseChatOverlayKey,
 } from '../../src/lib/streamSecrets.js';
 
 describe('streaming secret crypto', () => {
@@ -49,5 +49,27 @@ describe('streaming secret crypto', () => {
     parts[3] = ct.toString('base64url');
     expect(() => decryptStreamSecret(parts.join('.'))).toThrow();
     expect(() => decryptStreamSecret('v2.a.b.c')).toThrow();
+  });
+});
+
+describe('chat overlay keys', () => {
+  const id = '6acfe6fc855f45aab2360c77';
+
+  it('are stable per template and round-trip to the template ID', () => {
+    const key = chatOverlayKey(id);
+    expect(key).toMatch(/^6acfe6fc855f45aab2360c77\.[A-Za-z0-9_-]{22}$/);
+    expect(chatOverlayKey(id)).toBe(key);
+    expect(parseChatOverlayKey(key)).toBe(id);
+  });
+
+  it('reject a forged or swapped signature', () => {
+    const key = chatOverlayKey(id);
+    const other = chatOverlayKey('6acfe6fc855f45aab2360c78');
+    expect(parseChatOverlayKey(`${id}.${other.split('.')[1]}`)).toBeNull();
+    const sig = key.split('.')[1];
+    const flipped = (sig[0] === 'A' ? 'B' : 'A') + sig.slice(1);
+    expect(parseChatOverlayKey(`${id}.${flipped}`)).toBeNull();
+    expect(parseChatOverlayKey(id)).toBeNull();
+    expect(parseChatOverlayKey('')).toBeNull();
   });
 });
