@@ -75,3 +75,36 @@ export function decryptStreamSecret(enc: string): string {
   decipher.setAuthTag(Buffer.from(tag, 'base64url'));
   return Buffer.concat([decipher.update(Buffer.from(ct, 'base64url')), decipher.final()]).toString('utf8');
 }
+
+// ── chat overlay keys ────────────────────────────────────────────────────────
+
+let overlayKeyBytes: Buffer | null = null;
+function overlayKey(): Buffer {
+  overlayKeyBytes ??= Buffer.from(hkdfSync('sha256', baseKey(), Buffer.from('hangouts-chat-overlay', 'utf8'), 'overlay-v1', 32));
+  return overlayKeyBytes;
+}
+
+function overlaySignature(username: string): string {
+  return createHmac('sha256', overlayKey()).update(username, 'utf8').digest('base64url').slice(0, 22);
+}
+
+/**
+ * The key in a user's OBS chat overlay URL: `<username>.<signature>`. Bound to
+ * the user (one person streams one thing at a time), stable, so OBS keeps one
+ * dock across streams, and unguessable, so it can't be used to find unlisted
+ * streams.
+ */
+export function chatOverlayKey(username: string): string {
+  return `${username}.${overlaySignature(username)}`;
+}
+
+/** The username a chat overlay key was issued for, or null if it isn't valid. */
+export function parseChatOverlayKey(key: string): string | null {
+  if (typeof key !== 'string') return null;
+  // Hive names may contain dots; the signature never does.
+  const m = /^([a-z0-9.-]{3,16})\.([A-Za-z0-9_-]{22})$/.exec(key);
+  if (!m) return null;
+  const a = Buffer.from(m[2], 'utf8');
+  const b = Buffer.from(overlaySignature(m[1]), 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b) ? m[1] : null;
+}

@@ -416,7 +416,7 @@ If you enabled ingress during the `livekit/generate` step, it's already in your 
 ```yaml
 # Add to docker-compose.yaml under services:
 ingress:
-  image: livekit/ingress:latest
+  image: livekit-ingress:1.5.0-lockfix   # patched build, see below
   network_mode: host
   restart: unless-stopped
   depends_on: [redis, livekit]
@@ -425,6 +425,26 @@ ingress:
   volumes:
     - ./ingress.yaml:/etc/ingress.yaml:ro
 ```
+
+### Build the patched ingress image
+
+Use the patched image, not `livekit/ingress:latest`. On v1.5.0 a **transcoded** WHIP session can deadlock right at the start. Every OBS stream template is transcoded, and so is the studio's OBS input. When it hits:
+
+- the ingress joins the room but never publishes a track;
+- the API ends the session after 60s (`[Headless] ending ... reason: never_published`);
+- OBS keeps showing that it is streaming, because the ingress never closes its side;
+- the session and its `ingress run-handler` process leak until the ingress restarts.
+
+In the ingress log you see `relaying whip ingress` for only one kind and never `starting GST pipeline`. The cause is a lock-order inversion between the track's stats lock and its jitter buffer (upstream fix: [livekit/ingress#530](https://github.com/livekit/ingress/pull/530)).
+
+Build the image on the VPS. This clones v1.5.0, applies `examples/livekit/ingress-lockfix/relay-stats-lock-order.patch` and builds with upstream's own Dockerfile (a few minutes, about 750 MB):
+
+```bash
+bash examples/livekit/ingress-lockfix/build.sh
+cd /opt/livekit && docker compose up -d ingress   # while nobody is streaming
+```
+
+If a stream is stuck on an unpatched ingress, `docker compose restart ingress` clears it. Once a LiveKit release includes the fix, switch back to that release's image.
 
 **Before picking `whip_port`, check it's actually free.** `8080` is the obvious default, but it's a common port and may already be bound by something else on the box (that happened on the production VPS — `8080` was taken, `8082` was used instead). Check first:
 

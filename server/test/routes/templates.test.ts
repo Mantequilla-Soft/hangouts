@@ -23,9 +23,14 @@ vi.mock('../../src/lib/streamTemplates.js', async () => {
   return createFakeStore();
 });
 
+vi.mock('../../src/lib/chatOverlay.js', () => ({
+  findLiveRoomForHost: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock('../../src/lib/headlessStreams.js', () => ({
   isTemplateBusy: vi.fn().mockReturnValue(false),
   getHeadlessStatus: vi.fn().mockReturnValue(null),
+  getLastHeadlessEnd: vi.fn().mockReturnValue(null),
   streamCapMs: (p: boolean) => (p ? 4 : 1) * 3600_000,
   capCooldownRemaining: vi.fn().mockReturnValue(0),
   startHeadlessStream: vi.fn(),
@@ -161,7 +166,11 @@ describe('template CRUD', () => {
     const hs = await import('../../src/lib/headlessStreams.js');
     const t = (await create(alice, { name: 'S', title: 't' })).json().template;
     const idle = await app.inject({ method: 'GET', url: `/templates/${t.id}/status`, headers: { authorization: alice } });
-    expect(idle.json()).toEqual({ state: 'idle', room: null, startedAt: null, capSeconds: 3600, ingress: null, announced: null });
+    expect(idle.json()).toEqual({ state: 'idle', room: null, startedAt: null, capSeconds: 3600, ingress: null, announced: null, lastEnd: null });
+
+    vi.mocked(hs.getLastHeadlessEnd).mockReturnValueOnce({ reason: 'never_published', at: 456 });
+    const stuck = await app.inject({ method: 'GET', url: `/templates/${t.id}/status`, headers: { authorization: alice } });
+    expect(stuck.json().lastEnd).toEqual({ reason: 'never_published', at: 456 });
 
     vi.mocked(hs.getHeadlessStatus).mockReturnValue({
       state: 'live', room: 'alice-abc1234', startedAt: 123,
@@ -193,5 +202,25 @@ describe('stream secret', () => {
     // Per user.
     const other = await app.inject({ method: 'GET', url: '/stream-secret', headers: { authorization: bob } });
     expect(other.json().secret).not.toBe(s2);
+  });
+
+  it('serves each user an overlay key and resolves it publicly to their live room', async () => {
+    const co = await import('../../src/lib/chatOverlay.js');
+    await create(alice, { name: 'S', title: 't' });
+    const list = (await app.inject({ method: 'GET', url: '/templates', headers: { authorization: alice } })).json();
+    expect(list.chatOverlayKey).toMatch(/^alice\.[A-Za-z0-9_-]{22}$/);
+    expect(list.templates[0].chatOverlayKey).toBeUndefined();
+
+    const offline = await app.inject({ method: 'GET', url: `/overlay/${list.chatOverlayKey}` });
+    expect(offline.statusCode).toBe(200);
+    expect(offline.headers['cache-control']).toBe('no-store');
+    expect(offline.json()).toEqual({ live: false, room: null });
+    expect(vi.mocked(co.findLiveRoomForHost)).toHaveBeenLastCalledWith('alice');
+
+    vi.mocked(co.findLiveRoomForHost).mockResolvedValueOnce('alice-abc1234');
+    expect((await app.inject({ method: 'GET', url: `/overlay/${list.chatOverlayKey}` })).json()).toEqual({ live: true, room: 'alice-abc1234' });
+
+    const forged = await app.inject({ method: 'GET', url: '/overlay/alice.AAAAAAAAAAAAAAAAAAAAAA' });
+    expect(forged.statusCode).toBe(404);
   });
 });

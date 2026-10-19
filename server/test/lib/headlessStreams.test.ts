@@ -283,6 +283,11 @@ describe('session lifecycle', () => {
     expect(hs.isTemplateBusy(t._id.toHexString())).toBe(false);
     // Never live → lastLiveAt untouched.
     expect((await store.getTemplateById(t._id.toHexString()))!.lastLiveAt).toBeNull();
+    // The UI is told why, so it can ask the streamer to restart OBS.
+    expect(hs.getLastHeadlessEnd(t._id.toHexString())).toMatchObject({ reason: 'never_published' });
+    // A new connect clears it.
+    await hs.startHeadlessStream(t, 'x');
+    expect(hs.getLastHeadlessEnd(t._id.toHexString())).toBeNull();
   });
 
   it('tears down 20s after the ingress stops publishing, and stamps lastLiveAt', async () => {

@@ -110,6 +110,14 @@ const sessions = new Map<string, Session>();
 const byTemplate = new Map<string, string>();
 const RESERVED = '__reserved__';
 const capCooldown = new Map<string, number>();
+/**
+ * templateId → why its last session ended. A session we gave up on can leave
+ * OBS still "streaming" (the ingress keeps its side of the connection), so the
+ * UI uses this to tell the streamer to stop and restart OBS.
+ */
+const lastEnds = new Map<string, { reason: string; at: number }>();
+/** How long the status endpoint keeps reporting the last end. */
+const LAST_END_TTL_MS = 15 * 60 * 1000;
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let ticking = false;
@@ -200,6 +208,14 @@ export function getHeadlessStatus(templateId: string): {
   };
 }
 
+/** Why the template's last session ended, if that was recent. */
+export function getLastHeadlessEnd(templateId: string): { reason: string; at: number } | null {
+  const end = lastEnds.get(templateId);
+  if (!end) return null;
+  if (Date.now() - end.at > LAST_END_TTL_MS) { lastEnds.delete(templateId); return null; }
+  return end;
+}
+
 /** ms left on the owner's post-cap cooldown (0 = may connect). */
 export function capCooldownRemaining(owner: string): number {
   const until = capCooldown.get(owner);
@@ -233,6 +249,7 @@ export async function startHeadlessStream(template: TemplateDoc, offerSdp: strin
     return { ok: false, status: 409, error: 'already_live', message: 'This template is already streaming' };
   }
   byTemplate.set(templateId, RESERVED);
+  lastEnds.delete(templateId);
 
   let roomName: string | null = null;
   let ingressId: string | null = null;
@@ -442,7 +459,13 @@ async function checkSession(s: Session): Promise<void> {
       await teardown(s, info ? 'ingress_failed' : 'ingress_gone');
       return;
     }
-    if (now - s.createdAt > NEVER_PUBLISHED_MS) await teardown(s, 'never_published');
+    if (now - s.createdAt > NEVER_PUBLISHED_MS) {
+      // OBS connected but no track reached the room. With the LiveKit ingress
+      // relay deadlock, OBS stays connected to the dead session until the
+      // streamer restarts it (and the ingress leaks the session).
+      log.warn({ room: s.roomName, ingressStatus: statusName(status) }, 'no track published within 60s');
+      await teardown(s, 'never_published');
+    }
     return;
   }
 
@@ -584,7 +607,10 @@ function teardown(s: Session, reason: string): Promise<void> {
     await ingressClient.deleteIngress(s.ingressId).catch(() => { /* already gone */ });
     await closeStreamRoom(s.roomName).catch(() => { /* already gone */ });
     sessions.delete(s.key);
-    if (byTemplate.get(s.templateId) === s.key) byTemplate.delete(s.templateId);
+    if (byTemplate.get(s.templateId) === s.key) {
+      byTemplate.delete(s.templateId);
+      lastEnds.set(s.templateId, { reason, at: Date.now() });
+    }
     if (s.liveAt) await setTemplateLastLiveAt(s.templateId, new Date());
   })();
   return s.ending;
@@ -693,5 +719,6 @@ export function _resetHeadlessForTests(): void {
   sessions.clear();
   byTemplate.clear();
   capCooldown.clear();
+  lastEnds.clear();
   if (timer) { clearInterval(timer); timer = null; }
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   generateStreamSecret, hashStreamSecret, verifyStreamSecret,
-  encryptStreamSecret, decryptStreamSecret,
+  encryptStreamSecret, decryptStreamSecret, chatOverlayKey, parseChatOverlayKey,
 } from '../../src/lib/streamSecrets.js';
 
 describe('streaming secret crypto', () => {
@@ -49,5 +49,27 @@ describe('streaming secret crypto', () => {
     parts[3] = ct.toString('base64url');
     expect(() => decryptStreamSecret(parts.join('.'))).toThrow();
     expect(() => decryptStreamSecret('v2.a.b.c')).toThrow();
+  });
+});
+
+describe('chat overlay keys', () => {
+  it('are stable per user and round-trip to the username', () => {
+    const key = chatOverlayKey('badadib');
+    expect(key).toMatch(/^badadib\.[A-Za-z0-9_-]{22}$/);
+    expect(chatOverlayKey('badadib')).toBe(key);
+    expect(parseChatOverlayKey(key)).toBe('badadib');
+    // Hive names may contain dots and dashes.
+    expect(parseChatOverlayKey(chatOverlayKey('the.radio-x'))).toBe('the.radio-x');
+  });
+
+  it('reject a forged or swapped signature', () => {
+    const key = chatOverlayKey('alice');
+    const other = chatOverlayKey('bob');
+    expect(parseChatOverlayKey(`alice.${other.split('.')[1]}`)).toBeNull();
+    const sig = key.split('.')[1];
+    const flipped = (sig[0] === 'A' ? 'B' : 'A') + sig.slice(1);
+    expect(parseChatOverlayKey(`alice.${flipped}`)).toBeNull();
+    expect(parseChatOverlayKey('alice')).toBeNull();
+    expect(parseChatOverlayKey('')).toBeNull();
   });
 });

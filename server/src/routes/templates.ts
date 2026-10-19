@@ -10,7 +10,9 @@ import {
   listTemplates, countTemplates, getTemplate, insertTemplate, updateTemplate, deleteTemplate,
   getOrCreateStreamSecret, resetStreamSecret, StoreUnavailableError, type TemplateDoc,
 } from '../lib/streamTemplates.js';
-import { isTemplateBusy, getHeadlessStatus, streamCapMs } from '../lib/headlessStreams.js';
+import { chatOverlayKey, parseChatOverlayKey } from '../lib/streamSecrets.js';
+import { findLiveRoomForHost } from '../lib/chatOverlay.js';
+import { isTemplateBusy, getHeadlessStatus, getLastHeadlessEnd, streamCapMs } from '../lib/headlessStreams.js';
 
 /**
  * Stream templates (owner-scoped CRUD) + the owner's streaming secret.
@@ -73,7 +75,12 @@ export const templateRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/templates', auth, async (request, reply) => guard(reply, async () => {
     const docs = await listTemplates(request.username);
-    return reply.send({ templates: docs.map(templateView), whipBase: whipBase() });
+    return reply.send({
+      templates: docs.map(templateView),
+      whipBase: whipBase(),
+      // The user's OBS chat overlay key (see GET /overlay/:key).
+      chatOverlayKey: chatOverlayKey(request.username),
+    });
   }));
 
   fastify.post('/templates', {
@@ -147,12 +154,28 @@ export const templateRoutes: FastifyPluginAsync = async (fastify) => {
       state: 'idle', room: null, startedAt: null,
       capSeconds: streamCapMs(premium) / 1000,
       ingress: null, announced: null,
+      lastEnd: getLastHeadlessEnd(id),
     });
   }));
 
   // ── streaming secret ──────────────────────────────────────────────────────
   // One per user: OBS's "Bearer Token" for every template. Returned only to
   // the owner, never cached by anything in between.
+  // Public: the OBS chat overlay (a Browser Dock or Source, no login) polls
+  // this to find the room its user is streaming in. The key is the proof of
+  // access.
+  fastify.get('/overlay/:key', {
+    schema: { params: { type: 'object', required: ['key'], properties: { key: { type: 'string', maxLength: 64 } } } },
+    config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const { key } = request.params as { key: string };
+    const username = parseChatOverlayKey(key);
+    if (!username) return fail(reply, 404, 'not_found', 'Unknown overlay');
+    reply.header('Cache-Control', 'no-store');
+    const room = await findLiveRoomForHost(username).catch(() => null);
+    return reply.send({ live: !!room, room });
+  });
+
   fastify.get('/stream-secret', {
     ...auth,
     config: { rateLimit: { max: 30, timeWindow: '5 minutes' } },

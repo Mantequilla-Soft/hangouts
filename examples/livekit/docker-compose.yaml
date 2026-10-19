@@ -38,7 +38,10 @@ services:
       - /tmp/livekit-recordings:/tmp/livekit-recordings
 
   ingress:
-    image: livekit/ingress:latest
+    # Patched v1.5.0, built by ingress-lockfix/build.sh: fixes a deadlock that
+    # can hang OBS streams at start (livekit/ingress#530). Keep it until a
+    # LiveKit release includes the fix; :latest brings the bug back.
+    image: livekit-ingress:1.5.0-lockfix
     network_mode: host
     restart: unless-stopped
     depends_on: [redis, livekit]
