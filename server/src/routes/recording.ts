@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { canRecordVideo, canRecordAudio } from '../lib/permissions.js';
+import { FREE_STREAM_CAP_MS } from '../lib/streamQuota.js';
 import { publishRecordingToVod, getPublishState, hasPublish } from '../lib/streamVodPublish.js';
 import { readFile, unlink, stat } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
@@ -123,7 +124,7 @@ type LogLike = { warn: (obj: unknown, msg?: string) => void };
 export async function startStandaloneVod(
   name: string,
   meta: { host?: string; portrait?: boolean; post?: Record<string, unknown>; backgroundImage?: string },
-  opts: { publish: boolean; download: boolean; owner: string },
+  opts: { publish: boolean; download: boolean; owner: string; maxMs?: number },
   log: LogLike,
 ): Promise<{ egressId: string; filepath: string }> {
   if (activeRecordings.has(name)) throw new Error('Room is already being recorded');
@@ -209,6 +210,20 @@ export async function startStandaloneVod(
     download: opts.download,
   });
   hostLastSeen.set(name, Date.now());
+  /* A free host's recording ends at the free stream cap, whatever the client does.
+   * The studio stops the stream there itself; this is what holds when it does not
+   * (an edited client, a tab that never sends /record/stop), and it publishes what
+   * was recorded exactly like a normal stop. A minute of slack so the studio's own
+   * stop, which also publishes, wins in the ordinary case. Only THIS egress: a later
+   * recording in the same room must not be cut by an old timer. */
+  if (opts.maxMs && opts.maxMs > 0) {
+    const egressId = info.egressId;
+    setTimeout(() => {
+      if (pendingVods.get(name)?.egressId !== egressId) return;
+      log.warn({ room: name, egressId }, 'free recording cap reached; stopping and publishing');
+      void finishAndPublishVod(name, { stopEgress: true, background: true }).catch(() => { /* watchdog retries */ });
+    }, opts.maxMs + 60_000).unref?.();
+  }
   return { egressId: info.egressId, filepath };
 }
 
@@ -357,10 +372,17 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
     // egress runtime + downstream storage, so both are reserved for Pro
     // subscribers. The gate is mode-specific so each can be relaxed
     // independently later (e.g. a cheaper audio-only tier).
+    // Free hosts may publish a standalone STREAM's recording (owner, 2026-10-21),
+    // capped at the free stream length and without the download copy. Every other
+    // recording (conference rooms, audio, downloads) stays Pro.
+    let freeStreamVod = false;
     if (mode === 'video') {
       const perm = await canRecordVideo(request.username);
       if (!perm.ok) {
-        return reply.forbidden(perm.reason ?? 'Video recording is not permitted for this account');
+        if (!(check.meta?.mode === 'standalone' && publish)) {
+          return reply.forbidden(perm.reason ?? 'Video recording is not permitted for this account');
+        }
+        freeStreamVod = true;
       }
     } else {
       const perm = await canRecordAudio(request.username);
@@ -376,7 +398,9 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
       const { egressId, filepath } = await startStandaloneVod(
         name,
         check.meta as Parameters<typeof startStandaloneVod>[1],
-        { publish, download, owner: request.username },
+        freeStreamVod
+          ? { publish: true, download: false, owner: request.username, maxMs: FREE_STREAM_CAP_MS }
+          : { publish, download, owner: request.username },
         request.log,
       );
       return reply.send({ egressId, status: 'recording', mode, layout, filepath });

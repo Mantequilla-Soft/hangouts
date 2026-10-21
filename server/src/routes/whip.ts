@@ -1,11 +1,12 @@
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { config } from '../config.js';
-import { isUserBanned } from '../lib/users.js';
+import { isUserBanned, getUserStatus } from '../lib/users.js';
+import { nextFreeStreamAt, dailyLimitBody } from '../lib/streamQuota.js';
 import { HIVE_ACCOUNT_RE, SLUG_RE } from '../lib/streamTemplateInput.js';
 import { checkStreamSecret, findTemplateBySlug, StoreUnavailableError } from '../lib/streamTemplates.js';
 import {
   startHeadlessStream, forwardWhipPatch, endWhipSession, getSessionByToken,
-  isTemplateBusy, capCooldownRemaining,
+  isTemplateBusy, capCooldownRemaining, noteHeadlessRefusal,
 } from '../lib/headlessStreams.js';
 
 /**
@@ -81,6 +82,16 @@ export const whipRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (isTemplateBusy(template._id.toHexString())) {
         return plain(reply, 409, 'This template is already live. Stop the other stream first.');
+      }
+      // Free hosts: one stream a day (lib/streamQuota.ts). OBS only shows a
+      // generic connection error, so the reason also goes on the template card.
+      if (!(await getUserStatus(owner)).premium) {
+        const next = await nextFreeStreamAt(owner);
+        if (next) {
+          noteHeadlessRefusal(template._id.toHexString(), 'daily_limit');
+          reply.header('Retry-After', String(Math.max(1, Math.ceil((next.getTime() - Date.now()) / 1000))));
+          return plain(reply, 429, dailyLimitBody(next).message);
+        }
       }
 
       const result = await startHeadlessStream(template, request.body as string);

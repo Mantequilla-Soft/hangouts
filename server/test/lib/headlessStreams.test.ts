@@ -311,7 +311,8 @@ describe('session lifecycle', () => {
     setIngress(ingressId, IngressState_Status.ENDPOINT_PUBLISHING);
     publishHost(room);
     await vi.advanceTimersByTimeAsync(2600);
-    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    // The free cap (alice is not premium here), from the source so it cannot drift.
+    await vi.advanceTimersByTimeAsync(hs.FREE_STREAM_CAP_MS);
     expect(lk.rooms.size).toBe(0);
     expect(hs.capCooldownRemaining('alice')).toBeGreaterThan(14 * 60 * 1000);
   });

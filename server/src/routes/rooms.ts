@@ -16,6 +16,7 @@ import {
   type RoomMetadata, ROOM_VISIBILITIES, ROOM_MODES, createStreamRoom, closeStreamRoom,
 } from '../lib/streamRoom.js';
 import { endHeadlessStreamForRoom, headlessViewerIdentity } from '../lib/headlessStreams.js';
+import { nextFreeStreamAt, recordGoLive, dailyLimitBody } from '../lib/streamQuota.js';
 
 // OBS/WHIP ingest. Same credentials as roomService — the ingress service reads
 // the identical key pair from its own config and talks to LiveKit over loopback.
@@ -309,6 +310,14 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       };
     const host = request.username;
     const { premium } = await getUserStatus(host);
+
+    // Free hosts: one STREAM a day (lib/streamQuota.ts). Refused here, before a
+    // room exists, so the create form can say so and when they can go again.
+    // Conference rooms are not streams and are not counted.
+    if (bodyMode === 'standalone' && !premium) {
+      const next = await nextFreeStreamAt(host);
+      if (next) return reply.code(429).send(dailyLimitBody(next));
+    }
 
     // Capture which surface created the room. Browsers always send Origin
     // on cross-origin POSTs; same-origin tools can fall back to Referer.
@@ -879,6 +888,21 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     if (notFound) return reply.notFound('Room not found');
     if (forbidden) return reply.forbidden('Only the host can start the stream');
     if (headless) return reply.conflict('This stream is driven by OBS');
+
+    // The daily limit again, for a room opened before the host's earlier stream
+    // went live (two rooms created up front). The room is closed rather than just
+    // refused: the studio goes live without waiting on this answer, so a refusal
+    // alone would not stop the broadcast. The ordinary path never gets here,
+    // because POST /rooms already said no.
+    const { premium: hostPremium } = await getUserStatus(request.username);
+    if (!hostPremium) {
+      const next = await nextFreeStreamAt(request.username, name);
+      if (next) {
+        await closeStreamRoom(name).catch(() => { /* already gone */ });
+        return reply.code(429).send(dailyLimitBody(next));
+      }
+    }
+    await recordGoLive(request.username, name);
     return reply.send({ liveAt, willPublishVod: !!willPublishVod, portrait: !!portrait });
   });
 
