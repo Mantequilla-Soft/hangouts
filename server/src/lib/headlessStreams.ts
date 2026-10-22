@@ -9,7 +9,7 @@ import { roomService } from './livekit.js';
 import { mutateRoomMetadata } from './roomMeta.js';
 import { createStreamRoom, closeStreamRoom, type RoomMetadata } from './streamRoom.js';
 import { getUserStatus } from './users.js';
-import { canRecordVideo } from './permissions.js';
+import { recordGoLive, FREE_STREAM_CAP_MS as FREE_CAP_MS } from './streamQuota.js';
 import { getTemplateById, setTemplateLastLiveAt, type TemplateDoc } from './streamTemplates.js';
 import { startStandaloneVod, stopStandaloneVod } from '../routes/recording.js';
 import { startDvrSession, stopDvrSession } from '../routes/dvr.js';
@@ -64,7 +64,7 @@ const META_CHECK_MS = 15_000;
 const CAP_COOLDOWN_MS = 15 * 60 * 1000;
 
 /** Same caps the studio enforces (packages/sdk-react/src/lib/streamLimits.ts). */
-export const FREE_STREAM_CAP_MS = 60 * 60 * 1000;
+export const FREE_STREAM_CAP_MS = FREE_CAP_MS;
 export const PRO_STREAM_CAP_MS = 4 * 60 * 60 * 1000;
 export function streamCapMs(premium: boolean): number {
   return premium ? PRO_STREAM_CAP_MS : FREE_STREAM_CAP_MS;
@@ -206,6 +206,12 @@ export function getHeadlessStatus(templateId: string): {
     ingress: s.ingress,
     announced: s.announced,
   };
+}
+
+/** Record why a connect for this template was REFUSED, so its card can say so
+ *  (OBS itself only shows a generic connection error). */
+export function noteHeadlessRefusal(templateId: string, reason: string): void {
+  lastEnds.set(templateId, { reason, at: Date.now() });
 }
 
 /** Why the template's last session ended, if that was recent. */
@@ -518,7 +524,10 @@ async function goLive(s: Session, video: TrackInfo | undefined, info: IngressInf
   const portrait = h > w;
   const tpl = s.template;
 
-  const vodAllowed = tpl.recording.publishVod && (await canRecordVideo(s.owner)).ok;
+  // Free hosts publish their recording too (owner, 2026-10-21): it can be no
+  // longer than the stream, which this session already caps at 30 minutes, and
+  // startStandaloneVod stops it there as well. Downloads and clips stay Pro.
+  const vodAllowed = tpl.recording.publishVod;
 
   let meta: RoomMetadata;
   try {
@@ -537,11 +546,14 @@ async function goLive(s: Session, video: TrackInfo | undefined, info: IngressInf
   }
   const stamped = Date.parse(meta.liveAt ?? '');
   if (Number.isFinite(stamped)) s.liveAt = stamped;
+  // Counts toward a free host's one stream a day (lib/streamQuota.ts).
+  await recordGoLive(s.owner, s.roomName);
   log.info('live', { room: s.roomName, portrait, width: w, height: h, vod: vodAllowed });
 
   if (vodAllowed) {
     startStandaloneVod(s.roomName, meta as Parameters<typeof startStandaloneVod>[1], {
       publish: true, download: false, owner: s.owner,
+      ...(s.premium ? {} : { maxMs: FREE_STREAM_CAP_MS }),
     }, log).catch((err) => log.warn(err, `VOD start failed for ${s.roomName}`));
   }
   if (tpl.recording.allowClips && s.premium && config.DVR_ENABLED) {
