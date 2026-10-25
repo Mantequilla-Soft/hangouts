@@ -14,8 +14,10 @@
  */
 
 // --- Free (non-Pro) ---------------------------------------------------------
-export const FREE_STREAM_CAP_MS = 60 * 60 * 1000;
-export const FREE_STREAM_CAP_LABEL = '1 hour';
+// 30 minutes (owner, 2026-10-21; was 1 hour). Also the length of a free host's
+// published recording: the server stops that egress here too (permissions.ts).
+export const FREE_STREAM_CAP_MS = 30 * 60 * 1000;
+export const FREE_STREAM_CAP_LABEL = '30 minutes';
 export const FREE_STREAM_WARN_REMAINING_MS = [15, 5, 1].map((m) => m * 60 * 1000);
 
 // --- Pro -------------------------------------------------------------------

@@ -43,6 +43,8 @@ export { useHandRaiseChime } from './hooks/useHandRaiseChime.js';
 export { useHostControls } from './hooks/useHostControls.js';
 export { useHiveAvatar } from './hooks/useHiveAvatar.js';
 export { useBoosts, useBoostStore, BoostStoreProvider } from './hooks/useBoosts.js';
+// Stream time caps (free / Pro), so an integrator shows the same numbers the studio enforces.
+export { resolveStreamCap, FREE_STREAM_CAP_MS, FREE_STREAM_CAP_LABEL, PRO_STREAM_CAP_MS, PRO_STREAM_CAP_LABEL } from './lib/streamLimits.js';
 
 // Components — Room
 export { HangoutsRoom, type HangoutsRoomProps } from './components/room/HangoutsRoom.js';

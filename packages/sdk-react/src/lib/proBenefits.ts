@@ -34,7 +34,7 @@ export interface ProPerkGroup {
  */
 export const STREAM_PERKS: ProPerk[] = [
   { icon: '⏳', title: 'Longer streams', body: `Up to ${PRO_STREAM_CAP_LABEL} instead of ${FREE_STREAM_CAP_LABEL}.` },
-  { icon: '🎬', title: 'Recordings & VODs', body: 'Publish the replay as a video, or download it.' },
+  { icon: '🎬', title: 'Longer replays & downloads', body: `Replays as long as the stream (free: ${FREE_STREAM_CAP_LABEL}), and download the recording.` },
   { icon: '✂️', title: 'Viewer clips', body: 'Viewers can save the last 30 seconds while you are live.' },
   { icon: '📡', title: 'RTMP restream', body: 'Broadcast to other platforms at the same time.' },
   { icon: '📶', title: 'High quality', body: 'Free streams are capped at medium.' },
