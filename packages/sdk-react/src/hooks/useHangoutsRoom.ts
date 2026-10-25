@@ -58,8 +58,12 @@ export function useHangoutsRoom() {
         body: JSON.stringify({ title, description, backgroundImage, visibility, language, boost, mode, tags }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { message?: string };
-        throw new Error(err.message || `Create room failed (${res.status})`);
+        const err = await res.json().catch(() => ({})) as { message?: string; error?: string; retryAt?: string };
+        // `code` + `retryAt` ride along so a caller can say WHY in its own words
+        // (a free host's daily stream limit, POST /rooms 429 daily_stream_limit).
+        throw Object.assign(new Error(err.message || `Create room failed (${res.status})`), {
+          status: res.status, code: err.error, retryAt: err.retryAt,
+        });
       }
       const response = await res.json() as { token: string; room: Room; isPremium?: boolean };
       setState({

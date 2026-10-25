@@ -3904,8 +3904,9 @@
 }
 
 .hh-studio__viewers {
-  font-size: 0.85rem;
-  color: var(--st-muted);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--st-text);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -3931,6 +3932,7 @@
 .hh-studio__hbtn-val { font-variant-numeric: tabular-nums; font-weight: 600; }
 /* The viewer count only looks like a button — it isn't interactive. */
 .hh-studio__hbtn--static { cursor: default; }
+.hh-studio__hbtn--on { border-color: var(--hh-primary); }
 
 /* Permanent throttling warning in the studio header. Deliberately not
    dismissible and never shrunk away — a background tab silently wrecks the
@@ -4100,6 +4102,10 @@
 
 .hh-studio__scene-icon--split i:first-child { top: 2px; bottom: 2px; left: 2px; width: 14px; }
 .hh-studio__scene-icon--split i:last-child { top: 2px; bottom: 2px; right: 2px; width: 12px; }
+
+/* Stacked = the split turned on its side: two halves, one above the other. */
+.hh-studio__scene-icon--splitv i:first-child { left: 2px; right: 2px; top: 2px; height: 7px; }
+.hh-studio__scene-icon--splitv i:last-child { left: 2px; right: 2px; bottom: 2px; height: 7px; }
 
 .hh-studio__scene--active .hh-studio__scene-icon { border-color: var(--st-accent); }
 .hh-studio__scene--active .hh-studio__scene-icon i { background: var(--st-accent); }
@@ -6476,6 +6482,7 @@
     padding: 0.26rem 0.4rem;
     font-size: 0.78rem;
   }
+  .hh-studio__header--mobile .hh-studio__hbtn--views { font-size: 0.95rem; }
   /* Collapsed = a single slim bar; spread the controls evenly across it so they
      aren't cramped together on the right. */
   .hh-studio__header--collapsed { padding-bottom: 6px; }
@@ -7126,22 +7133,42 @@
   opacity: 0.8;
 }
 
+/* Why creating failed, above the actions. The daily stream limit (free hosts)
+   is amber, not an error red: nothing is broken, it is a plan limit. */
+.hh-cd__create-error {
+  margin: 0.6rem 0 0.2rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.08);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+.hh-cd__create-error p { margin: 0; }
+.hh-cd__create-error--limit {
+  border-color: rgba(245, 158, 11, 0.55);
+  background: rgba(245, 158, 11, 0.1);
+}
+.hh-cd__create-error-upsell { margin-top: 0.6rem; }
+
 /* Elapsed / remaining stream time in the studio header. */
 .hh-studio__timer {
   display: inline-flex;
   align-items: baseline;
   gap: 0.25rem;
-  font-size: 0.8rem;
+  font-size: 1.1rem;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: #fff;
   white-space: nowrap;
 }
-.hh-studio__timer-left { opacity: 0.6; font-size: 0.72rem; }
+.hh-studio__timer-left { opacity: 0.6; font-size: 0.85rem; font-weight: 500; }
 .hh-studio__timer--low { color: #ffcf6b; }
 .hh-studio__timer--low .hh-studio__timer-left { opacity: 0.9; }
 @media (max-width: 820px) {
   /* Keep it compact on a phone — the "left" part carries the useful bit. */
-  .hh-studio__timer { font-size: 0.72rem; }
+  .hh-studio__timer { font-size: 0.95rem; }
+  .hh-studio__timer-left { font-size: 0.75rem; }
 }
 
 /* Per-track "Auto" limiter toggle in the mixer fader. */
@@ -7659,3 +7686,11 @@
   cursor: pointer;
 }
 .hh-cd__unlock:hover { background: var(--hh-pro-gold-strong); }
+
+/* Studio settings tab (desktop rail) / sheet (phone). Reuses the .hh-post
+   scroll container and the option-sheet buttons. */
+.hh-settings { display: flex; flex-direction: column; gap: 1.1rem; }
+.hh-settings__group { display: flex; flex-direction: column; }
+.hh-settings__title { font-size: 0.9rem; font-weight: 700; margin-bottom: 0.25rem; }
+.hh-settings__intro { margin: 0 0 0.6rem; font-size: 0.78rem; line-height: 1.35; color: var(--st-muted); }
+.hh-settings .hh-optsheet__opt:last-child { margin-bottom: 0; }

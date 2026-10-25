@@ -8,7 +8,7 @@ import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
 import { ChatPanel } from './ChatPanel.js';
 import { AUTO_VOD_KEY, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
-import { resolveStreamCap } from '../../lib/streamLimits.js';
+import { resolveStreamCap, FREE_STREAM_CAP_LABEL } from '../../lib/streamLimits.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
 import { readStudioSetup, writeStudioSetup, saveStudioFile, deleteStudioFile, loadStudioFiles } from '../../lib/studioSetup.js';
 import { isChromium } from '../../lib/browser.js';
@@ -955,17 +955,23 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // choice, on desktop and mobile alike.
   //
   // 'maintain-framerate' (smooth, sheds sharpness), 'maintain-resolution'
-  // (sharp, sheds smoothness), or 'balanced' (encoder decides). The default is
-  // per-platform: desktop starts pinned to resolution — it has the headroom and
-  // a resolution swim looks worse than a framerate dip — while a phone, which
-  // can't always hold both while compositing, starts on 'balanced'. Applied
-  // live via setDegradationPreference — no republish. (matchMedia, not the
-  // useIsMobile hook, because that hook is set up further down.)
+  // (sharp, sheds smoothness), or 'balanced' (encoder decides). 'balanced' is
+  // the default on desktop and mobile alike. Applied live via
+  // setDegradationPreference — no republish.
+  //
+  // A saved value only wins when the host actually PICKED it. The setup saver
+  // used to store whatever was current, so every desktop host carries the old
+  // 'maintain-resolution' default without ever having chosen it.
+  const degradeChosenRef = useRef(savedSetup.degradePrefChosen === true);
   const [degradePref, setDegradePref] = useState<RTCDegradationPreference>(
-    () => (['balanced', 'maintain-framerate', 'maintain-resolution'].includes(savedSetup.degradePref || '')
+    () => (degradeChosenRef.current && ['balanced', 'maintain-framerate', 'maintain-resolution'].includes(savedSetup.degradePref || '')
       ? savedSetup.degradePref as RTCDegradationPreference
-      : (typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches ? 'balanced' : 'maintain-resolution')),
+      : 'balanced'),
   );
+  const chooseDegradePref = (v: RTCDegradationPreference) => {
+    degradeChosenRef.current = true;
+    setDegradePref(v);
+  };
   const degradePrefRef = useRef<RTCDegradationPreference>(degradePref);
   degradePrefRef.current = degradePref;
   // Pro: record the whole broadcast and publish it as the session's VOD when
@@ -990,7 +996,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const autoDownloadRef = useRef(false);
   autoDownloadRef.current = autoDownload && isPremium;
   const autoVodRef = useRef(false);
-  autoVodRef.current = autoVod && isPremium && canPublishVod;
+  // Free hosts publish the replay too, as long as their stream (FREE_STREAM_CAP);
+  // the local download stays Pro.
+  autoVodRef.current = autoVod && canPublishVod;
 
   // ---- post composer (pre-filled from create-room inputs / saved post) ----
   // Falls back to the host's last-used draft in localStorage, so title,
@@ -1006,7 +1014,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [tagInput, setTagInput] = useState('');
   const [postModalOpen, setPostModalOpen] = useState(false);
   // Post tab first — hosts set up the stream's post details before going live.
-  const [rightTab, setRightTab] = useState<'chat' | 'post'>('post');
+  // Once live the post is locked, so the studio flips to chat (effect below).
+  const [rightTab, setRightTab] = useState<'chat' | 'post' | 'settings'>(() => (streamState === 'standby' ? 'post' : 'chat'));
   const postLocked = streamState !== 'standby';
 
   // ---- panel sizing ------------------------------------------------------
@@ -1021,8 +1030,20 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const isMobile = useIsMobile();
   const isMobileRef = useRef(isMobile);
   isMobileRef.current = isMobile;
-  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests';
+  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests' | 'settings';
   const [mobileSheet, setMobileSheet] = useState<MobileSheetId | null>(null);
+
+  // Going live locks the post, and chat is what the host needs from then on:
+  // switch the rail to chat. On a phone an open sheet becomes the chat sheet;
+  // a closed one stays closed so the preview isn't covered unasked.
+  const prevStreamStateRef = useRef(streamState);
+  useEffect(() => {
+    const prev = prevStreamStateRef.current;
+    prevStreamStateRef.current = streamState;
+    if (prev !== 'standby' || streamState !== 'live') return;
+    setRightTab('chat');
+    setMobileSheet((v) => (v ? 'chat' : v));
+  }, [streamState]);
 
   // Restream to YouTube/Twitch + bring in OBS (Pro). Its own overlay (not a
   // MobileSheet) because StreamingPanel is absolutely-positioned and would
@@ -1095,12 +1116,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   }, [streamState, isPremium, roomName, allowClips]);
   // Stop the recording (and its egress) when the studio goes away.
   useEffect(() => () => { if (dvrAutoRef.current) void dvrStopRef.current(); }, []);
-  // Mobile header: the quality + priority pickers are icon buttons that open a
-  // small option popup (a dropdown is too tall for the compact live header).
-  const [settingSheet, setSettingSheet] = useState<'quality' | 'priority' | null>(null);
   // Mobile header starts COLLAPSED to a minimal bar (state + views + close) so
   // it barely eats into the preview; the ⚠️ toggle expands it to reveal the
-  // quality/priority controls and the "keep the screen on" warning.
+  // "keep the screen on" warning.
   const [headerOpen, setHeaderOpen] = useState(false);
   // Phones shoot both ways. The whole compositor (preview canvas, program
   // canvas, published track) swaps to 9:16 rather than letterboxing a portrait
@@ -1143,7 +1161,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     return {
       chat: Math.round(vh * 0.62), post: Math.round(vh * 0.92),
       mic: Math.round(vh * 0.5), lens: Math.round(vh * 0.5), share: Math.round(vh * 0.42),
-      guests: Math.round(vh * 0.45),
+      guests: Math.round(vh * 0.45), settings: Math.round(vh * 0.75),
     };
   });
 
@@ -1563,13 +1581,27 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
    * Crucially this also sets streamStartFiredRef, so onStreamStart does NOT
    * fire again — otherwise every recovery would publish a second Hive
    * announcement for the same stream.
+   *
+   * 🚨 Two ways this used to lose the stream on a reload:
+   * - A "checked once" ref was set BEFORE the answer arrived. React StrictMode
+   *   (dev) mounts twice: the first mount's answer was dropped by its cleanup
+   *   and the second mount saw the ref and never asked. Now every mount asks and
+   *   only a still-mounted one applies the answer.
+   * - The broadcast effect below reported the fresh mount's `standby` straight
+   *   away, racing this read; landing first, it cleared the very flag being
+   *   read. It now waits for `resumeChecked`.
+   * Bounded by RESUME_CHECK_MS so a hung request cannot hold the broadcast state
+   * back: a host who hits Start must still be reported live.
    */
-  const resumeCheckedRef = useRef(false);
+  const RESUME_CHECK_MS = 5000;
+  const [resumeChecked, setResumeChecked] = useState(false);
   useEffect(() => {
-    if (resumeCheckedRef.current || !roomName || !apiBaseUrl) return;
-    resumeCheckedRef.current = true;
+    if (!roomName || !apiBaseUrl) { setResumeChecked(true); return undefined; }
+    setResumeChecked(false);
     let alive = true;
-    fetch(`${apiBaseUrl.replace(/\/$/, '')}/rooms/${encodeURIComponent(roomName)}`)
+    const ac = new AbortController();
+    const timer = window.setTimeout(() => ac.abort(), RESUME_CHECK_MS);
+    fetch(`${apiBaseUrl.replace(/\/$/, '')}/rooms/${encodeURIComponent(roomName)}`, { signal: ac.signal })
       .then((res) => (res.ok ? res.json() : null))
       .then((room: { broadcasting?: boolean; liveAt?: string; willPublishVod?: boolean } | null) => {
         if (!alive || !room?.broadcasting) return;
@@ -1587,8 +1619,12 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         // would be orphaned to the 6h janitor instead of published.
         if (room.willPublishVod) egressStartedRef.current = true;
       })
-      .catch(() => { /* offline or gone — leave the host in standby */ });
-    return () => { alive = false; };
+      .catch(() => { /* offline, gone or too slow — leave the host in standby */ })
+      .finally(() => {
+        window.clearTimeout(timer);
+        if (alive) setResumeChecked(true);
+      });
+    return () => { alive = false; window.clearTimeout(timer); ac.abort(); };
   }, [roomName, apiBaseUrl]);
   useEffect(() => {
     if (streamState === 'live' && !streamStartFiredRef.current) {
@@ -1627,7 +1663,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // A heartbeat re-asserts `true` while live so the flag self-heals even if
   // an out-of-order request (dev StrictMode double-mount, network reorder)
   // left a stale `false` behind.
+  // Not before the resume check has answered: a fresh mount is in `standby`, and
+  // reporting that would clear the flag the check is reading (see above).
   useEffect(() => {
+    if (!resumeChecked) return undefined;
     const live = streamState === 'live';
     const send = () => authedPatch(`/rooms/${encodeURIComponent(roomName)}/broadcast`, { broadcasting: live })
       .catch(() => { /* best-effort */ });
@@ -1635,7 +1674,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     if (!live) return undefined;
     const t = setInterval(send, 15000);
     return () => clearInterval(t);
-  }, [streamState, roomName, authedPatch]);
+  }, [streamState, roomName, authedPatch, resumeChecked]);
 
   // ---- level meters ------------------------------------------------------
   const preflightMeterRef = useRef<HTMLElement | null>(null);
@@ -2859,7 +2898,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     if (typeof saved.auxGain === 'number') setAuxGain(savedNum(saved.auxGain, 0, 1.5, 1));
     if (typeof saved.auxMuted === 'boolean') setAuxMuted(saved.auxMuted);
     if (saved.streamQuality && saved.streamQuality in STREAM_QUALITY) setStreamQuality(saved.streamQuality as StreamQuality);
-    if (['balanced', 'maintain-framerate', 'maintain-resolution'].includes(saved.degradePref || '')) {
+    if (saved.degradePrefChosen === true && ['balanced', 'maintain-framerate', 'maintain-resolution'].includes(saved.degradePref || '')) {
+      degradeChosenRef.current = true;
       setDegradePref(saved.degradePref as RTCDegradationPreference);
     }
     if (typeof saved.leftW === 'number') setLeftW(savedNum(saved.leftW, 150, 340, 184));
@@ -2928,6 +2968,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       scene,
       source: source && source.startsWith('media:') ? source : null,
       splitRatio, camOn, micOn, micGain, mediaGain, mediaMuted, auxGain, auxMuted, streamQuality, degradePref,
+      degradePrefChosen: degradeChosenRef.current,
       leftW, chatW, faderH, leftCollapsed, chatCollapsed, mixerCollapsed,
       media: mediaItems.map((m) => ({ id: m.id, name: m.name })),
       sounds: sounds.map((x) => ({ id: x.id, label: x.label, gain: x.gain, muted: x.muted, loop: x.loop })),
@@ -3320,9 +3361,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       // stable connections. 'maintain-resolution' pins the frame size; the
       // encoder sheds framerate under pressure rather than sharpness.
       //
-      // The streamer's choice (degradePref) — defaulting to resolution on
-      // desktop and 'balanced' on a phone, where pinning resolution and giving
-      // up framerate is what makes it skip frames. A live change goes through
+      // The streamer's choice (degradePref) — defaulting to 'balanced' (on a
+      // phone, pinning resolution and giving up framerate is what makes it
+      // skip frames). A live change goes through
       // the effect below via setDegradationPreference, not a republish.
       degradationPreference: degradePrefRef.current,
     });
@@ -3688,73 +3729,120 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           beneficiaries for the Hive announcement) — still editable here in
           the studio, right up until the host hits Start. */}
       {renderPostExtras && <div className="hh-post__extras">{renderPostExtras}</div>}
+    </div>
+  );
 
-      {/* Pro: publish the recording as this session's video when the stream
-          ends, so the same link plays the VOD afterwards instead of a dead
-          stream. Locked (and explained) for non-Pro hosts. */}
-      {onStreamVod && canPublishVod && (
+  // Settings tab (desktop rail) / sheet (phone): broadcast quality, what the
+  // encoder gives up under load, and the Pro recording + clip switches. Kept
+  // out of the post tab, which locks once the stream is live.
+  const renderSettings = () => (
+    <div className="hh-post hh-settings">
+      <div className="hh-settings__group">
+        <div className="hh-settings__title">📶 Broadcast quality</div>
+        <p className="hh-settings__intro">Higher quality looks better but needs more upload. Change it any time, it applies live.</p>
+        {QUALITY_OPTIONS.map((o) => {
+          const locked = !!o.pro && !isPremium;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              className={`hh-optsheet__opt${streamQuality === o.value ? ' hh-optsheet__opt--on' : ''}`}
+              disabled={locked}
+              onClick={() => setStreamQuality(o.value)}
+            >
+              <span className="hh-optsheet__opt-label">
+                {o.label}{locked ? ' 🔒' : ''}{streamQuality === o.value ? ' ✓' : ''}
+              </span>
+              <span className="hh-optsheet__opt-desc">{o.desc}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="hh-settings__group">
+        <div className="hh-settings__title">🎚️ Quality priority</div>
+        <p className="hh-settings__intro">When the connection or device can’t send a picture that’s both smooth and sharp, this decides which one wins.</p>
+        {PRIORITY_OPTIONS.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            className={`hh-optsheet__opt${degradePref === o.value ? ' hh-optsheet__opt--on' : ''}`}
+            onClick={() => chooseDegradePref(o.value)}
+          >
+            <span className="hh-optsheet__opt-label">{o.label}{degradePref === o.value ? ' ✓' : ''}</span>
+            <span className="hh-optsheet__opt-desc">{o.desc}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="hh-settings__group">
+        <div className="hh-settings__title">🎬 Recording</div>
+        {/* Publish the recording as this session's video when the stream ends,
+            so the same link plays the VOD afterwards instead of a dead stream.
+            Everyone (owner, 2026-10-21): a free replay is as long as a free
+            stream, and the server stops the recording there too. */}
+        {onStreamVod && canPublishVod && (
+          <label className="hh-post__vod">
+            <input
+              type="checkbox"
+              checked={autoVod}
+              disabled={streamState !== 'standby'}
+              onChange={(e) => setAutoVod(e.target.checked)}
+            />
+            <span>
+              🎬 Replace the stream with a video when it ends
+              <em className="hh-post__vod-hint">
+                {streamState !== 'standby'
+                  ? 'Locked while the stream is running.'
+                  : isPremium
+                    ? 'Records the whole broadcast and adds it as the VOD on your announcement post.'
+                    : `Records the broadcast (up to ${FREE_STREAM_CAP_LABEL}) and adds it as the VOD on your announcement post.`}
+              </em>
+            </span>
+          </label>
+        )}
+
+        {/* Keep a local copy too — independent of publishing the VOD. */}
         <label className={`hh-post__vod${isPremium ? '' : ' hh-post__vod--locked'}`}>
           <input
             type="checkbox"
-            checked={autoVod && isPremium}
+            checked={autoDownload && isPremium}
             disabled={!isPremium || streamState !== 'standby'}
-            onChange={(e) => setAutoVod(e.target.checked)}
+            onChange={(e) => setAutoDownload(e.target.checked)}
           />
           <span>
-            🎬 Replace the stream with a video when it ends
+            💾 Record the session and download it when it ends
             {!isPremium && ' 🔒'}
             <em className="hh-post__vod-hint">
               {!isPremium
-                ? 'Only available with 3Speak Pro — records the broadcast and adds it as VOD to the announcement post.'
+                ? 'Only available with 3Speak Pro — records the broadcast to a file on your computer.'
                 : streamState !== 'standby'
                   ? 'Locked while the stream is running.'
-                  : 'Records the whole broadcast and adds it as the VOD on your announcement post.'}
+                  : 'Saves a copy to your computer when you end the stream.'}
             </em>
           </span>
         </label>
-      )}
 
-      {/* Keep a local copy too — independent of publishing the VOD. */}
-      <label className={`hh-post__vod${isPremium ? '' : ' hh-post__vod--locked'}`}>
-        <input
-          type="checkbox"
-          checked={autoDownload && isPremium}
-          disabled={!isPremium || streamState !== 'standby'}
-          onChange={(e) => setAutoDownload(e.target.checked)}
-        />
-        <span>
-          💾 Record the session and download it when it ends
-          {!isPremium && ' 🔒'}
-          <em className="hh-post__vod-hint">
-            {!isPremium
-              ? 'Only available with 3Speak Pro — records the broadcast to a file on your computer.'
-              : streamState !== 'standby'
-                ? 'Locked while the stream is running.'
-                : 'Saves a copy to your computer when you end the stream.'}
-          </em>
-        </span>
-      </label>
-
-      {/* Pro: let viewers clip the last 30s. Toggleable ANY time — turning it
-          off stops the DVR recording, so the viewer "30 sec" button vanishes. */}
-      <label className={`hh-post__vod${isPremium ? '' : ' hh-post__vod--locked'}`}>
-        <input
-          type="checkbox"
-          checked={allowClips && isPremium}
-          disabled={!isPremium}
-          onChange={(e) => setAllowClips(e.target.checked)}
-        />
-        <span>
-          ✂ Let viewers clip the last 30 seconds
-          {!isPremium && ' 🔒'}
-          <em className="hh-post__vod-hint">
-            {!isPremium
-              ? 'Only available with 3Speak Pro — viewers can save and share a 30-second clip of your live stream.'
-              : 'Viewers get a “30 sec” button to save and share a clip. Turn this off to hide it.'}
-          </em>
-        </span>
-      </label>
-
+        {/* Pro: let viewers clip the last 30s. Toggleable ANY time — turning it
+            off stops the DVR recording, so the viewer "30 sec" button vanishes. */}
+        <label className={`hh-post__vod${isPremium ? '' : ' hh-post__vod--locked'}`}>
+          <input
+            type="checkbox"
+            checked={allowClips && isPremium}
+            disabled={!isPremium}
+            onChange={(e) => setAllowClips(e.target.checked)}
+          />
+          <span>
+            ✂ Let viewers clip the last 30 seconds
+            {!isPremium && ' 🔒'}
+            <em className="hh-post__vod-hint">
+              {!isPremium
+                ? 'Only available with 3Speak Pro — viewers can save and share a 30-second clip of your live stream.'
+                : 'Viewers get a “30 sec” button to save and share a clip. Turn this off to hide it.'}
+            </em>
+          </span>
+        </label>
+      </div>
     </div>
   );
 
@@ -4062,26 +4150,18 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                the "keep the screen on" warning row. Each picker opens a bottom
                popup with explanations. */
             <>
-              <button
-                className="hh-studio__hbtn"
-                onClick={() => setSettingSheet('quality')}
-                title="Broadcast quality"
-                aria-label="Broadcast quality"
-              >
-                📶<span className="hh-studio__hbtn-val">{QUALITY_OPTIONS.find((o) => o.value === streamQuality)?.short}</span>
-              </button>
-              <button
-                className="hh-studio__hbtn"
-                onClick={() => setSettingSheet('priority')}
-                title="Quality priority under load"
-                aria-label="Quality priority under load"
-              >
-                🎚️
-              </button>
               {/* Viewer count — a button for visual consistency; tapping does
                   nothing (there's no viewer list to open here). */}
-              <button className="hh-studio__hbtn hh-studio__hbtn--static" type="button" title="Viewers watching" aria-label={`${viewerCount} watching`}>
+              <button className="hh-studio__hbtn hh-studio__hbtn--static hh-studio__hbtn--views" type="button" title="Viewers watching" aria-label={`${viewerCount} watching`}>
                 👁<span className="hh-studio__hbtn-val">{viewerCount}</span>
+              </button>
+              <button
+                className={`hh-studio__hbtn${mobileSheet === 'settings' ? ' hh-studio__hbtn--on' : ''}`}
+                onClick={() => setMobileSheet((v) => (v === 'settings' ? null : 'settings'))}
+                title="Stream settings"
+                aria-label="Stream settings"
+              >
+                ⚙️<span className="hh-studio__hbtn-val">{QUALITY_OPTIONS.find((o) => o.value === streamQuality)?.short}</span>
               </button>
               {/* Persistent ⚠️ cue while collapsed — also expands the warning. */}
               {!headerOpen && (
@@ -4108,24 +4188,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           ) : (
             <>
               <span className="hh-studio__viewers" title="Viewers watching">👁 {viewerCount}</span>
-              <label className="hh-studio__quality" title={isPremium ? 'Broadcast quality' : 'Broadcast quality — High needs 3Speak Pro'}>
-                <span aria-hidden="true">📶</span>
-                <select value={streamQuality} onChange={(e) => setStreamQuality(e.target.value as StreamQuality)} aria-label="Broadcast quality">
-                  <option value="low">Low · 360p</option>
-                  <option value="medium">Medium · 480p</option>
-                  <option value="high" disabled={!isPremium}>High · 720p{isPremium ? '' : ' 🔒'}</option>
-                </select>
-              </label>
-              {/* Which way the encoder gives ground when it can't hold both.
-                  Changing it while live is applied on the fly (no republish). */}
-              <label className="hh-studio__quality" title="When the encoder can't keep up: keep motion smooth, or keep the picture sharp">
-                <span aria-hidden="true">🎚️</span>
-                <select value={degradePref} onChange={(e) => setDegradePref(e.target.value as RTCDegradationPreference)} aria-label="Priority when the encoder can't keep up">
-                  <option value="maintain-framerate">Smooth motion</option>
-                  <option value="balanced">Balanced</option>
-                  <option value="maintain-resolution">Sharp image</option>
-                </select>
-              </label>
             </>
           )}
           {!isMobile && shareUrl && <button className="hh-btn hh-btn--secondary hh-btn--small" onClick={copyShareUrl}>{copied ? '✓ Copied' : '🔗 Share'}</button>}
@@ -4163,57 +4225,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             <span className="hh-studio__timecap-icon" aria-hidden="true">⏳</span>
             <p className="hh-studio__timecap-text">{timeWarning}</p>
             <button className="hh-studio__timecap-close" onClick={() => setTimeWarning('')} aria-label="Dismiss">✕</button>
-          </div>
-        </div>
-      )}
-
-      {/* Mobile value-picker popup for the quality / priority header buttons. */}
-      {settingSheet && (
-        <div className="hh-optsheet-backdrop" onClick={() => setSettingSheet(null)}>
-          <div
-            className="hh-optsheet"
-            role="dialog"
-            aria-label={settingSheet === 'quality' ? 'Broadcast quality' : 'Quality priority'}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="hh-optsheet__head">
-              <span className="hh-optsheet__title">
-                {settingSheet === 'quality' ? '📶 Broadcast quality' : '🎚️ Quality priority'}
-              </span>
-              <button className="hh-optsheet__close" onClick={() => setSettingSheet(null)} aria-label="Close">✕</button>
-            </div>
-            <p className="hh-optsheet__intro">
-              {settingSheet === 'quality'
-                ? 'Higher quality looks better but needs more upload. Change it any time — it applies live.'
-                : 'When your phone can’t send a picture that’s both smooth and sharp, this decides which one wins.'}
-            </p>
-            {settingSheet === 'quality'
-              ? QUALITY_OPTIONS.map((o) => {
-                  const locked = !!o.pro && !isPremium;
-                  return (
-                    <button
-                      key={o.value}
-                      className={`hh-optsheet__opt${streamQuality === o.value ? ' hh-optsheet__opt--on' : ''}`}
-                      disabled={locked}
-                      onClick={() => { setStreamQuality(o.value); setSettingSheet(null); }}
-                    >
-                      <span className="hh-optsheet__opt-label">
-                        {o.label}{locked ? ' 🔒' : ''}{streamQuality === o.value ? ' ✓' : ''}
-                      </span>
-                      <span className="hh-optsheet__opt-desc">{o.desc}</span>
-                    </button>
-                  );
-                })
-              : PRIORITY_OPTIONS.map((o) => (
-                  <button
-                    key={o.value}
-                    className={`hh-optsheet__opt${degradePref === o.value ? ' hh-optsheet__opt--on' : ''}`}
-                    onClick={() => { setDegradePref(o.value); setSettingSheet(null); }}
-                  >
-                    <span className="hh-optsheet__opt-label">{o.label}{degradePref === o.value ? ' ✓' : ''}</span>
-                    <span className="hh-optsheet__opt-desc">{o.desc}</span>
-                  </button>
-                ))}
           </div>
         </div>
       )}
@@ -4420,7 +4431,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 : mobileSheet === 'post' ? 'Stream post'
                 : mobileSheet === 'lens' ? 'Camera'
                 : mobileSheet === 'share' ? 'Share this stream'
-                : mobileSheet === 'guests' ? 'Requests to join' : 'Microphone'}
+                : mobileSheet === 'guests' ? 'Requests to join'
+                : mobileSheet === 'settings' ? 'Stream settings' : 'Microphone'}
               onClose={() => setMobileSheet(null)}
               height={sheetH[mobileSheet]}
               onHeightChange={(h) => setSheetH((prev) => ({ ...prev, [mobileSheet]: h }))}
@@ -4429,6 +4441,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             >
               {mobileSheet === 'chat' && <ChatPanel readOnly readOnlyNotice="" />}
               {mobileSheet === 'post' && renderPostEditor(false)}
+              {mobileSheet === 'settings' && renderSettings()}
               {mobileSheet === 'guests' && (
                 <div className="hh-guests">
                   {collabError && <p className="hh-guests__error">{collabError}</p>}
@@ -4834,7 +4847,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
 
         {/* Right rail */}
         {chatCollapsed ? (
-          <button className="hh-studio__reopen" onClick={() => setChatCollapsed(false)} title="Show chat & post">◂ 💬</button>
+          <button className="hh-studio__reopen" onClick={() => setChatCollapsed(false)} title="Show chat, post & settings">◂ 💬</button>
         ) : (
           <aside className="hh-studio__chat" style={{ width: chatW }}>
             <div className="hh-studio__tabs">
@@ -4846,10 +4859,11 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                     the title, community and payout. Mirrors the mobile rail. */}
                 {streamState === 'standby' && <span className="hh-studio__rbtn-dot" aria-hidden="true" />}
               </button>
+              <button className={`hh-studio__tab${rightTab === 'settings' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('settings')}>⚙️ Settings</button>
               <button className="hh-studio__collapse hh-studio__tabs-collapse" onClick={() => setChatCollapsed(true)} title="Collapse">›</button>
             </div>
             <div className="hh-studio__tab-body">
-              {rightTab === 'chat' ? <ChatPanel /> : renderPostEditor(false)}
+              {rightTab === 'chat' ? <ChatPanel /> : rightTab === 'settings' ? renderSettings() : renderPostEditor(false)}
             </div>
             <div className="hh-studio__transport">
               {streamState === 'standby' && <button className="hh-studio__go-btn" onClick={() => { void savePost(); setStreamState('live'); }} title="Cut the program and audio over to your viewers">🔴 START STREAM</button>}

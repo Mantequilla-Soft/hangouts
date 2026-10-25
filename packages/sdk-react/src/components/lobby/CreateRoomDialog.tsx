@@ -383,10 +383,17 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
     boostEnabled, minBoostUsd, creatorPayoutAccount, notifyOnHive, announceType,
   ]);
 
+  // Why the last create failed, shown above the actions. A free host's daily
+  // stream limit gets its own wording, with the local time they can go again.
+  const [createError, setCreateError] = useState<{ message: string; dailyLimit: boolean } | null>(null);
+
   const submitRoom = async () => {
     const bg = imageServerApiKey ? (backgroundImageUrl || undefined) : undefined;
     const minUsd = Number(minBoostUsd);
-    const room = await create(
+    setCreateError(null);
+    let room: Room | null | undefined;
+    try {
+      room = await create(
       title.trim(),
       description.trim() || undefined,
       bg,
@@ -399,7 +406,25 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
       },
       mode,
       tags,
-    );
+      );
+    } catch (err) {
+      const e = err as Error & { code?: string; retryAt?: string };
+      if (e.code === 'daily_stream_limit') {
+        const at = e.retryAt ? new Date(e.retryAt) : null;
+        const valid = !!at && Number.isFinite(at.getTime());
+        const sameDay = valid && at!.toDateString() === new Date().toDateString();
+        const when = valid
+          ? `${sameDay ? 'today' : 'tomorrow'} at ${at!.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+          : 'tomorrow';
+        setCreateError({
+          dailyLimit: true,
+          message: `Free accounts can start one stream per day, and you have already streamed today. You can go live again ${when}.`,
+        });
+      } else {
+        setCreateError({ dailyLimit: false, message: e.message || "Couldn't create the stream. Please try again." });
+      }
+      return;
+    }
     const shouldNotify = visibility === 'unlisted' ? false : notifyOnHive;
     if (room) onCreated(room, { notifyOnHive: shouldNotify, announceType: effectiveAnnounceType });
   };
@@ -788,20 +813,18 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
                 not locked — a lock implies "upgrade and you get this", which
                 would be wrong here. */}
             {notifyOnHive && visibility !== 'unlisted' && (
-              <label className={`hh-cd__reccheck${isPremium ? '' : ' hh-cd__reccheck--locked'}`}>
+              <label className="hh-cd__reccheck">
                 <input
                   type="checkbox"
-                  checked={autoVod && isPremium}
-                  disabled={!isPremium}
+                  checked={autoVod}
                   onChange={(e) => setAutoVod(e.target.checked)}
                 />
                 <span>
                   🎬 Replace the stream with a video when it ends
-                  {!isPremium && ' 🔒'}
                   <em>
                     {isPremium
                       ? 'Records the whole broadcast and adds it as the VOD on your announcement post, so the same link plays the replay afterwards.'
-                      : 'Only available with 3Speak Pro \u2014 records the broadcast and adds it as VOD to the announcement post.'}
+                      : `Records the broadcast (up to ${FREE_STREAM_CAP_LABEL}) and adds it as the VOD on your announcement post, so the same link plays the replay afterwards.`}
                   </em>
                 </span>
               </label>
@@ -865,8 +888,8 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
             {isPremium ? (
               <>⏳ Streams can run up to {PRO_STREAM_CAP_LABEL}.</>
             ) : (
-              <>⏳ Free streams are limited to {FREE_STREAM_CAP_LABEL}. Upgrade to{' '}
-                <strong>3Speak Pro</strong> for longer streams (up to {PRO_STREAM_CAP_LABEL}).</>
+              <>⏳ Free streams are limited to {FREE_STREAM_CAP_LABEL} and one stream per day. Upgrade to{' '}
+                <strong>3Speak Pro</strong> for longer streams (up to {PRO_STREAM_CAP_LABEL}) with no daily limit.</>
             )}
           </p>
         )}
@@ -888,13 +911,26 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
           notifyOnHive: visibility === 'unlisted' ? false : notifyOnHive,
           announceType: effectiveAnnounceType,
           recording: {
-            autoVod: isPremium && autoVod,
+            // Everyone may publish the replay (a free one is as long as a free stream).
+            autoVod,
             autoDownload: isPremium && autoDownload,
             allowClips: isPremium && allowClips,
           },
           isPremium,
         })}
       </>)}
+
+      {createError && (
+        <div className={`hh-cd__create-error${createError.dailyLimit ? ' hh-cd__create-error--limit' : ''}`} role="alert">
+          <p>{createError.dailyLimit ? '⏳ ' : ''}{createError.message}</p>
+          {createError.dailyLimit && (
+            <button type="button" className="hh-btn hh-btn--primary hh-cd__create-error-upsell"
+              onClick={() => (onUpsell ? onUpsell() : setUpsellMode('info'))}>
+              Stream without a daily limit with 3Speak Pro
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 11 · Actions */}
       {stepped ? stepNav('bottom') : (

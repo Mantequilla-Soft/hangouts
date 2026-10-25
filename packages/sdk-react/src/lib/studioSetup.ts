@@ -35,6 +35,8 @@ export interface StudioSetup {
   auxMuted?: boolean;
   streamQuality?: string;
   degradePref?: string;
+  /** degradePref was picked by the host, not just the default at save time. */
+  degradePrefChosen?: boolean;
   leftW?: number;
   chatW?: number;
   faderH?: number;
