@@ -7150,6 +7150,14 @@
   background: rgba(245, 158, 11, 0.1);
 }
 .hh-cd__create-error-upsell { margin-top: 0.6rem; }
+.hh-cd__create-error-upsell.hh-btn--primary {
+  background: transparent;
+  color: var(--hh-primary, #e31337);
+  border: 1px solid var(--hh-primary, #e31337);
+}
+.hh-cd__create-error-upsell.hh-btn--primary:hover {
+  background: rgba(227, 19, 55, 0.08);
+}
 
 /* Elapsed / remaining stream time in the studio header. */
 .hh-studio__timer {
