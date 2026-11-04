@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { config } from '../config.js';
 import { isUserBanned, getUserStatus } from '../lib/users.js';
-import { nextFreeStreamAt, dailyLimitBody } from '../lib/streamQuota.js';
+import { OBS_PRO_MESSAGE } from '../lib/streamQuota.js';
 import { HIVE_ACCOUNT_RE, SLUG_RE } from '../lib/streamTemplateInput.js';
 import { checkStreamSecret, findTemplateBySlug, StoreUnavailableError } from '../lib/streamTemplates.js';
 import {
@@ -75,6 +75,15 @@ export const whipRoutes: FastifyPluginAsync = async (fastify) => {
       const template = await findTemplateBySlug(owner, slug);
       if (!template) return plain(reply, 404, 'No such stream template');
 
+      // OBS is a Pro feature (lib/streamQuota.ts). OBS itself only shows a
+      // generic connection error, so the reason also goes on the template card.
+      // (Free hosts' one-stream-a-day limit used to sit here; with OBS Pro-only
+      // it can no longer apply on this path.)
+      if (!(await getUserStatus(owner)).premium) {
+        noteHeadlessRefusal(template._id.toHexString(), 'pro_required');
+        return plain(reply, 403, OBS_PRO_MESSAGE);
+      }
+
       const cooldown = capCooldownRemaining(owner);
       if (cooldown > 0) {
         reply.header('Retry-After', String(Math.ceil(cooldown / 1000)));
@@ -83,17 +92,6 @@ export const whipRoutes: FastifyPluginAsync = async (fastify) => {
       if (isTemplateBusy(template._id.toHexString())) {
         return plain(reply, 409, 'This template is already live. Stop the other stream first.');
       }
-      // Free hosts: one stream a day (lib/streamQuota.ts). OBS only shows a
-      // generic connection error, so the reason also goes on the template card.
-      if (!(await getUserStatus(owner)).premium) {
-        const next = await nextFreeStreamAt(owner);
-        if (next) {
-          noteHeadlessRefusal(template._id.toHexString(), 'daily_limit');
-          reply.header('Retry-After', String(Math.max(1, Math.ceil((next.getTime() - Date.now()) / 1000))));
-          return plain(reply, 429, dailyLimitBody(next).message);
-        }
-      }
-
       const result = await startHeadlessStream(template, request.body as string);
       if (!result.ok) return plain(reply, result.status, result.message);
 

@@ -5027,12 +5027,17 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               // OBS still publishing but its source tile was removed → offer to
               // bring the scene back instead of trying to set up a fresh ingress.
               const obsSourceGone = obsLive && !shares.some((s) => s.id === OBS_SOURCE_ID);
+              // OBS is a 3Speak Pro feature; the server refuses the ingress for
+              // free hosts too (pro_required). A feed that is already connected
+              // can always be brought back.
+              const obsLocked = !isPremium && !obsLive;
               return (
-                <button className="hh-studio__add-item" disabled={obsBusy}
+                <button className="hh-studio__add-item" disabled={obsBusy || obsLocked}
                   onClick={() => { setAddMenuOpen(false); if (obsSourceGone) restoreObs(); else void openObsSetup(); }}
-                  title={obsSourceGone ? 'Bring the connected OBS feed back as a source' : 'Publish from OBS (or any WHIP encoder) into this stream'}>
-                  🎥 {obsSourceGone ? 'Reconnect OBS scene' : 'OBS / external encoder'}
-                  <span className="hh-studio__add-state">{obsSourceGone ? 'tap to restore' : obsLive ? 'connected ✓' : obsBusy ? 'setting up…' : ''}</span>
+                  title={obsLocked ? 'Streaming from OBS is part of 3Speak Pro'
+                    : obsSourceGone ? 'Bring the connected OBS feed back as a source' : 'Publish from OBS (or any WHIP encoder) into this stream'}>
+                  🎥 {obsSourceGone ? 'Reconnect OBS scene' : 'OBS / external encoder'}{obsLocked ? ' 🔒' : ''}
+                  <span className="hh-studio__add-state">{obsLocked ? '3Speak Pro' : obsSourceGone ? 'tap to restore' : obsLive ? 'connected ✓' : obsBusy ? 'setting up…' : ''}</span>
                 </button>
               );
             })()}

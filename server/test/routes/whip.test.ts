@@ -27,6 +27,7 @@ vi.mock('../../src/lib/headlessStreams.js', () => ({
   getHeadlessStatus: vi.fn().mockReturnValue(null),
   streamCapMs: (p: boolean) => (p ? 4 : 1) * 3600_000,
   capCooldownRemaining: vi.fn().mockReturnValue(0),
+  noteHeadlessRefusal: vi.fn(),
   startHeadlessStream: vi.fn(),
   forwardWhipPatch: vi.fn(),
   endWhipSession: vi.fn(),
@@ -69,6 +70,9 @@ beforeEach(async () => {
   });
   const users = await import('../../src/lib/users.js');
   vi.mocked(users.isUserBanned).mockResolvedValue(false);
+  // OBS is Pro-only; every test streams as a Pro host unless it says otherwise.
+  vi.mocked(users.getUserStatus).mockResolvedValue({ banned: false, premium: true });
+  vi.mocked(hs.noteHeadlessRefusal).mockClear();
 });
 
 function connect(path: string, opts: { auth?: string | null; type?: string; body?: string } = {}) {
@@ -134,6 +138,24 @@ describe('POST /whip/:owner/:slug', () => {
     const users = await import('../../src/lib/users.js');
     vi.mocked(users.isUserBanned).mockResolvedValue(true);
     expect((await connect('/whip/alice/morning-show')).statusCode).toBe(403);
+  });
+
+  it('403s a free (non-Pro) owner, notes it on the template card, starts nothing', async () => {
+    const users = await import('../../src/lib/users.js');
+    vi.mocked(users.getUserStatus).mockResolvedValue({ banned: false, premium: false });
+    const hs = await import('../../src/lib/headlessStreams.js');
+    vi.mocked(hs.startHeadlessStream).mockClear();
+    const res = await connect('/whip/alice/morning-show');
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toMatch(/3Speak Pro/);
+    expect(hs.noteHeadlessRefusal).toHaveBeenCalledWith(templateId, 'pro_required');
+    expect(hs.startHeadlessStream).not.toHaveBeenCalled();
+  });
+
+  it('checks the secret before Pro, so a wrong secret still 401s for a free owner', async () => {
+    const users = await import('../../src/lib/users.js');
+    vi.mocked(users.getUserStatus).mockResolvedValue({ banned: false, premium: false });
+    expect((await connect('/whip/alice/morning-show', { auth: 'Bearer nope' })).statusCode).toBe(401);
   });
 
   it('409s when the template is already live', async () => {

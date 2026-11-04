@@ -95,6 +95,18 @@ export async function nextFreeStreamAt(owner: string, room?: string): Promise<Da
   }
 }
 
+/**
+ * OBS (WHIP ingest) is a 3Speak Pro feature, on both paths: OBS as a source in
+ * the browser studio (POST /rooms/:name/ingress) and headless OBS streams from a
+ * template (POST /whip/:owner/:slug). Free hosts still stream from the browser.
+ */
+export const OBS_PRO_MESSAGE =
+  'Streaming from OBS is part of 3Speak Pro. You can still go live from the Stream Studio in your browser.';
+
+export function obsProRequiredBody(): { error: 'pro_required'; message: string } {
+  return { error: 'pro_required', message: OBS_PRO_MESSAGE };
+}
+
 /** The refusal every surface sends, so the studio, OBS and API say the same thing. */
 export function dailyLimitBody(retryAt: Date): { error: 'daily_stream_limit'; message: string; retryAt: string } {
   return {

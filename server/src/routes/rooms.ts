@@ -16,7 +16,7 @@ import {
   type RoomMetadata, ROOM_VISIBILITIES, ROOM_MODES, createStreamRoom, closeStreamRoom,
 } from '../lib/streamRoom.js';
 import { endHeadlessStreamForRoom, headlessViewerIdentity } from '../lib/headlessStreams.js';
-import { nextFreeStreamAt, recordGoLive, dailyLimitBody } from '../lib/streamQuota.js';
+import { nextFreeStreamAt, recordGoLive, dailyLimitBody, obsProRequiredBody } from '../lib/streamQuota.js';
 
 // OBS/WHIP ingest. Same credentials as roomService — the ingress service reads
 // the identical key pair from its own config and talks to LiveKit over loopback.
@@ -740,6 +740,8 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     let meta: Partial<RoomMetadata> = {};
     try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
     if (meta.host !== request.username) return reply.forbidden('Only the host can set up OBS ingest');
+    // OBS is a Pro feature (lib/streamQuota.ts).
+    if (!(await getUserStatus(request.username)).premium) return reply.code(403).send(obsProRequiredBody());
 
     const identity = `obs-ingress-${name}`;
 
