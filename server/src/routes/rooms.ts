@@ -30,7 +30,9 @@ const ingressClient = new IngressClient(
 const GUEST_PREFIX = 'guest-';
 /** Identity prefix used for silent OBS overlay observers. */
 const OBS_PREFIX = 'obs-';
-const MAX_GUESTS_PER_ROOM = Number(process.env.MAX_GUESTS_PER_ROOM ?? 100);
+// Default from the 2026-11-05 live.3speak.tv stress test: one stream stayed clean
+// at 50 viewers, while at 100 every viewer lost ~45% of packets and the recording broke.
+const MAX_GUESTS_PER_ROOM = Number(process.env.MAX_GUESTS_PER_ROOM ?? 50);
 
 /**
  * /rooms and /streams scan every room (listRooms + listParticipants per room),
