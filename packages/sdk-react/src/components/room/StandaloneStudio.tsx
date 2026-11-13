@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useConnectionState, useLocalParticipant, useParticipants, useTracks } from '@livekit/components-react';
+import { useConnectionState, useLocalParticipant, useParticipants, useRoomInfo, useTracks } from '@livekit/components-react';
 import { ConnectionQuality, ConnectionState, ParticipantEvent, Track } from 'livekit-client';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { usePremiumStatus } from '../../hooks/usePremiumStatus.js';
@@ -24,6 +24,7 @@ import {
 import { BoostOverlay } from './BoostOverlay.js';
 import { useBoostStore, BOOST_DISPLAY_MS } from '../../hooks/useBoosts.js';
 import { BoostHistoryPanel } from './BoostHistoryPanel.js';
+import { BoostSettingsPanel } from './BoostSettingsPanel.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
 import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
 import { useDvr } from '../../hooks/useDvr.js';
@@ -933,6 +934,22 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [auxMuted, setAuxMuted] = useState(() => savedSetup.auxMuted === true);
   const [mediaError, setMediaError] = useState('');
   const [boostHistoryOpen, setBoostHistoryOpen] = useState(false);
+  // Boost settings, changeable mid-stream: on/off, the minimum to show a boost
+  // on screen, the payout account. Read live from the room metadata, so the
+  // button and the panel follow what the server stored (the panel's save goes
+  // through PATCH /rooms/:name/boost, which updates that metadata).
+  const [boostSettingsOpen, setBoostSettingsOpen] = useState(false);
+  const roomInfo = useRoomInfo();
+  const boostConfig = useMemo(() => {
+    try {
+      const meta = JSON.parse(roomInfo.metadata || '{}') as { boost?: unknown };
+      const b = meta.boost;
+      return b && typeof b === 'object' && !Array.isArray(b)
+        ? b as { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string }
+        : undefined;
+    } catch { return undefined; }
+  }, [roomInfo.metadata]);
+  const boostsOff = boostConfig?.enabled === false;
   const [copied, setCopied] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   // OBS / external encoder ingest (WHIP).
@@ -4192,6 +4209,16 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           )}
           {!isMobile && shareUrl && <button className="hh-btn hh-btn--secondary hh-btn--small" onClick={copyShareUrl}>{copied ? '✓ Copied' : '🔗 Share'}</button>}
           {!isMobile && <button className={`hh-btn hh-btn--small ${boostHistoryOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`} onClick={() => setBoostHistoryOpen((v) => !v)} title="Boost history">💰</button>}
+          {!isMobile && (
+            <button
+              className={`hh-btn hh-btn--small ${boostSettingsOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+              onClick={() => setBoostSettingsOpen((v) => !v)}
+              title={boostsOff ? 'Boosts are off: open Boost settings' : 'Boost settings'}
+              aria-label="Boost settings"
+            >
+              🚀{boostsOff ? ' off' : ''}
+            </button>
+          )}
           {onClose && (
             <button
               className="hh-studio__close"
@@ -5076,6 +5103,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       )}
 
       {boostHistoryOpen && <BoostHistoryPanel onClose={() => setBoostHistoryOpen(false)} />}
+      {boostSettingsOpen && (
+        <BoostSettingsPanel
+          roomName={roomName}
+          currentConfig={boostConfig ? { enabled: boostConfig.enabled ?? true, minBoostUsd: boostConfig.minBoostUsd ?? 0, creatorPayoutAccount: boostConfig.creatorPayoutAccount } : undefined}
+          onClose={() => setBoostSettingsOpen(false)}
+          onSaved={() => { /* the room metadata update re-renders the button */ }}
+        />
+      )}
     </div>
   );
 }
