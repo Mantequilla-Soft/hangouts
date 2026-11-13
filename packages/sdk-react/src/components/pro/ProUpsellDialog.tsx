@@ -34,7 +34,26 @@ export interface ProUpsellDialogProps {
    * — pass this when your app has its own plans route instead.
    */
   onSeePlans?: () => void;
+  /** The dialog's own text, for integrators that translate it. Anything left
+   *  out falls back to English. `tryFree` gets `{hours}` filled in. */
+  labels?: Partial<ProUpsellLabels>;
 }
+
+export interface ProUpsellLabels {
+  tryFree: string;
+  starting: string;
+  seePlans: string;
+  close: string;
+  loadingPlans: string;
+}
+
+const DEFAULT_UPSELL_LABELS: ProUpsellLabels = {
+  tryFree: 'Try Pro free for {hours}h',
+  starting: 'Starting…',
+  seePlans: 'See plans',
+  close: 'Close',
+  loadingPlans: 'Loading plans…',
+};
 
 /**
  * The upsell a non-premium user sees next to a locked perk.
@@ -48,11 +67,14 @@ export function ProUpsellDialog({
   onClose,
   heading = 'Get more from your stream',
   subheading = 'With Pro you also get:',
-  perks = DEFAULT_STREAM_PERKS,
+  perks: perksProp,
   continueLabel = 'Continue without Pro',
   onSeePlans,
   onTrialClaimed,
+  labels,
 }: ProUpsellDialogProps) {
+  const L: ProUpsellLabels = { ...DEFAULT_UPSELL_LABELS, ...labels };
+  const perks = perksProp ?? DEFAULT_STREAM_PERKS;
   const trial = useProTrial();
   const [showPlans, setShowPlans] = useState(false);
 
@@ -72,10 +94,10 @@ export function ProUpsellDialog({
         aria-modal="true"
         aria-label={heading}
       >
-        <button className="hh-upsell__close" onClick={onClose ?? onContinue} aria-label="Close">×</button>
+        <button className="hh-upsell__close" onClick={onClose ?? onContinue} aria-label={L.close}>×</button>
 
         {showPlans ? (
-          <Suspense fallback={<div className="hh-upsell__loading">Loading plans…</div>}>
+          <Suspense fallback={<div className="hh-upsell__loading">{L.loadingPlans}</div>}>
             {/* Open on streaming: this dialog is shown next to the locked
                 stream options, so landing on another tab would drop the thread. */}
             <ProPlans initialGroupId="streaming" />
@@ -107,11 +129,11 @@ export function ProUpsellDialog({
                   onClick={() => { void trial.start().then((ok) => { if (ok) onTrialClaimed?.(); }); }}
                   disabled={trial.pending}
                 >
-                  {trial.pending ? 'Starting…' : `Try Pro free for ${trial.trialHours}h`}
+                  {trial.pending ? L.starting : L.tryFree.replace('{hours}', String(trial.trialHours))}
                 </button>
               )}
               <button type="button" className="hh-upsell__btn hh-upsell__btn--plans" onClick={seePlans}>
-                See plans
+                {L.seePlans}
               </button>
             </div>
           </>

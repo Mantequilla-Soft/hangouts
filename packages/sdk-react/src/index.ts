@@ -104,7 +104,7 @@ export { GamePanel, type GamePanelProps } from './components/room/GamePanel.js';
 // Components — Lobby
 export { RoomLobby, type RoomLobbyProps } from './components/lobby/RoomLobby.js';
 export { RoomCard, type RoomCardProps } from './components/lobby/RoomCard.js';
-export { CreateRoomDialog, type CreateRoomDialogProps, type AnnounceType, type CreateRoomDraft, type StepLabels } from './components/lobby/CreateRoomDialog.js';
+export { CreateRoomDialog, type CreateRoomDialogProps, type AnnounceType, type CreateRoomDraft, type StepLabels, type CreateRoomLabels, DEFAULT_CREATE_ROOM_LABELS } from './components/lobby/CreateRoomDialog.js';
 export { GuestNameModal, type GuestNameModalProps } from './components/lobby/GuestNameModal.js';
 export { ObsPanel, type ObsPanelProps } from './components/room/ObsPanel.js';
 
@@ -112,7 +112,7 @@ export { ObsPanel, type ObsPanelProps } from './components/room/ObsPanel.js';
 // ProPlans also has a default export so it can be code-split with React.lazy —
 // that's what keeps the VSC + GraphQL code out of an integrator's boot chunk.
 export { ProPlans, type ProPlansProps } from './components/pro/ProPlans.js';
-export { ProUpsellDialog, DEFAULT_STREAM_PERKS, type ProUpsellDialogProps, type ProPerk } from './components/pro/ProUpsellDialog.js';
+export { ProUpsellDialog, DEFAULT_STREAM_PERKS, type ProUpsellDialogProps, type ProPerk, type ProUpsellLabels } from './components/pro/ProUpsellDialog.js';
 export { SubscriberTicker, type SubscriberTickerProps } from './components/pro/SubscriberTicker.js';
 export { usePremiumStatus, invalidatePremiumStatus, type UsePremiumStatusResult } from './hooks/usePremiumStatus.js';
 export { useProTrial, type UseProTrialResult } from './hooks/useProTrial.js';

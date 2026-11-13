@@ -3,7 +3,7 @@ import type { Room, RoomVisibility, RoomMode } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { usePremiumStatus } from '../../hooks/usePremiumStatus.js';
-import { ProUpsellDialog } from '../pro/ProUpsellDialog.js';
+import { ProUpsellDialog, type ProPerk } from '../pro/ProUpsellDialog.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
 import { AUTO_VOD_KEY, AUTO_VOD_DEFAULT, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
 import { isInAppBrowser, canBroadcast } from '../../lib/browser.js';
@@ -84,9 +84,20 @@ export interface CreateRoomDialogProps {
    *  stream Go live) with a stepper on top and Back/Next buttons above and
    *  below each step. Off by default: the form stays one page. */
   stepped?: boolean;
-  /** Text for the stepped form, for integrators that translate it. Anything
-   *  left out falls back to English. */
+  /** Text for the stepped form. Superseded by `labels`, which covers these
+   *  keys too; kept so existing integrators keep working. */
   stepLabels?: Partial<StepLabels>;
+  /** The form's text, for integrators that translate it. Anything left out
+   *  falls back to English. `{name}` placeholders are filled in by the SDK.
+   *  The built-in markdown description editor stays English: integrators that
+   *  translate pass `renderDescriptionEditor`. */
+  labels?: Partial<CreateRoomLabels>;
+  /** Perks listed in the Pro upsell this form opens, for a translated offer.
+   *  Defaults to the SDK's English `DEFAULT_STREAM_PERKS`. */
+  upsellPerks?: ProPerk[];
+  /** BCP-47 locale for the language names in the Language list and the time
+   *  in the daily-limit message (e.g. 'de'). Defaults to the browser's. */
+  locale?: string;
 }
 
 /** The stepped form's own text (see `stepped`). */
@@ -101,7 +112,105 @@ export interface StepLabels {
   titleRequired: string;
 }
 
-const DEFAULT_STEP_LABELS: StepLabels = {
+/** All of the create form's text (see `labels`). */
+export interface CreateRoomLabels extends StepLabels {
+  beta: string;
+  introPhoneTitle: string;
+  introPhoneDesc: string;
+  introStudioTitle: string;
+  introStudioDesc: string;
+  introGroupTitle: string;
+  introGroupDesc: string;
+  modeLabel: string;
+  modeRoomTitle: string;
+  modeRoomDesc: string;
+  modeStreamTitle: string;
+  modeStreamDesc: string;
+  modeStreamUnavailable: string;
+  modeStreamUnavailableHint: string;
+  visibilityLabel: string;
+  publicTitle: string;
+  publicDesc: string;
+  hiveOnlyTitle: string;
+  hiveOnlyDesc: string;
+  unlistedTitle: string;
+  unlistedDesc: string;
+  titleLabel: string;
+  titlePlaceholder: string;
+  thumbnailLabel: string;
+  thumbnailPreview: string;
+  thumbnailAdd: string;
+  thumbnailChange: string;
+  thumbnailRemove: string;
+  uploading: string;
+  uploadFailed: string;
+  descriptionLabel: string;
+  tagsLabel: string;
+  tagsPlaceholder: string;
+  tagsPlaceholderMore: string;
+  /** `{tag}` */
+  removeTag: string;
+  languageLabel: string;
+  boostToggle: string;
+  minBoost: string;
+  payoutAccount: string;
+  payoutPlaceholder: string;
+  announceStream: string;
+  announceSession: string;
+  announceTypeLabel: string;
+  announceSnap: string;
+  announcePost: string;
+  announceStreamStrong: string;
+  announceStreamRest: string;
+  announceSnapStrong: string;
+  announceSnapRest: string;
+  announcePostStrong: string;
+  announcePostRest: string;
+  whenEnds: string;
+  autoVod: string;
+  autoVodPro: string;
+  /** `{cap}` */
+  autoVodFree: string;
+  autoDownload: string;
+  autoDownloadPro: string;
+  autoDownloadFree: string;
+  clips: string;
+  clipsPro: string;
+  clipsFree: string;
+  unlockPro: string;
+  /** `{proCap}` */
+  limitPro: string;
+  /** `{cap}`, `{proCap}` */
+  limitFree: string;
+  /** Stream length caps as filled into `{cap}` / `{proCap}`. */
+  freeCap: string;
+  proCap: string;
+  creating: string;
+  openStudio: string;
+  startSession: string;
+  /** `{when}` */
+  dailyLimit: string;
+  /** `{time}` */
+  whenToday: string;
+  /** `{time}` */
+  whenTomorrowAt: string;
+  whenTomorrow: string;
+  createFailed: string;
+  dailyLimitUpsell: string;
+  upsellGateHeading: string;
+  upsellInfoHeading: string;
+  upsellGateContinue: string;
+  upsellInfoContinue: string;
+  upsellSub: string;
+  /** `{hours}` */
+  upsellTrial: string;
+  upsellStarting: string;
+  upsellSeePlans: string;
+  upsellClose: string;
+  upsellLoadingPlans: string;
+}
+
+export const DEFAULT_CREATE_ROOM_LABELS: CreateRoomLabels = {
   basics: 'Basics',
   details: 'Details',
   sharing: 'Boosts & sharing',
@@ -110,7 +219,110 @@ const DEFAULT_STEP_LABELS: StepLabels = {
   next: 'Next',
   cancel: 'Cancel',
   titleRequired: 'Add a title to continue.',
+  beta: 'beta',
+  introPhoneTitle: 'Go Live',
+  introPhoneDesc: 'Stream vertically straight from your phone — tap and you\u2019re broadcasting. For a richer studio with scenes and screen sharing, open 3Speak on a desktop.',
+  introStudioTitle: 'Stream Studio',
+  introStudioDesc: 'The full studio: add scenes, screen shares, extra cameras and overlays before you go live. Vertical phone-style streaming is only available on mobile.',
+  introGroupTitle: 'Group Chat',
+  introGroupDesc: 'Have a fun talk with others, invite guests on stage, and record podcasts on 3Speak.',
+  modeLabel: 'What are you starting?',
+  modeRoomTitle: 'Room',
+  modeRoomDesc: 'Everyone can join & talk',
+  modeStreamTitle: 'Standalone',
+  modeStreamDesc: 'Solo livestream studio',
+  modeStreamUnavailable: 'Not available in this app\u2019s browser',
+  modeStreamUnavailableHint: 'Open 3Speak in your browser to go live',
+  visibilityLabel: 'Who can find it?',
+  publicTitle: 'Public',
+  publicDesc: 'Anyone can watch as a guest',
+  hiveOnlyTitle: 'Hive-only',
+  hiveOnlyDesc: 'Requires a Hive sign-in',
+  unlistedTitle: 'Unlisted',
+  unlistedDesc: 'Link only access',
+  titleLabel: 'Title',
+  titlePlaceholder: 'Give it a catchy title…',
+  thumbnailLabel: 'Thumbnail / background',
+  thumbnailPreview: '16:9 preview',
+  thumbnailAdd: 'Add a thumbnail (16:9)',
+  thumbnailChange: 'Change',
+  thumbnailRemove: 'Remove',
+  uploading: 'Uploading…',
+  uploadFailed: 'Upload failed — please try again',
+  descriptionLabel: 'Description',
+  tagsLabel: 'Tags',
+  tagsPlaceholder: 'add tags — space to add',
+  tagsPlaceholderMore: 'add another…',
+  removeTag: 'Remove {tag}',
+  languageLabel: 'Language',
+  boostToggle: 'Enable Boost messages',
+  minBoost: 'Minimum boost (USD)',
+  payoutAccount: 'Payout account',
+  payoutPlaceholder: 'defaults to you',
+  announceStream: 'Share this stream on Hive and 3Speak',
+  announceSession: 'Announce this session on Hive',
+  announceTypeLabel: 'Announcement type',
+  announceSnap: 'Quick snap',
+  announcePost: 'Full post',
+  announceStreamStrong: 'Posts to Hive and publishes the stream on 3Speak',
+  announceStreamRest: ' — pick a community, payout and beneficiaries below.',
+  announceSnapStrong: 'A short snap',
+  announceSnapRest: ' linking to your live session.',
+  announcePostStrong: 'A full top-level Hive post',
+  announcePostRest: ' — pick a community, payout and beneficiaries below.',
+  whenEnds: 'When the stream ends',
+  autoVod: 'Replace the stream with a video when it ends',
+  autoVodPro: 'Records the whole broadcast and adds it as the VOD on your announcement post, so the same link plays the replay afterwards.',
+  autoVodFree: 'Records the broadcast (up to {cap}) and adds it as the VOD on your announcement post, so the same link plays the replay afterwards.',
+  autoDownload: 'Record the session and download it when it ends',
+  autoDownloadPro: 'Saves a copy to your computer when you end the stream.',
+  autoDownloadFree: 'Only available with 3Speak Pro — records the broadcast to a file on your computer.',
+  clips: 'Let viewers clip the last 30 seconds',
+  clipsPro: 'Viewers get a \u201c30 sec\u201d button to save and share a clip of your live stream.',
+  clipsFree: 'Only available with 3Speak Pro — viewers can save and share a 30-second clip.',
+  unlockPro: 'Unlock with Pro',
+  limitPro: 'Streams can run up to {proCap}.',
+  limitFree: 'Free streams are limited to {cap} and one stream per day. Upgrade to 3Speak Pro for longer streams (up to {proCap}) with no daily limit.',
+  freeCap: FREE_STREAM_CAP_LABEL,
+  proCap: PRO_STREAM_CAP_LABEL,
+  creating: 'Creating…',
+  openStudio: 'Open Stream Studio',
+  startSession: 'Start Session',
+  dailyLimit: 'Free accounts can start one stream per day, and you have already streamed today. You can go live again {when}.',
+  whenToday: 'today at {time}',
+  whenTomorrowAt: 'tomorrow at {time}',
+  whenTomorrow: 'tomorrow',
+  createFailed: 'Couldn\u2019t create the stream. Please try again.',
+  dailyLimitUpsell: 'Stream without a daily limit with 3Speak Pro',
+  upsellGateHeading: 'Before you go live',
+  upsellInfoHeading: 'Get more from your stream',
+  upsellGateContinue: 'Start streaming anyway',
+  upsellInfoContinue: 'Back to the room settings',
+  upsellSub: 'With Pro you also get:',
+  upsellTrial: 'Try Pro free for {hours}h',
+  upsellStarting: 'Starting…',
+  upsellSeePlans: 'See plans',
+  upsellClose: 'Close',
+  upsellLoadingPlans: 'Loading plans…',
 };
+
+/** Fills `{name}` placeholders. */
+function fill(text: string, vars: Record<string, string | number>): string {
+  return text.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
+}
+
+/** Language names in the integrator's locale, English when unsupported. */
+function languageNames(locale: string | undefined): (code: string, fallback: string) => string {
+  try {
+    const dn = new Intl.DisplayNames(locale ? [locale] : undefined, { type: 'language' });
+    return (code, fallback) => {
+      const n = dn.of(code);
+      return n && n !== code ? n.charAt(0).toLocaleUpperCase(locale) + n.slice(1) : fallback;
+    };
+  } catch {
+    return (_code, fallback) => fallback;
+  }
+}
 
 type StepId = 'setup' | 'details' | 'audience' | 'finish';
 
@@ -175,13 +387,16 @@ function renderMarkdown(md: string): string {
   return h;
 }
 
-const VISIBILITIES: Array<{ id: RoomVisibility; icon: string; title: string; desc: string }> = [
-  { id: 'public', icon: '🌐', title: 'Public', desc: 'Anyone can watch as a guest' },
-  { id: 'hive-internal', icon: '🔑', title: 'Hive-only', desc: 'Requires a Hive sign-in' },
-  { id: 'unlisted', icon: '🔗', title: 'Unlisted', desc: 'Link only access' },
+const VISIBILITIES: Array<{ id: RoomVisibility; icon: string; title: keyof CreateRoomLabels; desc: keyof CreateRoomLabels }> = [
+  { id: 'public', icon: '🌐', title: 'publicTitle', desc: 'publicDesc' },
+  { id: 'hive-internal', icon: '🔑', title: 'hiveOnlyTitle', desc: 'hiveOnlyDesc' },
+  { id: 'unlisted', icon: '🔗', title: 'unlistedTitle', desc: 'unlistedDesc' },
 ];
 
-export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false, renderAnnounceOptions, renderDescriptionEditor, isPremium: isPremiumOverride, defaultMode, allowSnapAnnounce = true, onUpsell, renderStandaloneExtras, stepped = false, stepLabels }: CreateRoomDialogProps) {
+export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false, renderAnnounceOptions, renderDescriptionEditor, isPremium: isPremiumOverride, defaultMode, allowSnapAnnounce = true, onUpsell, renderStandaloneExtras, stepped = false, stepLabels, labels, upsellPerks, locale }: CreateRoomDialogProps) {
+  const L: CreateRoomLabels = { ...DEFAULT_CREATE_ROOM_LABELS, ...stepLabels, ...labels };
+  const caps = { cap: L.freeCap, proCap: L.proCap };
+  const langName = useMemo(() => languageNames(locale), [locale]);
   // Premium resolves itself so the integrator passes nothing; an explicit prop
   // still wins. `isPremium` is false until the lookup settles, so the locked
   // state renders first and unlocks — never the reverse, which would flash Pro
@@ -261,18 +476,9 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
   const onPhone = useIsMobile();
   const modeIntro = mode === 'standalone'
     ? (onPhone
-        ? {
-            title: 'Go Live',
-            desc: 'Stream vertically straight from your phone — tap and you\u2019re broadcasting. For a richer studio with scenes and screen sharing, open 3Speak on a desktop.',
-          }
-        : {
-            title: 'Stream Studio',
-            desc: 'The full studio: add scenes, screen shares, extra cameras and overlays before you go live. Vertical phone-style streaming is only available on mobile.',
-          })
-    : {
-        title: 'Group Chat',
-        desc: 'Have a fun talk with others, invite guests on stage, and record podcasts on 3Speak.',
-      };
+        ? { title: L.introPhoneTitle, desc: L.introPhoneDesc }
+        : { title: L.introStudioTitle, desc: L.introStudioDesc })
+    : { title: L.introGroupTitle, desc: L.introGroupDesc };
 
   const isStandalone = mode === 'standalone';
   // Post-only when the stream is standalone OR the integrator disabled snaps.
@@ -329,7 +535,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
       setBackgroundImageUrl(url);
       if (username) localStorage.setItem(getBgStorageKey(username), url);
     } catch {
-      setUploadError('Upload failed — please try again');
+      setUploadError(L.uploadFailed);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -413,15 +619,13 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
         const at = e.retryAt ? new Date(e.retryAt) : null;
         const valid = !!at && Number.isFinite(at.getTime());
         const sameDay = valid && at!.toDateString() === new Date().toDateString();
+        const time = valid ? at!.toLocaleTimeString(locale ? [locale] : [], { hour: '2-digit', minute: '2-digit' }) : '';
         const when = valid
-          ? `${sameDay ? 'today' : 'tomorrow'} at ${at!.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-          : 'tomorrow';
-        setCreateError({
-          dailyLimit: true,
-          message: `Free accounts can start one stream per day, and you have already streamed today. You can go live again ${when}.`,
-        });
+          ? fill(sameDay ? L.whenToday : L.whenTomorrowAt, { time })
+          : L.whenTomorrow;
+        setCreateError({ dailyLimit: true, message: fill(L.dailyLimit, { when }) });
       } else {
-        setCreateError({ dailyLimit: false, message: e.message || "Couldn't create the stream. Please try again." });
+        setCreateError({ dailyLimit: false, message: e.message || L.createFailed });
       }
       return;
     }
@@ -451,7 +655,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
   // changes. A stream gets a fourth "Go live" step for the recording options
   // and the integrator extras; a conference has neither, so it ends on the
   // sharing step, which then carries the submit button.
-  const stepText: StepLabels = { ...DEFAULT_STEP_LABELS, ...stepLabels };
+  const stepText: StepLabels = L;
   const stepIds: StepId[] = isStandalone ? ['setup', 'details', 'audience', 'finish'] : ['setup', 'details', 'audience'];
   const stepName: Record<StepId, string> = {
     setup: stepText.basics, details: stepText.details, audience: stepText.sharing, finish: stepText.goLive,
@@ -492,7 +696,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
 
   const submitButton = (
     <button key="submit" className="hh-btn hh-btn--primary hh-cd__submit" type="submit" disabled={!title.trim() || isLoading || uploading}>
-      {isLoading ? 'Creating…' : mode === 'standalone' ? '📡 Open Stream Studio' : '🚀 Start Session'}
+      {isLoading ? L.creating : mode === 'standalone' ? `📡 ${L.openStudio}` : `🚀 ${L.startSession}`}
     </button>
   );
 
@@ -563,7 +767,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
             (the lobby header is hidden). */}
         <h2 className="hh-cd__intro-title">
           {modeIntro.title}
-          {!!defaultMode && <span className="hh-cd__beta">beta</span>}
+          {!!defaultMode && <span className="hh-cd__beta">{L.beta}</span>}
         </h2>
         <p className="hh-cd__intro-desc">{modeIntro.desc}</p>
       </div>
@@ -577,24 +781,24 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
             again would be asking a question they just answered. */}
         {allowStandalone && !defaultMode && (
           <div className="hh-cd__section">
-            <span className="hh-cd__label">What are you starting?</span>
+            <span className="hh-cd__label">{L.modeLabel}</span>
             <div className="hh-cd__tiles">
               <button type="button" className={`hh-cd__tile${mode === 'conference' ? ' is-active' : ''}`} onClick={() => setMode('conference')}>
                 <span className="hh-cd__tile-icon">👥</span>
-                <span className="hh-cd__tile-title">Room</span>
-                <span className="hh-cd__tile-desc">Everyone can join &amp; talk</span>
+                <span className="hh-cd__tile-title">{L.modeRoomTitle}</span>
+                <span className="hh-cd__tile-desc">{L.modeRoomDesc}</span>
               </button>
               <button
                 type="button"
                 className={`hh-cd__tile${mode === 'standalone' ? ' is-active' : ''}${cannotBroadcast ? ' is-disabled' : ''}`}
                 disabled={cannotBroadcast}
-                title={cannotBroadcast ? 'Open 3Speak in your browser to go live' : undefined}
+                title={cannotBroadcast ? L.modeStreamUnavailableHint : undefined}
                 onClick={() => setMode('standalone')}
               >
                 <span className="hh-cd__tile-icon">📡</span>
-                <span className="hh-cd__tile-title">Standalone</span>
+                <span className="hh-cd__tile-title">{L.modeStreamTitle}</span>
                 <span className="hh-cd__tile-desc">
-                  {cannotBroadcast ? 'Not available in this app’s browser' : 'Solo livestream studio'}
+                  {cannotBroadcast ? L.modeStreamUnavailable : L.modeStreamDesc}
                 </span>
               </button>
             </div>
@@ -603,13 +807,13 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
 
         {/* 2 · Visibility */}
         <div className="hh-cd__section">
-          <span className="hh-cd__label">Who can find it?</span>
+          <span className="hh-cd__label">{L.visibilityLabel}</span>
           <div className="hh-cd__tiles hh-cd__tiles--3">
             {VISIBILITIES.map((v) => (
               <button key={v.id} type="button" className={`hh-cd__tile${visibility === v.id ? ' is-active' : ''}`} onClick={() => setVisibility(v.id)}>
                 <span className="hh-cd__tile-icon">{v.icon}</span>
-                <span className="hh-cd__tile-title">{v.title}</span>
-                <span className="hh-cd__tile-desc">{v.desc}</span>
+                <span className="hh-cd__tile-title">{L[v.title]}</span>
+                <span className="hh-cd__tile-desc">{L[v.desc]}</span>
               </button>
             ))}
           </div>
@@ -617,12 +821,12 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
 
         {/* 3 · Title */}
         <div className="hh-cd__section">
-          <span className="hh-cd__label">Title</span>
+          <span className="hh-cd__label">{L.titleLabel}</span>
           {/* No autoFocus: focusing the title on open scrolls the dialog past its
               own heading/mode tiles straight to this field, so the host never
               sees the intro or which mode they're on. Let the form open at the
               top and let them tab/click into it. */}
-          <input ref={titleRef} className="hh-cd__input" type="text" placeholder="Give it a catchy title…" value={title}
+          <input ref={titleRef} className="hh-cd__input" type="text" placeholder={L.titlePlaceholder} value={title}
             aria-invalid={titleMissing || undefined}
             onChange={(e) => { setTitle(e.target.value); if (e.target.value.trim()) setTitleMissing(false); }} maxLength={64} />
           {titleMissing && <p className="hh-cd__field-error" role="alert">{stepText.titleRequired}</p>}
@@ -631,21 +835,21 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
         {/* 4 · Thumbnail / background */}
         {imageServerApiKey && (
           <div className="hh-cd__section">
-            <span className="hh-cd__label">Thumbnail / background</span>
+            <span className="hh-cd__label">{L.thumbnailLabel}</span>
             <div className="hh-bg-picker">
               {backgroundImageUrl ? (
                 <div className="hh-bg-picker__preview-wrap">
                   <div className="hh-bg-picker__preview" style={{ backgroundImage: `url(${backgroundImageUrl})` }}>
-                    <span className="hh-bg-picker__preview-label">16:9 preview</span>
+                    <span className="hh-bg-picker__preview-label">{L.thumbnailPreview}</span>
                   </div>
                   <div className="hh-bg-picker__actions">
-                    <button type="button" className="hh-btn hh-btn--secondary hh-btn--small" onClick={() => fileInputRef.current?.click()} disabled={uploading}>Change</button>
-                    <button type="button" className="hh-btn hh-btn--ghost hh-btn--small" onClick={clearBackground}>Remove</button>
+                    <button type="button" className="hh-btn hh-btn--secondary hh-btn--small" onClick={() => fileInputRef.current?.click()} disabled={uploading}>{L.thumbnailChange}</button>
+                    <button type="button" className="hh-btn hh-btn--ghost hh-btn--small" onClick={clearBackground}>{L.thumbnailRemove}</button>
                   </div>
                 </div>
               ) : (
                 <button type="button" className="hh-bg-picker__upload-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                  {uploading ? 'Uploading…' : '🖼️ Add a thumbnail (16:9)'}
+                  {uploading ? L.uploading : `🖼️ ${L.thumbnailAdd}`}
                 </button>
               )}
               <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageChange} />
@@ -659,7 +863,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
         {/* 5 · Description (markdown) */}
         <div className="hh-cd__section">
           <div className="hh-cd__label-row">
-            <span className="hh-cd__label">Description</span>
+            <span className="hh-cd__label">{L.descriptionLabel}</span>
             {!renderDescriptionEditor && (
               <div className="hh-cd__md-tabs">
                 <button type="button" className={!descPreview ? 'is-active' : ''} onClick={() => setDescPreview(false)}>Write</button>
@@ -691,13 +895,13 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
 
         {/* 6 · Tags */}
         <div className="hh-cd__section">
-          <span className="hh-cd__label">Tags <em className="hh-cd__label-note">({tags.length}/{MAX_TAGS})</em></span>
+          <span className="hh-cd__label">{L.tagsLabel} <em className="hh-cd__label-note">({tags.length}/{MAX_TAGS})</em></span>
           <div className="hh-cd__tags">
             {tags.map((t) => (
-              <span key={t} className="hh-cd__tag">{t}<button type="button" onClick={() => setTags((p) => p.filter((x) => x !== t))} aria-label={`Remove ${t}`}>×</button></span>
+              <span key={t} className="hh-cd__tag">{t}<button type="button" onClick={() => setTags((p) => p.filter((x) => x !== t))} aria-label={fill(L.removeTag, { tag: t })}>×</button></span>
             ))}
             {tags.length < MAX_TAGS && (
-              <input className="hh-cd__tag-input" type="text" placeholder={tags.length ? 'add another…' : 'add tags — space to add'} value={tagInput}
+              <input className="hh-cd__tag-input" type="text" placeholder={tags.length ? L.tagsPlaceholderMore : L.tagsPlaceholder} value={tagInput}
                 onChange={(e) => { const v = e.target.value; if (/[\s,]/.test(v)) addTag(v); else setTagInput(v); }}
                 onKeyDown={(e) => { if (e.key === ',') { e.preventDefault(); addTag(); } }}
                 onBlur={() => addTag()} />
@@ -707,9 +911,9 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
 
         {/* 7 · Language */}
         <div className="hh-cd__section">
-          <span className="hh-cd__label">Language</span>
+          <span className="hh-cd__label">{L.languageLabel}</span>
           <select className="hh-cd__select" value={language} onChange={(e) => setLanguage(e.target.value)}>
-            {LANGUAGES.map((l) => (<option key={l.code} value={l.code}>{l.name}</option>))}
+            {LANGUAGES.map((l) => (<option key={l.code} value={l.code}>{langName(l.code, l.name)}</option>))}
           </select>
         </div>
       </>)}
@@ -720,7 +924,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
           <label className="hh-cd__switch">
             <input type="checkbox" checked={boostEnabled} onChange={(e) => setBoostEnabled(e.target.checked)} />
             <span className="hh-cd__switch-track"><span className="hh-cd__switch-thumb" /></span>
-            <span className="hh-cd__switch-label">🚀 Enable Boost messages</span>
+            <span className="hh-cd__switch-label">🚀 {L.boostToggle}</span>
           </label>
         </div>
 
@@ -728,13 +932,13 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
         {boostEnabled && (
           <div className="hh-cd__section hh-cd__row2">
             <label className="hh-cd__field">
-              <span className="hh-cd__label">Minimum boost (USD)</span>
+              <span className="hh-cd__label">{L.minBoost}</span>
               <input className="hh-cd__input" type="number" min="0" step="0.01" value={minBoostUsd} onChange={(e) => setMinBoostUsd(e.target.value)} />
             </label>
             <label className="hh-cd__field">
-              <span className="hh-cd__label">Payout account</span>
+              <span className="hh-cd__label">{L.payoutAccount}</span>
               <input className="hh-cd__input" type="text" value={creatorPayoutAccount} maxLength={16}
-                placeholder="defaults to you" onChange={(e) => setCreatorPayoutAccount(e.target.value)} />
+                placeholder={L.payoutPlaceholder} onChange={(e) => setCreatorPayoutAccount(e.target.value)} />
             </label>
           </div>
         )}
@@ -746,8 +950,8 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
               <input type="checkbox" checked={notifyOnHive} onChange={(e) => setNotifyOnHive(e.target.checked)} />
               <span>
                 {isStandalone
-                  ? '📣 Share this stream on Hive and 3Speak'
-                  : '📣 Announce this session on Hive'}
+                  ? `📣 ${L.announceStream}`
+                  : `📣 ${L.announceSession}`}
               </span>
             </label>
             {notifyOnHive && (
@@ -759,7 +963,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
                     messages are commented onto. A snap is a comment and can hold
                     none of that, so the choice isn't offered. */}
                 {!postOnly && (
-                  <div className="hh-cd__seg" role="tablist" aria-label="Announcement type">
+                  <div className="hh-cd__seg" role="tablist" aria-label={L.announceTypeLabel}>
                     <button
                       type="button"
                       role="tab"
@@ -767,7 +971,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
                       className={announceType === 'snap' ? 'is-active' : ''}
                       onClick={() => setAnnounceType('snap')}
                     >
-                      💬 Quick snap
+                      💬 {L.announceSnap}
                     </button>
                     <button
                       type="button"
@@ -776,17 +980,17 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
                       className={announceType === 'post' ? 'is-active' : ''}
                       onClick={() => setAnnounceType('post')}
                     >
-                      📝 Full post
+                      📝 {L.announcePost}
                     </button>
                   </div>
                 )}
                 <p className={`hh-cd__announce-hint${postOnly ? ' hh-cd__announce-hint--solo' : ''}`}>
                   {isStandalone ? (
-                    <><strong>Posts to Hive and publishes the stream on 3Speak</strong> — pick a community, payout and beneficiaries below.</>
+                    <><strong>{L.announceStreamStrong}</strong>{L.announceStreamRest}</>
                   ) : effectiveAnnounceType === 'snap' ? (
-                    <><strong>A short snap</strong> linking to your live session.</>
+                    <><strong>{L.announceSnapStrong}</strong>{L.announceSnapRest}</>
                   ) : (
-                    <><strong>A full top-level Hive post</strong> — pick a community, payout and beneficiaries below.</>
+                    <><strong>{L.announcePostStrong}</strong>{L.announcePostRest}</>
                   )}
                 </p>
                 {renderAnnounceOptions?.(effectiveAnnounceType)}
@@ -805,7 +1009,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
             feature gets discovered at all. */}
         {mode === 'standalone' && (
           <div className="hh-cd__recording">
-            <span className="hh-cd__label">When the stream ends</span>
+            <span className="hh-cd__label">{L.whenEnds}</span>
 
             {/* Bound to the announcement: the VOD replaces the announcement post's
                 video, so with nothing announced there is no post to add it to and
@@ -820,11 +1024,9 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
                   onChange={(e) => setAutoVod(e.target.checked)}
                 />
                 <span>
-                  🎬 Replace the stream with a video when it ends
+                  🎬 {L.autoVod}
                   <em>
-                    {isPremium
-                      ? 'Records the whole broadcast and adds it as the VOD on your announcement post, so the same link plays the replay afterwards.'
-                      : `Records the broadcast (up to ${FREE_STREAM_CAP_LABEL}) and adds it as the VOD on your announcement post, so the same link plays the replay afterwards.`}
+                    {isPremium ? L.autoVodPro : fill(L.autoVodFree, caps)}
                   </em>
                 </span>
               </label>
@@ -838,12 +1040,10 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
                 onChange={(e) => setAutoDownload(e.target.checked)}
               />
               <span>
-                💾 Record the session and download it when it ends
+                💾 {L.autoDownload}
                 {!isPremium && ' 🔒'}
                 <em>
-                  {isPremium
-                    ? 'Saves a copy to your computer when you end the stream.'
-                    : 'Only available with 3Speak Pro — records the broadcast to a file on your computer.'}
+                  {isPremium ? L.autoDownloadPro : L.autoDownloadFree}
                 </em>
               </span>
             </label>
@@ -856,12 +1056,10 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
                 onChange={(e) => setAllowClips(e.target.checked)}
               />
               <span>
-                ✂ Let viewers clip the last 30 seconds
+                ✂ {L.clips}
                 {!isPremium && ' 🔒'}
                 <em>
-                  {isPremium
-                    ? 'Viewers get a “30 sec” button to save and share a clip of your live stream.'
-                    : 'Only available with 3Speak Pro — viewers can save and share a 30-second clip.'}
+                  {isPremium ? L.clipsPro : L.clipsFree}
                 </em>
               </span>
             </label>
@@ -875,7 +1073,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
                 className="hh-cd__unlock"
                 onClick={() => (onUpsell ? onUpsell() : setUpsellMode('info'))}
               >
-                👑 Unlock with Pro
+                👑 {L.unlockPro}
               </button>
             )}
           </div>
@@ -885,12 +1083,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
             short cap, Pro a long one (a safety ceiling). Stream modes only. */}
         {isStandalone && (
           <p className="hh-cd__limit-hint">
-            {isPremium ? (
-              <>⏳ Streams can run up to {PRO_STREAM_CAP_LABEL}.</>
-            ) : (
-              <>⏳ Free streams are limited to {FREE_STREAM_CAP_LABEL} and one stream per day. Upgrade to{' '}
-                <strong>3Speak Pro</strong> for longer streams (up to {PRO_STREAM_CAP_LABEL}) with no daily limit.</>
-            )}
+            ⏳ {fill(isPremium ? L.limitPro : L.limitFree, caps)}
           </p>
         )}
 
@@ -926,7 +1119,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
           {createError.dailyLimit && (
             <button type="button" className="hh-btn hh-btn--primary hh-cd__create-error-upsell"
               onClick={() => (onUpsell ? onUpsell() : setUpsellMode('info'))}>
-              Stream without a daily limit with 3Speak Pro
+              {L.dailyLimitUpsell}
             </button>
           )}
         </div>
@@ -937,7 +1130,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
         <div className="hh-cd__actions">
           {submitButton}
           {onCancel && (
-            <button className="hh-btn hh-btn--secondary" type="button" onClick={onCancel}>Cancel</button>
+            <button className="hh-btn hh-btn--secondary" type="button" onClick={onCancel}>{L.cancel}</button>
           )}
         </div>
       )}
@@ -956,8 +1149,14 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
         }}
         onClose={() => setUpsellMode(null)}
         onTrialClaimed={() => setUpsellMode(null)}
-        heading={upsellMode === 'gate' ? 'Before you go live' : 'Get more from your stream'}
-        continueLabel={upsellMode === 'gate' ? 'Start streaming anyway' : 'Back to the room settings'}
+        heading={upsellMode === 'gate' ? L.upsellGateHeading : L.upsellInfoHeading}
+        continueLabel={upsellMode === 'gate' ? L.upsellGateContinue : L.upsellInfoContinue}
+        subheading={L.upsellSub}
+        perks={upsellPerks}
+        labels={{
+          tryFree: L.upsellTrial, starting: L.upsellStarting, seePlans: L.upsellSeePlans,
+          close: L.upsellClose, loadingPlans: L.upsellLoadingPlans,
+        }}
       />
     </form>
   );
