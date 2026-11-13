@@ -5,7 +5,7 @@ import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { usePremiumStatus } from '../../hooks/usePremiumStatus.js';
 import { ProUpsellDialog } from '../pro/ProUpsellDialog.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
-import { AUTO_VOD_KEY, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
+import { AUTO_VOD_KEY, AUTO_VOD_DEFAULT, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
 import { isInAppBrowser, canBroadcast } from '../../lib/browser.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { FREE_STREAM_CAP_LABEL, PRO_STREAM_CAP_LABEL } from '../../lib/streamLimits.js';
@@ -236,7 +236,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
   // Shared with the studio's post tab — see streamRecordingPrefs. Set here so
   // the host decides before opening the studio, and changed there if they
   // change their mind before hitting Start.
-  const [autoVod, setAutoVod] = useState(() => readPref(AUTO_VOD_KEY));
+  const [autoVod, setAutoVod] = useState(() => readPref(AUTO_VOD_KEY, AUTO_VOD_DEFAULT));
   const [autoDownload, setAutoDownload] = useState(() => readPref(AUTO_DL_KEY));
   const [allowClips, setAllowClips] = useState(() => readPref(ALLOW_CLIPS_KEY, true));
   useEffect(() => { writePref(AUTO_VOD_KEY, autoVod); }, [autoVod]);

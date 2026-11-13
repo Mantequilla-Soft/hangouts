@@ -28,6 +28,8 @@ export interface ProPerkGroup {
  *    gated in this SDK (StandaloneStudio + CreateRoomDialog)
  *  - RTMP restream and the DVR clip endpoint are gated server-side
  *    (streaming.ts / dvr.ts both 402 for non-premium)
+ *  - OBS (WHIP ingest) is gated server-side on both paths (rooms.ts ingress and
+ *    whip.ts both 403 `pro_required`) and locked in the studio's Add source
  *
  * Durations come from `streamLimits`, never typed out, so changing a cap cannot
  * leave this advertising the old number.
@@ -37,6 +39,7 @@ export const STREAM_PERKS: ProPerk[] = [
   { icon: '🎬', title: 'Longer replays & downloads', body: `Replays as long as the stream (free: ${FREE_STREAM_CAP_LABEL}), and download the recording.` },
   { icon: '✂️', title: 'Viewer clips', body: 'Viewers can save the last 30 seconds while you are live.' },
   { icon: '📡', title: 'RTMP restream', body: 'Broadcast to other platforms at the same time.' },
+  { icon: '🎥', title: 'Stream from OBS', body: 'Go live from OBS or any WHIP encoder. Free streams go live from the browser studio.' },
   { icon: '📶', title: 'High quality', body: 'Free streams are capped at medium.' },
   { icon: '🚫', title: 'No watermark', body: 'Free streams carry a small platform mark.' },
 ];

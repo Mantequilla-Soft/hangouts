@@ -69,6 +69,11 @@ const envSchema = z.object({
   // carrying their own flag, so switching it off here also hides the button.
   PRO_TESTING_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   PRO_TESTING_HOURS: z.coerce.number().positive().default(24),
+  // Hive accounts (comma-separated, no @) that skip the free one-stream-a-day
+  // limit WITHOUT being Pro: the 30-minute free cap and the Pro-only features
+  // still apply. Empty = nobody is exempt.
+  STREAM_LIMIT_EXEMPT: z.string().default('')
+    .transform((v) => new Set(v.split(',').map((s) => s.trim().replace(/^@/, '').toLowerCase()).filter(Boolean))),
   PORT: z.coerce.number().default(3002),
 });
 

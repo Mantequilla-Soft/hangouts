@@ -7,7 +7,7 @@ import { useWhipIngress } from '../../hooks/useWhipIngress.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
 import { ChatPanel } from './ChatPanel.js';
-import { AUTO_VOD_KEY, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
+import { AUTO_VOD_KEY, AUTO_VOD_DEFAULT, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
 import { resolveStreamCap, FREE_STREAM_CAP_LABEL } from '../../lib/streamLimits.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
 import { readStudioSetup, writeStudioSetup, saveStudioFile, deleteStudioFile, loadStudioFiles } from '../../lib/studioSetup.js';
@@ -977,7 +977,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // Pro: record the whole broadcast and publish it as the session's VOD when
   // the host ends the stream. Persisted so the preference sticks per host.
   const [autoVod, setAutoVod] = useState(() => {
-    return readPref(AUTO_VOD_KEY);
+    return readPref(AUTO_VOD_KEY, AUTO_VOD_DEFAULT);
   });
   const [savingVod, setSavingVod] = useState(false);
   // Chromium-only capture features (tab picking + tab/system audio) shape both
@@ -5027,12 +5027,17 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               // OBS still publishing but its source tile was removed → offer to
               // bring the scene back instead of trying to set up a fresh ingress.
               const obsSourceGone = obsLive && !shares.some((s) => s.id === OBS_SOURCE_ID);
+              // OBS is a 3Speak Pro feature; the server refuses the ingress for
+              // free hosts too (pro_required). A feed that is already connected
+              // can always be brought back.
+              const obsLocked = !isPremium && !obsLive;
               return (
-                <button className="hh-studio__add-item" disabled={obsBusy}
+                <button className="hh-studio__add-item" disabled={obsBusy || obsLocked}
                   onClick={() => { setAddMenuOpen(false); if (obsSourceGone) restoreObs(); else void openObsSetup(); }}
-                  title={obsSourceGone ? 'Bring the connected OBS feed back as a source' : 'Publish from OBS (or any WHIP encoder) into this stream'}>
-                  🎥 {obsSourceGone ? 'Reconnect OBS scene' : 'OBS / external encoder'}
-                  <span className="hh-studio__add-state">{obsSourceGone ? 'tap to restore' : obsLive ? 'connected ✓' : obsBusy ? 'setting up…' : ''}</span>
+                  title={obsLocked ? 'Streaming from OBS is part of 3Speak Pro'
+                    : obsSourceGone ? 'Bring the connected OBS feed back as a source' : 'Publish from OBS (or any WHIP encoder) into this stream'}>
+                  🎥 {obsSourceGone ? 'Reconnect OBS scene' : 'OBS / external encoder'}{obsLocked ? ' 🔒' : ''}
+                  <span className="hh-studio__add-state">{obsLocked ? '3Speak Pro' : obsSourceGone ? 'tap to restore' : obsLive ? 'connected ✓' : obsBusy ? 'setting up…' : ''}</span>
                 </button>
               );
             })()}

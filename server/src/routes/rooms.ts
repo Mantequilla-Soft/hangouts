@@ -16,7 +16,7 @@ import {
   type RoomMetadata, ROOM_VISIBILITIES, ROOM_MODES, createStreamRoom, closeStreamRoom,
 } from '../lib/streamRoom.js';
 import { endHeadlessStreamForRoom, headlessViewerIdentity } from '../lib/headlessStreams.js';
-import { nextFreeStreamAt, recordGoLive, dailyLimitBody } from '../lib/streamQuota.js';
+import { nextFreeStreamAt, recordGoLive, dailyLimitBody, obsProRequiredBody } from '../lib/streamQuota.js';
 
 // OBS/WHIP ingest. Same credentials as roomService — the ingress service reads
 // the identical key pair from its own config and talks to LiveKit over loopback.
@@ -30,7 +30,30 @@ const ingressClient = new IngressClient(
 const GUEST_PREFIX = 'guest-';
 /** Identity prefix used for silent OBS overlay observers. */
 const OBS_PREFIX = 'obs-';
-const MAX_GUESTS_PER_ROOM = Number(process.env.MAX_GUESTS_PER_ROOM ?? 100);
+// Default from the 2026-11-05 live.3speak.tv stress test: one stream stayed clean
+// at 50 viewers, while at 100 every viewer lost ~45% of packets and the recording broke.
+const MAX_GUESTS_PER_ROOM = Number(process.env.MAX_GUESTS_PER_ROOM ?? 50);
+
+/**
+ * /rooms and /streams scan every room (listRooms + listParticipants per room),
+ * and the lobby polls them, so uncached cost grows with visitors x rooms.
+ * Results are shared for LIST_TTL_MS and concurrent misses wait on one scan.
+ */
+const LIST_TTL_MS = 3000;
+
+function sharedCache<T>(ttlMs: number, load: () => Promise<T>): () => Promise<T> {
+  let value: { at: number; v: T } | null = null;
+  let pending: Promise<T> | null = null;
+  return () => {
+    if (value && Date.now() - value.at < ttlMs) return Promise.resolve(value.v);
+    if (!pending) {
+      pending = load()
+        .then((v) => { value = { at: Date.now(), v }; return v; })
+        .finally(() => { pending = null; });
+    }
+    return pending;
+  };
+}
 
 function generateGuestIdentity(): string {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -50,7 +73,7 @@ function generateObsIdentity(): string {
 export const roomRoutes: FastifyPluginAsync = async (fastify) => {
   // List active rooms (public — no auth required). Filters out rooms
   // marked `unlisted`; those are reachable only by direct link.
-  fastify.get('/rooms', async (_request, reply) => {
+  const lobbyRooms = sharedCache(LIST_TTL_MS, async () => {
     const rooms = await roomService.listRooms();
 
     const visible = rooms
@@ -93,9 +116,10 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         portrait: meta.portrait,
       };
     }));
-
-    return reply.send(result);
+    return result;
   });
+
+  fastify.get('/rooms', async (_request, reply) => reply.send(await lobbyRooms()));
 
   // Active OpenPods for the discover feeds (public — no auth). Both standalone
   // STREAMS and conference ROOMS, each tagged with `mode` so the client can
@@ -104,7 +128,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
   // UNLISTED rooms are excluded here: they're link-only, so surfacing them in a
   // discovery feed would defeat the point. Hive-only rooms ARE returned (the
   // client hides them from signed-out viewers) so a signed-in viewer sees them.
-  fastify.get('/streams', async (_request, reply) => {
+  const discoverStreams = sharedCache(LIST_TTL_MS, async () => {
     const rooms = await roomService.listRooms();
     const active = rooms
       .map((r) => {
@@ -155,9 +179,14 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Live ones first, newest first.
     result.sort((a, b) => (Number(b.live) - Number(a.live)) || (a.createdAt < b.createdAt ? 1 : -1));
-    // Never cache — live status changes minute to minute.
+    return result;
+  });
+
+  fastify.get('/streams', async (_request, reply) => {
+    // No HTTP caching — live status changes minute to minute; the few-second
+    // server-side cache above is all the staleness a viewer sees.
     reply.header('Cache-Control', 'no-store');
-    return reply.send(result);
+    return reply.send(await discoverStreams());
   });
 
   // Public health + counts. Aggregate numbers ONLY — no room names, titles or
@@ -421,7 +450,9 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
   // speaker by the host, and banned (IP-scoped, per-room) if disruptive.
   fastify.post('/rooms/:name/listen', {
     config: {
-      rateLimit: { max: 10, timeWindow: '5 minutes' },
+      // Per client IP; generous because carrier NAT, offices and watch parties
+      // put many real viewers behind one address.
+      rateLimit: { max: 60, timeWindow: '5 minutes' },
     },
     schema: {
       params: {
@@ -740,6 +771,8 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     let meta: Partial<RoomMetadata> = {};
     try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
     if (meta.host !== request.username) return reply.forbidden('Only the host can set up OBS ingest');
+    // OBS is a Pro feature (lib/streamQuota.ts).
+    if (!(await getUserStatus(request.username)).premium) return reply.code(403).send(obsProRequiredBody());
 
     const identity = `obs-ingress-${name}`;
 
