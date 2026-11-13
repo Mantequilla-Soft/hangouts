@@ -1,6 +1,6 @@
 import type { BoostAsset, BoostRejectReason, BoostMemoV1 } from './boostTypes.js';
 
-export type BoostLedgerStatus = 'received' | 'accepted' | 'broadcasted' | 'payout_sent' | 'rejected';
+export type BoostLedgerStatus = 'received' | 'accepted' | 'broadcasted' | 'payout_sent' | 'rejected' | 'refunded';
 
 export interface BoostLedgerEntry {
   id: string;
@@ -120,6 +120,20 @@ export function markBoostRejected(id: string, rejectReason: BoostRejectReason): 
   const next: BoostLedgerEntry = {
     ...current,
     status: 'rejected',
+    rejectReason,
+    updatedAt: nowIso(),
+  };
+  ledger.set(id, next);
+  return next;
+}
+
+/** Nobody could be paid, so the full amount went back to the sender. */
+export function markBoostRefunded(id: string, rejectReason: BoostRejectReason): BoostLedgerEntry | null {
+  const current = ledger.get(id);
+  if (!current) return null;
+  const next: BoostLedgerEntry = {
+    ...current,
+    status: 'refunded',
     rejectReason,
     updatedAt: nowIso(),
   };

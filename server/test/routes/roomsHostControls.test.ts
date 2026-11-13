@@ -158,6 +158,25 @@ describe('PATCH /rooms/:name/boost', () => {
     expect(res.json().boost).toEqual({ enabled: false });
   });
 
+  // Hosts change Boosts mid-stream from the studio, while its heartbeat writes
+  // `broadcasting`: the update goes through the per-room metadata lock.
+  it('a boost change mid-stream does not erase a broadcast flag written at the same time', async () => {
+    const { roomService } = await import('../../src/lib/livekit.js');
+    setRoom({ broadcasting: false, boost: { enabled: true, minBoostUsd: 0 } });
+    let releaseBoostRead!: () => void;
+    const staleSnapshot = [{ ...lk.rooms.get(ROOM)! }];
+    vi.mocked(roomService.listRooms).mockImplementationOnce(() => new Promise((resolve) => {
+      releaseBoostRead = () => resolve(staleSnapshot as never);
+    }));
+    const boost = req('PATCH', '/boost', 'alice', { enabled: false });
+    await new Promise((r) => setTimeout(r, 20));
+    const broadcast = req('PATCH', '/broadcast', 'alice', { broadcasting: true });
+    releaseBoostRead();
+    expect((await boost).statusCode).toBe(200);
+    expect((await broadcast).statusCode).toBe(200);
+    expect(roomMeta()).toMatchObject({ broadcasting: true, boost: { enabled: false } });
+  });
+
   it('only the host may change boost settings (403), and the room must exist (404)', async () => {
     expect((await req('PATCH', '/boost', 'alice', { enabled: true })).statusCode).toBe(404);
     setRoom({});

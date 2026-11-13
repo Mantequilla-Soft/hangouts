@@ -18,10 +18,14 @@ export type BoostRejectReason =
   | 'invalid_memo'
   | 'invalid_asset'
   | 'room_not_found'
+  /** The host switched Boosts off for the room (the sender is refunded). */
+  | 'boosts_disabled'
   | 'below_minimum'
   | 'invalid_destination'
   | 'duplicate_transfer'
   | 'payout_failed'
+  /** Nobody could be paid and sending the money back failed too. */
+  | 'refund_failed'
   | 'internal_error';
 
 export interface BoostEvent {

@@ -26,6 +26,7 @@ vi.mock('../../src/lib/boostPricing.js', () => ({
 
 vi.mock('../../src/lib/boostPayout.js', () => ({
   sendBoostPayout: vi.fn().mockResolvedValue(undefined),
+  sendBoostRefund: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../src/lib/streamStats.js', () => ({
@@ -55,7 +56,7 @@ function makeMockLk(roomMeta = makeRoomMeta()) {
 }
 
 function baseInput(txId: string, overrides: Partial<{
-  to: string; amount: string; memo: string;
+  from: string; to: string; amount: string; memo: string;
 }> = {}) {
   return {
     txId,
@@ -271,14 +272,77 @@ describe('processBoostTransfer: recipients, conversion and failures', () => {
     expect(sentEvent(lk2)).not.toHaveProperty('belowMinimum');
   });
 
-  it('rejects as room_not_found when the host switched boosts off, without paying', async () => {
+  it('refunds the full amount to the sender when the host switched boosts off mid-stream, without paying or showing it', async () => {
+    const { sendBoostRefund } = await import('../../src/lib/boostPayout.js');
+    const refund = vi.mocked(sendBoostRefund);
+    refund.mockClear();
     const log = vi.fn();
     const lk = makeMockLk(makeRoomMeta({ boost: { enabled: false } }));
-    await processBoostTransfer(baseInput('tx-off-001'), log, lk);
-    expect(entryFor('tx-off-001')).toMatchObject({ status: 'rejected', rejectReason: 'room_not_found' });
+    await processBoostTransfer(baseInput('tx-off-001', { from: 'Bob' }), log, lk);
+    expect(entryFor('tx-off-001')).toMatchObject({ status: 'refunded', rejectReason: 'boosts_disabled' });
+    expect(refund).toHaveBeenCalledWith({
+      to: 'bob', amount: '2.000', asset: 'HBD',
+      memo: 'boost refund:alice-room-abc123:tx-off-001: Boosts are switched off for this stream',
+    });
     expect(lk.sendData).not.toHaveBeenCalled();
     expect(payout).not.toHaveBeenCalled();
-    expect(log).toHaveBeenCalledWith('[Boost] rejected tx-off-001:0: room_not_found', 'boosts disabled for room');
+    expect(log).toHaveBeenCalledWith('[Boost] refunded tx-off-001:0 to @bob: boosts_disabled', undefined);
+  });
+
+  it('only rejects a boost for a room with boosts off when the sender is unknown (nobody to refund)', async () => {
+    const { sendBoostRefund } = await import('../../src/lib/boostPayout.js');
+    vi.mocked(sendBoostRefund).mockClear();
+    const lk = makeMockLk(makeRoomMeta({ boost: { enabled: false } }));
+    await processBoostTransfer(baseInput('tx-off-002'), noop, lk);
+    expect(entryFor('tx-off-002')).toMatchObject({ status: 'rejected', rejectReason: 'boosts_disabled' });
+    expect(sendBoostRefund).not.toHaveBeenCalled();
+  });
+
+  it('never refunds to the platform account itself', async () => {
+    const { sendBoostRefund } = await import('../../src/lib/boostPayout.js');
+    vi.mocked(sendBoostRefund).mockClear();
+    const lk = makeMockLk(makeRoomMeta({ boost: { enabled: false } }));
+    await processBoostTransfer(baseInput('tx-off-003', { from: 'boostwallet' }), noop, lk);
+    expect(entryFor('tx-off-003')).toMatchObject({ status: 'rejected', rejectReason: 'boosts_disabled' });
+    expect(sendBoostRefund).not.toHaveBeenCalled();
+  });
+
+  it('marks refund_failed and logs for a hand payout when the refund transfer fails', async () => {
+    const { sendBoostRefund } = await import('../../src/lib/boostPayout.js');
+    vi.mocked(sendBoostRefund).mockClear().mockRejectedValueOnce(new Error('rpc down'));
+    const log = vi.fn();
+    const lk = makeMockLk(makeRoomMeta({ boost: { enabled: false } }));
+    await processBoostTransfer(baseInput('tx-off-004', { from: 'bob' }), log, lk);
+    expect(entryFor('tx-off-004')).toMatchObject({ status: 'rejected', rejectReason: 'refund_failed' });
+    expect(log.mock.calls[0][0]).toContain('REFUND FAILED tx-off-004:0 (2.000 HBD to @bob, boosts_disabled)');
+  });
+
+  it('refunds a boost for a stream that has already ended', async () => {
+    const { sendBoostRefund } = await import('../../src/lib/boostPayout.js');
+    vi.mocked(sendBoostRefund).mockClear();
+    const lk = makeMockLk();
+    lk.listRooms.mockResolvedValue([]);
+    await processBoostTransfer(baseInput('tx-gone-001', { from: 'bob' }), noop, lk);
+    expect(entryFor('tx-gone-001')).toMatchObject({ status: 'refunded', rejectReason: 'room_not_found' });
+    expect(vi.mocked(sendBoostRefund).mock.calls[0][0].memo).toBe('boost refund:alice-room-abc123:tx-gone-001: the stream could not receive it');
+  });
+
+  it('refunds when the room has nobody to pay', async () => {
+    const { sendBoostRefund } = await import('../../src/lib/boostPayout.js');
+    vi.mocked(sendBoostRefund).mockClear();
+    const lk = makeMockLk(makeRoomMeta({ host: '  ', boost: { enabled: true } }));
+    await processBoostTransfer(baseInput('tx-nopay-002', { from: 'bob' }), noop, lk);
+    expect(entryFor('tx-nopay-002')).toMatchObject({ status: 'refunded', rejectReason: 'internal_error' });
+  });
+
+  it('still pays a boost under the minimum (flagged, not refunded)', async () => {
+    const { sendBoostRefund } = await import('../../src/lib/boostPayout.js');
+    vi.mocked(sendBoostRefund).mockClear();
+    payout.mockClear();
+    const lk = makeMockLk(makeRoomMeta({ boost: { enabled: true, minBoostUsd: 5, creatorPayoutAccount: 'alice' } }));
+    await processBoostTransfer(baseInput('tx-min-009', { from: 'bob' }), noop, lk);
+    expect(sendBoostRefund).not.toHaveBeenCalled();
+    expect(payout).toHaveBeenCalledTimes(1);
   });
 
   it('rejects as internal_error when nobody can be paid', async () => {

@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   listRooms: vi.fn(),
   sendData: vi.fn(),
   sendBoostPayout: vi.fn(),
+  sendBoostRefund: vi.fn(),
 }));
 
 vi.mock('../../src/config.js', () => ({ config: h.config }));
@@ -26,7 +27,7 @@ vi.mock('../../src/lib/boostPricing.js', () => ({
   getHiveUsdRate: vi.fn().mockResolvedValue(0.25),
   hbdUsdRate: vi.fn().mockReturnValue(1),
 }));
-vi.mock('../../src/lib/boostPayout.js', () => ({ sendBoostPayout: h.sendBoostPayout }));
+vi.mock('../../src/lib/boostPayout.js', () => ({ sendBoostPayout: h.sendBoostPayout, sendBoostRefund: h.sendBoostRefund }));
 vi.mock('../../src/lib/streamStats.js', () => ({ recordBoost: vi.fn() }));
 
 type ListenerModule = typeof import('../../src/lib/boostListener.js');
@@ -77,6 +78,7 @@ beforeEach(async () => {
   h.listRooms.mockReset().mockResolvedValue([{ name: ROOM, metadata: JSON.stringify({ host: 'alice' }) }]);
   h.sendData.mockReset().mockResolvedValue(undefined);
   h.sendBoostPayout.mockReset().mockResolvedValue(undefined);
+  h.sendBoostRefund.mockReset().mockResolvedValue(undefined);
   vi.resetModules();
   listener = await import('../../src/lib/boostListener.js');
   ledger = await import('../../src/lib/boostLedger.js');
@@ -226,16 +228,19 @@ describe('platform wallet polling', () => {
     ]);
   });
 
-  it('a rejected boost (unknown room) still advances the watermark', async () => {
+  it('a boost for a room that is gone is refunded to the transfer\'s sender once, and still advances the watermark', async () => {
     await start();
     h.listRooms.mockResolvedValueOnce([]);
     h.getAccountHistory.mockResolvedValueOnce([row(1)]);
     await nextPoll();
-    expect(ledger.listBoostLedger()[0]).toMatchObject({ status: 'rejected', rejectReason: 'room_not_found' });
+    expect(ledger.listBoostLedger()[0]).toMatchObject({ status: 'refunded', rejectReason: 'room_not_found' });
+    // The refund goes to the operation's `from`, never to the memo's sender field.
+    expect(h.sendBoostRefund).toHaveBeenCalledTimes(1);
+    expect(h.sendBoostRefund.mock.calls[0][0]).toMatchObject({ to: 'bob', amount: '1.000', asset: 'HBD' });
 
     h.getAccountHistory.mockResolvedValueOnce([row(1)]);
     await nextPoll();
     expect(ledger.listBoostLedger()).toHaveLength(1);
-    expect(ledger.listBoostLedger()[0].rejectReason).toBe('room_not_found');
+    expect(h.sendBoostRefund).toHaveBeenCalledTimes(1);
   });
 });

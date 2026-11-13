@@ -7,6 +7,20 @@ function amountWithAsset(amount: string, asset: BoostAsset): string {
   return `${amount} ${asset}`;
 }
 
+/**
+ * Send a boost's FULL amount back to the account that sent it, for a boost
+ * nobody can be paid for (Boosts switched off, the stream already gone). Same
+ * platform account and key as payouts; no fee is kept.
+ */
+export async function sendBoostRefund(args: {
+  to: string;
+  amount: string;
+  asset: BoostAsset;
+  memo: string;
+}): Promise<void> {
+  return sendBoostPayout(args);
+}
+
 export async function sendBoostPayout(args: {
   to: string;
   amount: string;

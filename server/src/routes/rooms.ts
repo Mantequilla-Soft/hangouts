@@ -693,32 +693,30 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       creatorPayoutAccount?: string;
     };
 
-    const rooms = await roomService.listRooms([name]);
-    if (rooms.length === 0) return reply.notFound('Room not found');
-
-    let meta: Record<string, unknown> = {};
-    try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
-
-    if (meta.host !== request.username) {
-      return reply.forbidden('Only the host can update boost settings');
+    // Under the per-room metadata lock: hosts change Boosts MID-STREAM now, and
+    // an unlocked read-modify-write here raced the studio's broadcast heartbeat
+    // and go-live stamps (whichever wrote last erased the others).
+    let forbidden = false;
+    let boost: Record<string, unknown> | undefined;
+    try {
+      await mutateRoomMetadata(name, (meta) => {
+        if (meta.host !== request.username) { forbidden = true; return null; }
+        const existing = (meta.boost && typeof meta.boost === 'object' && !Array.isArray(meta.boost))
+          ? meta.boost as Record<string, unknown>
+          : {};
+        boost = {
+          ...existing,
+          ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+          ...(body.minBoostUsd !== undefined ? { minBoostUsd: body.minBoostUsd } : {}),
+          ...(body.creatorPayoutAccount !== undefined ? { creatorPayoutAccount: body.creatorPayoutAccount || undefined } : {}),
+        };
+        return { ...meta, boost };
+      });
+    } catch {
+      return reply.notFound('Room not found');
     }
-
-    const existing = (meta.boost && typeof meta.boost === 'object' && !Array.isArray(meta.boost))
-      ? meta.boost as Record<string, unknown>
-      : {};
-
-    const next = {
-      ...meta,
-      boost: {
-        ...existing,
-        ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
-        ...(body.minBoostUsd !== undefined ? { minBoostUsd: body.minBoostUsd } : {}),
-        ...(body.creatorPayoutAccount !== undefined ? { creatorPayoutAccount: body.creatorPayoutAccount || undefined } : {}),
-      },
-    };
-
-    await roomService.updateRoomMetadata(name, JSON.stringify(next));
-    return reply.send({ boost: next.boost });
+    if (forbidden) return reply.forbidden('Only the host can update boost settings');
+    return reply.send({ boost });
   });
 
   // Update the feed-post details (title/thumbnail/description/tags) for a

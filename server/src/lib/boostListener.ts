@@ -11,6 +11,7 @@ import {
   splitBoostAmounts,
   type BoostEvent,
   type BoostRejectReason,
+  type BoostAsset,
 } from './boostTypes.js';
 import {
   boostLedgerId,
@@ -19,12 +20,16 @@ import {
   markBoostBroadcasted,
   markBoostPayoutSent,
   markBoostRejected,
+  markBoostRefunded,
   upsertBoostLedgerReceived,
 } from './boostLedger.js';
-import { sendBoostPayout } from './boostPayout.js';
+import { sendBoostPayout, sendBoostRefund } from './boostPayout.js';
 import { recordBoost } from './streamStats.js';
 
 interface BoostTransferInput {
+  /** The account that sent the transfer: where a refund goes. Taken from the
+   *  operation itself, never from the memo (which the sender's client writes). */
+  from?: string;
   txId: string;
   opIndex: number;
   blockNum: number;
@@ -107,6 +112,43 @@ async function handleRejected(id: string, reason: BoostRejectReason, log: (msg: 
   log(`[Boost] rejected ${id}: ${reason}`, detail);
 }
 
+/**
+ * A boost nobody can be paid for: send the full amount back to the account that
+ * sent it, and record it as refunded. Without a known sender (or if it was the
+ * platform account itself) it is only rejected, as before. A failed refund is
+ * logged and left as `refund_failed` for a hand payout.
+ */
+async function refundBoost(
+  id: string,
+  reason: BoostRejectReason,
+  input: BoostTransferInput,
+  amount: { amount: string; asset: BoostAsset },
+  room: string,
+  log: (msg: string, detail?: unknown) => void,
+  detail?: unknown,
+): Promise<void> {
+  const sender = input.from?.trim().toLowerCase();
+  const platform = config.BOOST_PLATFORM_ACCOUNT.trim().toLowerCase();
+  if (!sender || sender === platform) {
+    await handleRejected(id, reason, log, detail);
+    return;
+  }
+  const why = reason === 'boosts_disabled' ? 'Boosts are switched off for this stream' : 'the stream could not receive it';
+  try {
+    await sendBoostRefund({
+      to: sender,
+      amount: amount.amount,
+      asset: amount.asset,
+      memo: `boost refund:${room}:${input.txId}: ${why}`,
+    });
+    markBoostRefunded(id, reason);
+    log(`[Boost] refunded ${id} to @${sender}: ${reason}`, detail);
+  } catch (err) {
+    markBoostRejected(id, 'refund_failed');
+    log(`[Boost] REFUND FAILED ${id} (${amount.amount} ${amount.asset} to @${sender}, ${reason}), pay it back by hand`, err);
+  }
+}
+
 export async function processBoostTransfer(input: BoostTransferInput, log: (msg: string, detail?: unknown) => void, lk: RoomServiceClient = roomService): Promise<void> {
   const platformAccount = config.BOOST_PLATFORM_ACCOUNT.trim().toLowerCase();
   if (!platformAccount) return;
@@ -144,24 +186,27 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
   });
   const id = received.id;
 
+  // Nobody to pay (stream gone, Boosts switched off, no payout account): the
+  // sender gets the money back rather than it sitting in the platform wallet.
   let meta: Record<string, unknown>;
   try {
     meta = await readRoomMetadata(memo.room, lk);
   } catch (err) {
-    await handleRejected(id, 'room_not_found', log, err);
+    await refundBoost(id, 'room_not_found', input, amount, memo.room, log, err);
+    return;
+  }
+
+  if (!boostEnabled(meta)) {
+    await refundBoost(id, 'boosts_disabled', input, amount, memo.room, log);
     return;
   }
 
   const usdAmount = await usdFor(amount.asset, amount.value);
   const minUsd = boostMinUsd(meta);
-  if (!boostEnabled(meta)) {
-    await handleRejected(id, 'room_not_found', log, 'boosts disabled for room');
-    return;
-  }
 
   const hostAccount = payoutAccount(meta);
   if (!hostAccount) {
-    await handleRejected(id, 'internal_error', log, 'missing payout recipient');
+    await refundBoost(id, 'internal_error', input, amount, memo.room, log, 'missing payout recipient');
     return;
   }
 
@@ -277,6 +322,7 @@ async function pollPlatformWallet(log: (msg: string, detail?: unknown) => void):
     const payload = op.op[1];
     await processBoostTransfer(
       {
+        from: payload.from,
         txId: op.trx_id,
         opIndex: seq,
         blockNum: op.block,
