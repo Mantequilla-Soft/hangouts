@@ -4127,7 +4127,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       <span className="hh-studio__warn-text">
         {isMobile
           ? 'Keep this screen on and stay in the app — locking the phone or switching apps stops your stream.'
-          : 'Keep this window in front, or your stream will stutter.'}
+          : 'Keep this browser tab and browser in front, or your stream will stutter.'}
       </span>
     </span>
   );
