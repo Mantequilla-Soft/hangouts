@@ -178,7 +178,7 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
   const [input, setInput] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
 
   const mentionQuery = useMemo(() => {
     const m = input.match(/(?:^|\s)@(\S*)$/);
@@ -210,8 +210,13 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
   // Mounted only when the chat is visible — the parent (HangoutsRoom)
   // unmounts us when the user collapses the panel via the toggle in the
   // controls bar, so isOpen state lives one level up.
+  //
+  // Scrolls the message list ITSELF to its newest line. scrollIntoView would
+  // also scroll every scrollable ancestor, so on a page that embeds the chat
+  // (a watch page) each new message, and every Enter, jerked the page around.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages.length]);
 
   const handleSend = (e: React.FormEvent) => {
@@ -249,7 +254,7 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
           </button>
         )}
       </div>
-      <div className="hh-chat__messages">
+      <div className="hh-chat__messages" ref={messagesRef}>
         {messages.length === 0 && (
           <div className="hh-chat__empty">No messages yet</div>
         )}
@@ -263,7 +268,6 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
             onModerate={canModerate && msg.identity !== hostIdentity && msg.identity !== localParticipant?.identity ? setModTarget : undefined}
           />
         ))}
-        <div ref={bottomRef} />
       </div>
       {!canChat ? (
         /* An EMPTY notice means "render nothing" — `??` only falls back on
