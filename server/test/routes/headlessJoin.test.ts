@@ -63,6 +63,55 @@ describe('headless host identity', () => {
     expect(res.json()).toMatchObject({ identity: 'alice~watch', isGuest: false });
   });
 
+  it('/join: a studio host on a second device only watches while the first is connected', async () => {
+    const { roomService, createLivekitToken } = await import('../../src/lib/livekit.js');
+    vi.mocked(roomService.listRooms).mockResolvedValue(room({}) as never);
+    vi.mocked(roomService.listParticipants).mockResolvedValueOnce([{ identity: 'alice', state: 2 }] as never);
+    const res = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/join`, headers: { authorization: `Bearer ${await makeToken('alice')}` } });
+    expect(res.json()).toMatchObject({ identity: 'alice~watch', isHost: false, liveElsewhere: true });
+    expect(createLivekitToken).toHaveBeenCalledWith(ROOM, 'alice~watch', expect.objectContaining({ canPublish: false, name: 'alice' }));
+  });
+
+  it('/join: the studio host takes over once the old device has left (or is marked disconnected)', async () => {
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(roomService.listRooms).mockResolvedValue(room({}) as never);
+    vi.mocked(roomService.listParticipants).mockResolvedValueOnce([{ identity: 'alice', state: 3 }, { identity: 'bob', state: 2 }] as never);
+    const res = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/join`, headers: { authorization: `Bearer ${await makeToken('alice')}` } });
+    expect(res.json()).toMatchObject({ identity: 'alice', isHost: true });
+    expect(res.json().liveElsewhere).toBeUndefined();
+  });
+
+  it('/join: falls back to the old behaviour when LiveKit cannot list participants', async () => {
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(roomService.listRooms).mockResolvedValue(room({}) as never);
+    vi.mocked(roomService.listParticipants).mockRejectedValueOnce(new Error('twirp down'));
+    const res = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/join`, headers: { authorization: `Bearer ${await makeToken('alice')}` } });
+    expect(res.json()).toMatchObject({ identity: 'alice', isHost: true });
+  });
+
+  it('/join: the on-air co-host on a second device only watches, rejoining after a drop keeps publish', async () => {
+    const { roomService, createLivekitToken } = await import('../../src/lib/livekit.js');
+    vi.mocked(roomService.listRooms).mockResolvedValue(room({ collabGuest: 'bob' }) as never);
+    vi.mocked(roomService.listParticipants).mockResolvedValueOnce([{ identity: 'bob', state: 2 }] as never);
+    const auth = { authorization: `Bearer ${await makeToken('bob')}` };
+    const second = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/join`, headers: auth });
+    expect(second.json()).toMatchObject({ identity: 'bob~watch', isHost: false, liveElsewhere: true });
+    expect(vi.mocked(createLivekitToken).mock.calls[0][2]).toMatchObject({ canPublish: false });
+    const back = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/join`, headers: auth });
+    expect(back.json()).toMatchObject({ identity: 'bob', isHost: false });
+    expect(vi.mocked(createLivekitToken).mock.calls[1][2]).toMatchObject({ canPublish: true });
+  });
+
+  it('/listen with a studio host\'s session never uses the broadcasting identity', async () => {
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(roomService.listRooms).mockResolvedValue(room({}) as never);
+    const res = await app.inject({
+      method: 'POST', url: `/rooms/${ROOM}/listen`, payload: {},
+      headers: { authorization: `Bearer ${await makeToken('alice')}` },
+    });
+    expect(res.json()).toMatchObject({ identity: 'alice~watch' });
+  });
+
   it('studio /live and /broadcast are refused on a headless room', async () => {
     const { roomService } = await import('../../src/lib/livekit.js');
     vi.mocked(roomService.listRooms).mockResolvedValue(room({ headless: true }) as never);

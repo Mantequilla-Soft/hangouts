@@ -102,6 +102,13 @@ export interface JoinRoomResponse {
    * promoted to speaker).
    */
   isGuest?: boolean;
+  /**
+   * True when the host (or the on-air co-host) joined from a second device
+   * while their first device is still connected: this device gets a
+   * watch-only `<user>~watch` identity so it does not kick the broadcasting
+   * one off the stream. Joining again after that device left takes over.
+   */
+  liveElsewhere?: boolean;
 }
 
 export interface AuthSession {

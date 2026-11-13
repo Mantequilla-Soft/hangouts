@@ -15,6 +15,7 @@ import { recordViewerJoin } from '../lib/streamStats.js';
 import {
   type RoomMetadata, ROOM_VISIBILITIES, ROOM_MODES, createStreamRoom, closeStreamRoom,
 } from '../lib/streamRoom.js';
+import { ParticipantInfo_State } from '@livekit/protocol';
 import { endHeadlessStreamForRoom, headlessViewerIdentity } from '../lib/headlessStreams.js';
 import { nextFreeStreamAt, recordGoLive, dailyLimitBody, obsProRequiredBody } from '../lib/streamQuota.js';
 
@@ -33,6 +34,27 @@ const OBS_PREFIX = 'obs-';
 // Default from the 2026-11-05 live.3speak.tv stress test: one stream stayed clean
 // at 50 viewers, while at 100 every viewer lost ~45% of packets and the recording broke.
 const MAX_GUESTS_PER_ROOM = Number(process.env.MAX_GUESTS_PER_ROOM ?? 50);
+
+/**
+ * Is `identity` connected to the room RIGHT NOW from some device?
+ *
+ * LiveKit allows one connection per identity: a second token with the same
+ * identity kicks the first (DUPLICATE_IDENTITY). For the host that meant
+ * glancing at their own stream on a phone ended the studio on the desktop.
+ * A device that is really gone (tab or browser closed, machine off, network
+ * dead long enough) is no longer listed, so a true takeover still works.
+ *
+ * Fails open (false): if LiveKit can't be asked, behave as before.
+ */
+async function identityConnected(roomName: string, identity: string): Promise<boolean> {
+  try {
+    const participants = await roomService.listParticipants(roomName);
+    return participants.some((p) => p.identity === identity
+      && p.state !== ParticipantInfo_State.DISCONNECTED);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * /rooms and /streams scan every room (listRooms + listParticipants per room),
@@ -424,25 +446,38 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     // ending their stream. They watch under a distinct identity instead, as a
     // plain viewer: there is no studio to drive, OBS is the broadcaster.
     const headlessHost = !!meta.headless && meta.host === identity;
-    const lkIdentity = headlessHost ? headlessViewerIdentity(identity) : identity;
-    const isHost = meta.host === identity && !headlessHost;
     // The approved collab guest keeps publish rights across a RECONNECT. The
     // host's promote sets permissions on the LIVE participant only, so a guest
     // whose phone dropped (airplane mode → page discarded → rejoin) would come
     // back with a fresh canPublish=false token and get bumped off camera, having
     // to ask again. `collabGuest` in room metadata persists the approval, so we
     // re-grant it here and CollabRequest puts them straight back on air.
-    const isApprovedGuest = !!meta.collabGuest && meta.collabGuest === identity;
+    const approvedGuest = !!meta.collabGuest && meta.collabGuest === identity;
+    // Studio host (or the on-air co-host) opening the stream on a SECOND device,
+    // e.g. checking on a phone that the stream is live: the first device is
+    // still connected and publishing, so this one only watches. They take the
+    // stream over only once the first device has really left the room.
+    const onAirElsewhere = !headlessHost && (meta.host === identity || approvedGuest)
+      && await identityConnected(name, identity);
+    const watchOnly = headlessHost || onAirElsewhere;
+    const lkIdentity = watchOnly ? headlessViewerIdentity(identity) : identity;
+    const isHost = meta.host === identity && !watchOnly;
+    const isApprovedGuest = approvedGuest && !watchOnly;
 
     const token = await createLivekitToken(name, lkIdentity, {
       canPublish: isHost || isApprovedGuest,
       canPublishData: true, // all participants can send data (hand raise, etc.)
       premium,
       // Keep the chat name the plain account even under the ~watch identity.
-      name: headlessHost ? identity : undefined,
+      name: watchOnly ? identity : undefined,
     });
 
-    return reply.send({ token, roomName: name, identity: lkIdentity, isHost, isPremium: premium });
+    return reply.send({
+      token, roomName: name, identity: lkIdentity, isHost, isPremium: premium,
+      // Lets a client say "you are live from another device" instead of
+      // silently showing the host a viewer page.
+      ...(onAirElsewhere ? { liveElsewhere: true } : {}),
+    });
   });
 
   // Guest token (NO auth). Anyone with the room URL can drop in to listen
@@ -531,9 +566,13 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       } catch { /* expired or bogus — carry on as a guest */ }
     }
 
-    // Same duplicate-identity guard as /join: on a headless stream the ingress
-    // already holds the host's identity.
-    const viewerIdentity = authedUser && meta.headless && authedUser === meta.host
+    // Same duplicate-identity guard as /join. /listen never publishes, so the
+    // host (whose identity the ingress or their studio holds) and the on-air
+    // co-host always watch under the ~watch identity: their plain identity here
+    // would kick the device that is actually broadcasting.
+    const onAirIdentity = !!authedUser
+      && (authedUser === meta.host || (!!meta.collabGuest && authedUser === meta.collabGuest));
+    const viewerIdentity = authedUser && onAirIdentity
       ? headlessViewerIdentity(authedUser)
       : authedUser;
     const identity = silent
@@ -554,7 +593,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Leaderboard: a real viewer joining a livestream (not the OBS overlay, not
     // the host/co-host). streamId = roomName. Best-effort, never blocks the join.
-    if (!silent && meta.mode === 'standalone' && authedUser !== meta.host && identity !== meta.collabGuest) {
+    if (!silent && meta.mode === 'standalone' && !onAirIdentity) {
       recordViewerJoin(name, typeof meta.host === 'string' ? meta.host.toLowerCase() : undefined);
     }
 
