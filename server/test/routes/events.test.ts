@@ -541,3 +541,169 @@ describe('POST /presence/bulk', () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+// ─── live event reconciliation + remaining PATCH branches ───────────────────
+
+describe('live events whose LiveKit room is gone', () => {
+  it('GET /events marks them ended in storage and leaves them out of the list', async () => {
+    const { listEvents, setEventStatus } = await import('../../src/lib/events.js');
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(listEvents).mockResolvedValue([
+      makeEvent({ id: 'a'.repeat(24), status: 'live', roomName: 'room-alive' }),
+      makeEvent({ id: 'b'.repeat(24), status: 'live', roomName: 'room-gone' }),
+      makeEvent({ id: 'c'.repeat(24), status: 'scheduled' }),
+    ]);
+    vi.mocked(roomService.listRooms).mockResolvedValue([{ name: 'room-alive' }] as any);
+    vi.mocked(setEventStatus).mockResolvedValue(null);
+
+    const res = await app.inject({ method: 'GET', url: '/events' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().map((e: { id: string }) => e.id)).toEqual(['a'.repeat(24), 'c'.repeat(24)]);
+    expect(roomService.listRooms).toHaveBeenCalledWith(['room-alive', 'room-gone']);
+    expect(setEventStatus).toHaveBeenCalledTimes(1);
+    expect(setEventStatus).toHaveBeenCalledWith('b'.repeat(24), 'ended');
+  });
+
+  it('GET /events?status=ended keeps the freshly ended ones in the answer', async () => {
+    const { listEvents, setEventStatus } = await import('../../src/lib/events.js');
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(listEvents).mockResolvedValue([makeEvent({ status: 'live', roomName: 'room-gone' })]);
+    vi.mocked(roomService.listRooms).mockResolvedValue([]);
+    vi.mocked(setEventStatus).mockResolvedValue(null);
+
+    const res = await app.inject({ method: 'GET', url: '/events?status=ended' });
+
+    expect(res.json()).toHaveLength(1);
+    expect(res.json()[0].status).toBe('ended');
+  });
+
+  it('GET /events leaves live events alone when LiveKit cannot be reached', async () => {
+    const { listEvents, setEventStatus } = await import('../../src/lib/events.js');
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(listEvents).mockResolvedValue([makeEvent({ status: 'live', roomName: 'room-x' })]);
+    vi.mocked(roomService.listRooms).mockRejectedValue(new Error('livekit down'));
+
+    const res = await app.inject({ method: 'GET', url: '/events' });
+
+    expect(res.json()).toHaveLength(1);
+    expect(res.json()[0].status).toBe('live');
+    expect(setEventStatus).not.toHaveBeenCalled();
+  });
+
+  it('GET /events/:id answers a ghost live event as ended', async () => {
+    const { getEventById, setEventStatus } = await import('../../src/lib/events.js');
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(getEventById).mockResolvedValue(makeEvent({ status: 'live', roomName: 'room-gone' }));
+    vi.mocked(roomService.listRooms).mockResolvedValue([]);
+    vi.mocked(setEventStatus).mockResolvedValue(null);
+
+    const res = await app.inject({ method: 'GET', url: `/events/${EVENT_ID}` });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('ended');
+    expect(setEventStatus).toHaveBeenCalledWith(EVENT_ID, 'ended');
+  });
+});
+
+describe('PATCH /events/:id remaining branches', () => {
+  it('returns 400 when the new scheduledAt is in the past', async () => {
+    const { getEventById, updateEvent } = await import('../../src/lib/events.js');
+    vi.mocked(getEventById).mockResolvedValue(makeEvent());
+    const token = await makeToken('alice');
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/events/${EVENT_ID}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { scheduledAt: PAST },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(updateEvent).not.toHaveBeenCalled();
+  });
+
+  it('passes a future scheduledAt on as a Date', async () => {
+    const { getEventById, updateEvent } = await import('../../src/lib/events.js');
+    vi.mocked(getEventById).mockResolvedValue(makeEvent());
+    vi.mocked(updateEvent).mockResolvedValue(makeEvent());
+    const token = await makeToken('alice');
+
+    await app.inject({
+      method: 'PATCH',
+      url: `/events/${EVENT_ID}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { scheduledAt: FUTURE },
+    });
+
+    const input = vi.mocked(updateEvent).mock.calls[0][1];
+    expect(input.scheduledAt).toEqual(new Date(FUTURE));
+  });
+
+  it('returns 404 when the event does not exist', async () => {
+    const { getEventById } = await import('../../src/lib/events.js');
+    vi.mocked(getEventById).mockResolvedValue(null);
+    const token = await makeToken('alice');
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/events/${EVENT_ID}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { title: 'Updated' },
+    });
+
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('returns 500 when storage fails to apply the update', async () => {
+    const { getEventById, updateEvent } = await import('../../src/lib/events.js');
+    vi.mocked(getEventById).mockResolvedValue(makeEvent());
+    vi.mocked(updateEvent).mockResolvedValue(null);
+    const token = await makeToken('alice');
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/events/${EVENT_ID}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { title: 'Updated' },
+    });
+
+    expect(res.statusCode).toBe(500);
+  });
+});
+
+describe('presence when LiveKit misbehaves', () => {
+  it('answers offline when the room list cannot be fetched', async () => {
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(roomService.listRooms).mockRejectedValue(new Error('livekit down'));
+
+    const res = await app.inject({ method: 'GET', url: '/presence/alice' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ online: false });
+  });
+
+  it('skips a room whose participants cannot be listed, tolerates bad metadata and labels speakers and listeners', async () => {
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(roomService.listRooms).mockResolvedValue([
+      { name: 'broken-room', metadata: '{}' },
+      { name: 'odd-room', metadata: '{not json' },
+    ] as any);
+    vi.mocked(roomService.listParticipants).mockImplementation(async (name: string) => {
+      if (name === 'broken-room') throw new Error('gone');
+      return [
+        { identity: 'bob', permission: { canPublish: true } },
+        { identity: 'carol', permission: { canPublish: false } },
+      ] as any;
+    });
+
+    const res = await app.inject({
+      method: 'POST', url: '/presence/bulk', payload: { usernames: ['bob', 'carol', 'dave'] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().bob).toMatchObject({ online: true, roomName: 'odd-room', roomTitle: 'odd-room', role: 'speaker' });
+    expect(res.json().carol).toMatchObject({ online: true, role: 'listener' });
+    expect(res.json().dave).toEqual({ online: false });
+  });
+});
