@@ -4116,6 +4116,22 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   </div>
   );
 
+  // Browsers throttle hidden tabs (timers, rAF), which stalls the compositor,
+  // so this stays in the host's eyeline and can't be dismissed. Desktop: at the
+  // top of the scenes rail, short; in the header when the rail is collapsed.
+  // Mobile: inside the expandable header (the ⚠️ toggle is the persistent cue).
+  const warnInRail = !isMobile && !leftCollapsed;
+  const throttleWarning = (
+    <span className={`hh-studio__warn${warnInRail ? ' hh-studio__warn--rail' : ''}`} role="alert">
+      <span className="hh-studio__warn-icon" aria-hidden="true">⚠️</span>
+      <span className="hh-studio__warn-text">
+        {isMobile
+          ? 'Keep this screen on and stay in the app — locking the phone or switching apps stops your stream.'
+          : 'Keep this window in front, or your stream will stutter.'}
+      </span>
+    </span>
+  );
+
   return (
     <div className="hh-studio">
       <header className={`hh-studio__header${isMobile ? ' hh-studio__header--mobile' : ''}${isMobile && !headerOpen ? ' hh-studio__header--collapsed' : ''}`}>
@@ -4138,16 +4154,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         {/* Browsers throttle timers/rAF in hidden tabs, stalling the compositor
             — the host has to know. Always up on desktop; on mobile it lives
             inside the expandable header (the ⚠️ toggle is the persistent cue). */}
-        {(!isMobile || headerOpen) && (
-          <span className="hh-studio__warn" role="alert">
-            <span className="hh-studio__warn-icon" aria-hidden="true">⚠️</span>
-            <span className="hh-studio__warn-text">
-              {isMobile
-                ? 'Keep this screen on and stay in the app — locking the phone or switching apps stops your stream.'
-                : 'Keep this window visible at all times — a hidden or minimised tab gets throttled by the browser, which lowers quality and skips frames.'}
-            </span>
-          </span>
-        )}
+        {(isMobile ? headerOpen : !warnInRail) && throttleWarning}
         <div className="hh-studio__header-actions">
           {(streamState === 'live' || streamState === 'paused') && streamStartedAtRef.current != null && (() => {
             const cap = resolveStreamCap(isPremium);
@@ -4682,6 +4689,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           <button className="hh-studio__reopen" onClick={() => setLeftCollapsed(false)} title="Show scenes & sources">🎬 ▸</button>
         ) : (
           <aside className="hh-studio__scenes" style={{ width: leftW }}>
+            {warnInRail && throttleWarning}
             <div className="hh-studio__panel-head">
               <span>Scenes</span>
               <button className="hh-studio__collapse" onClick={() => setLeftCollapsed(true)} title="Collapse">‹</button>

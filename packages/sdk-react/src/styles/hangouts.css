@@ -7708,3 +7708,12 @@
 .hh-studio__icon { display: inline-block; margin-right: 0.35em; }
 .hh-studio__boost-history-btn .hh-studio__icon,
 .hh-studio__boost-settings-btn:not(.hh-studio__boost-settings-btn--off) .hh-studio__icon { margin-right: 0; }
+
+/* The throttling warning at the top of the scenes rail (desktop): full rail
+   width instead of centred in the header. */
+.hh-studio__warn--rail {
+  max-width: none;
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+}
+.hh-studio__warn--rail .hh-studio__warn-icon { font-size: 1.4rem; }
