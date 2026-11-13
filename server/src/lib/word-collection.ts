@@ -18,8 +18,11 @@ export async function getWordCollectionCol(): Promise<Collection<WordCollectionD
     const client = new MongoClient(config.MONGODB_URI);
     await client.connect();
     db = client.db();
-    col = db.collection<WordCollectionDoc>('word-collections');
-    await col.createIndex({ id: 1 }, { unique: true });
+    const c = db.collection<WordCollectionDoc>('word-collections');
+    // Cached only once the unique index exists: caching first meant a failed
+    // index build was never retried, and the seeder could insert duplicates.
+    await c.createIndex({ id: 1 }, { unique: true });
+    col = c;
     return col;
   } catch (err) {
     console.error('[WordCollections] Failed to connect to MongoDB:', err);

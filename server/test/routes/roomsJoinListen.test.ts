@@ -243,13 +243,13 @@ describe('POST /rooms/:name/listen', () => {
     expect((await listen({ payload: {} })).statusCode).toBe(200);
   });
 
-  // Possible bug (rooms.ts:534-550 vs the comment at rooms.ts:589): "Guest caps
+  // Was a bug, fixed (rooms.ts:534-550 vs the comment at rooms.ts:589): "Guest caps
   // and IP bans apply to actual guests, not signed-in users", but both checks run
   // before the bearer token is read. A signed-in Hive viewer (who reaches /listen
   // for every standalone stream) is refused once 50 guests are in, and is refused
   // when they share a NAT address with a banned guest. These pin the documented
   // intent and currently fail; flip them to it() once the checks are moved.
-  it.fails('a signed-in viewer is not held to the guest cap', async () => {
+  it('a signed-in viewer is not held to the guest cap', async () => {
     const { roomService } = await import('../../src/lib/livekit.js');
     vi.mocked(roomService.listRooms).mockResolvedValue(room({ mode: 'standalone' }) as never);
     vi.mocked(roomService.listParticipants).mockResolvedValue(
@@ -258,7 +258,7 @@ describe('POST /rooms/:name/listen', () => {
     expect((await listen({ who: 'bob', payload: {} })).statusCode).toBe(200);
   });
 
-  it.fails('a signed-in viewer is not refused for sharing an IP with a banned guest', async () => {
+  it('a signed-in viewer is not refused for sharing an IP with a banned guest', async () => {
     const { roomService } = await import('../../src/lib/livekit.js');
     vi.mocked(roomService.listRooms).mockResolvedValue(room({}) as never);
     recordGuestIp(ROOM, 'guest-old', '10.40.0.9');

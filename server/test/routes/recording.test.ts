@@ -412,19 +412,16 @@ describe('record stop', () => {
     expect(vod.publishRecordingToVod).not.toHaveBeenCalled();
   });
 
-  it('a LiveKit error on stop returns 500', async () => {
+  // An egress that already ended on LiveKit's side (egress crash, disk full,
+  // LiveKit restart) makes stopEgress throw: the stop still succeeds and frees
+  // the room, instead of leaving it "recording" forever (every start a 409).
+  it('a LiveKit error on stop still answers 200 and frees the room', async () => {
     await startRec();
     egress.stopEgress.mockRejectedValueOnce(new Error('egress not found'));
-    expect((await stopRec()).statusCode).toBe(500);
+    expect((await stopRec()).statusCode).toBe(200);
   });
 
-  // BUG (recording.ts:520-521): stopEgress is awaited before activeRecordings.delete
-  // with no catch. If the egress already ended on LiveKit's side (egress crash,
-  // disk full, LiveKit restart), /record/stop 500s and the entry is never removed,
-  // so the room reports "recording" forever and every /record/start is a 409. For
-  // a conference room nothing else ever clears it (the watchdog only knows
-  // standalone VODs); stopStandaloneVod already swallows this same error.
-  it.fails('a stop whose egress already ended on LiveKit still frees the room for a new recording (currently stuck)', async () => {
+  it('a stop whose egress already ended on LiveKit still frees the room for a new recording', async () => {
     await startRec();
     egress.stopEgress.mockRejectedValueOnce(new Error('egress not found'));
     await stopRec();
@@ -614,12 +611,12 @@ describe('crash watchdog (every 30 s)', () => {
     expect(vod.publishRecordingToVod).not.toHaveBeenCalled();
   });
 
-  // BUG (recording.ts:68): finishAndPublishVod returns before stopping anything when
+  // Was a bug, fixed (recording.ts:68): finishAndPublishVod returns before stopping anything when
   // hasPublish(room) is already true, e.g. a second recording in a room whose first
   // recording was published within the last hour (publish states live 1 h). Then
   // the pendingVods entry is never removed: the watchdog never stops the egress,
   // and calls deleteRoom again on every 30 s sweep forever.
-  it.fails('a crashed second recording in a room that already published still has its egress stopped once', async () => {
+  it('a crashed second recording in a room that already published still has its egress stopped once', async () => {
     await startRec({ mode: 'video' });
     hostGone();
     vi.mocked(vod.hasPublish).mockReturnValue(true);
@@ -670,11 +667,11 @@ describe('free stream cap timer', () => {
     expect(rec.isRecording(ROOM)).toBe(true);
   });
 
-  // BUG (recording.ts:68 via :224): the same early return defeats the free cap. A
+  // Was a bug, fixed (recording.ts:68 via :224): the same early return defeats the free cap. A
   // free host who stops (and so publishes) a recording and then starts another in
   // the same room gets a cap timer for the new egress, but when it fires
   // hasPublish(room) is true, so the egress is never stopped and records past the cap.
-  it.fails('the free cap still stops a second recording in a room whose first recording was published', async () => {
+  it('the free cap still stops a second recording in a room whose first recording was published', async () => {
     await startRec({ mode: 'video' });
     await stopRec();
     vi.mocked(vod.hasPublish).mockReturnValue(true);

@@ -529,9 +529,30 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.forbidden('This room is Hive-only — please sign in with your Hive account to join');
     }
 
+    // A signed-in viewer listens AS THEMSELVES.
+    //
+    // Viewers of a standalone stream aren't room participants, so the client
+    // falls back from join() to listen() — and this endpoint used to hand out
+    // a guest identity unconditionally. The result: a logged-in Hive user
+    // appeared in chat as "Guest-xxxx" no matter what. Auth is OPTIONAL here
+    // (anonymous listening must keep working), so the token is verified
+    // leniently rather than via requireAuth.
+    let authedUser: string | null = null;
+    const authHeader = request.headers.authorization;
+    if (!silent && authHeader?.startsWith('Bearer ')) {
+      try {
+        const session = await verifySessionToken(authHeader.slice(7));
+        authedUser = session.sub;
+      } catch { /* expired or bogus — carry on as a guest */ }
+    }
+
     // OBS observers skip ban check and guest cap — they're invisible tooling,
     // not real participants, and are never addressable by the host's moderation UI.
-    if (!silent) {
+    // Signed-in viewers skip them too: the cap counts guest-* identities and the
+    // bans are guest IP bans (accounts have their own bans). Checking them before
+    // the session was read held signed-in viewers to guest rules: a full guest
+    // room refused them, and so did sharing an address with a banned guest.
+    if (!silent && !authedUser) {
       if (isGuestBanned(name, request.ip)) {
         return reply.forbidden('You have been removed from this room');
       }
@@ -549,22 +570,6 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
-    // A signed-in viewer listens AS THEMSELVES.
-    //
-    // Viewers of a standalone stream aren't room participants, so the client
-    // falls back from join() to listen() — and this endpoint used to hand out
-    // a guest identity unconditionally. The result: a logged-in Hive user
-    // appeared in chat as "Guest-xxxx" no matter what. Auth is OPTIONAL here
-    // (anonymous listening must keep working), so the token is verified
-    // leniently rather than via requireAuth.
-    let authedUser: string | null = null;
-    const authHeader = request.headers.authorization;
-    if (!silent && authHeader?.startsWith('Bearer ')) {
-      try {
-        const session = await verifySessionToken(authHeader.slice(7));
-        authedUser = session.sub;
-      } catch { /* expired or bogus — carry on as a guest */ }
-    }
 
     // Same duplicate-identity guard as /join. /listen never publishes, so the
     // host (whose identity the ingress or their studio holds) and the on-air
@@ -640,28 +645,31 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       chatOpen?: boolean;
     };
 
-    const rooms = await roomService.listRooms([name]);
-    if (rooms.length === 0) return reply.notFound('Room not found');
-
-    let meta: Partial<RoomMetadata> & {
+    // Under the per-room metadata lock: the studio calls this on every chat
+    // toggle, and an unlocked read-modify-write here erased the broadcast
+    // heartbeat's flag (and go-live stamps) written at the same moment.
+    type LayoutMeta = Record<string, unknown> & {
       recordLayout?: string;
       focusedIdentity?: string | null;
       suppressScreenAutoFocus?: boolean;
       chatOpen?: boolean;
-    } = {};
-    try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
-
-    if (meta.host !== request.username) {
-      return reply.forbidden('Only the host can change the room layout');
+    };
+    let forbidden = false;
+    let next: LayoutMeta = {};
+    try {
+      await mutateRoomMetadata(name, (meta) => {
+        if (meta.host !== request.username) { forbidden = true; return null; }
+        next = { ...meta } as LayoutMeta;
+        if (body.layout !== undefined) next.recordLayout = body.layout;
+        if (body.focusedIdentity !== undefined) next.focusedIdentity = body.focusedIdentity;
+        if (body.suppressScreenAutoFocus !== undefined) next.suppressScreenAutoFocus = body.suppressScreenAutoFocus;
+        if (body.chatOpen !== undefined) next.chatOpen = body.chatOpen;
+        return next;
+      });
+    } catch {
+      return reply.notFound('Room not found');
     }
-
-    const next = { ...meta };
-    if (body.layout !== undefined) next.recordLayout = body.layout;
-    if (body.focusedIdentity !== undefined) next.focusedIdentity = body.focusedIdentity;
-    if (body.suppressScreenAutoFocus !== undefined) next.suppressScreenAutoFocus = body.suppressScreenAutoFocus;
-    if (body.chatOpen !== undefined) next.chatOpen = body.chatOpen;
-
-    await roomService.updateRoomMetadata(name, JSON.stringify(next));
+    if (forbidden) return reply.forbidden('Only the host can change the room layout');
 
     return reply.send({
       layout: next.recordLayout,
@@ -1046,7 +1054,13 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     const target = participants.find((p) => p.identity === newHost);
     if (!target) return reply.notFound('That participant is not in the room');
 
-    await roomService.updateRoomMetadata(name, JSON.stringify({ ...meta, host: newHost }));
+    // Locked like every other metadata write; re-checks the host inside the lock.
+    let stillHost = true;
+    await mutateRoomMetadata(name, (m) => {
+      if (m.host !== request.username) { stillHost = false; return null; }
+      return { ...m, host: newHost };
+    });
+    if (!stillHost) return reply.forbidden('Only the host can transfer the room');
     await roomService.updateParticipant(name, newHost, undefined, {
       canPublish: true,
       canSubscribe: true,

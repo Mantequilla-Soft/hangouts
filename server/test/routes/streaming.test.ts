@@ -182,12 +182,12 @@ describe('restream stop and status', () => {
     expect((await status()).json().streaming).toBe(true);
   });
 
-  // BUG (streaming.ts:138-139): stopEgress is awaited before activeStreams.delete,
+  // Was a bug, fixed (streaming.ts:138-139): stopEgress is awaited before activeStreams.delete,
   // with no catch. When the egress already ended on LiveKit's side (RTMP target
   // dropped it, egress crashed), stopEgress rejects, the route 500s and the map
   // entry stays forever: every later /stream/start is a 409 and /stream/status
   // keeps saying streaming until the server restarts.
-  it.fails('a stop whose egress already ended on LiveKit still clears the restream (currently stuck)', async () => {
+  it('a stop whose egress already ended on LiveKit still clears the restream', async () => {
     await start({ platform: 'youtube', streamKey: 'k' });
     egress.stopEgress.mockRejectedValueOnce(new Error('egress not found'));
     await stop();

@@ -156,9 +156,11 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
     return;
   }
 
+  // Already processed (same txId + opIndex): ignore the replay. It must not
+  // touch the ledger: marking "the" entry rejected would flip the ORIGINAL,
+  // already broadcast and paid boost to rejected in the host's history.
   if (hasBoostLedgerEntry(input.txId, input.opIndex)) {
-    const id = boostLedgerId(input.txId, input.opIndex);
-    await handleRejected(id, 'duplicate_transfer', log);
+    log(`[Boost] ignored a duplicate of ${boostLedgerId(input.txId, input.opIndex)}`);
     return;
   }
 

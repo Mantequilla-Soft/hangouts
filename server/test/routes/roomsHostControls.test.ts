@@ -121,12 +121,10 @@ describe('PATCH /rooms/:name/layout', () => {
     expect((await req('PATCH', '/layout', 'alice', { layout: 'mosaic' })).statusCode).toBe(400);
   });
 
-  // Possible bug: /layout (rooms.ts:643-664), /boost (rooms.ts:696-720) and the
-  // host transfer (rooms.ts:1030-1051) read and write room metadata directly
-  // instead of through mutateRoomMetadata, so they race the per-room lock that
-  // /live, /broadcast, /post and the collab slot rely on. A layout change made
-  // while the broadcast heartbeat writes erases the heartbeat's flag.
-  it.fails('a layout change does not erase a broadcast flag written at the same time', async () => {
+  // /layout (called on every chat toggle) goes through the per-room metadata
+  // lock like /live, /broadcast and /post: a layout change made while the
+  // broadcast heartbeat writes must not erase the heartbeat's flag.
+  it('a layout change does not erase a broadcast flag written at the same time', async () => {
     const { roomService } = await import('../../src/lib/livekit.js');
     setRoom({ broadcasting: false });
     let releaseLayoutRead!: () => void;
@@ -136,9 +134,10 @@ describe('PATCH /rooms/:name/layout', () => {
     }));
     const layout = req('PATCH', '/layout', 'alice', { layout: 'grid' });
     await new Promise((r) => setTimeout(r, 20));
-    expect((await req('PATCH', '/broadcast', 'alice', { broadcasting: true })).statusCode).toBe(200);
+    const broadcast = req('PATCH', '/broadcast', 'alice', { broadcasting: true });
     releaseLayoutRead();
     expect((await layout).statusCode).toBe(200);
+    expect((await broadcast).statusCode).toBe(200);
     expect(roomMeta()).toMatchObject({ recordLayout: 'grid', broadcasting: true });
   });
 });

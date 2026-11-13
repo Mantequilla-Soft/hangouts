@@ -89,12 +89,12 @@ describe('getWordCollectionCol', () => {
     expect(await wc.getWordCollectionCol()).toBeNull();
   });
 
-  // BUG (src/lib/word-collection.ts:21-22): `col` is assigned before
+  // Was a bug, fixed (src/lib/word-collection.ts:21-22): `col` is assigned before
   // createIndex() runs, so when createIndex fails the first call returns null
   // but the half-initialised collection stays cached. Every later call returns
   // it straight away and the unique `id` index is never retried for the life of
   // the process (duplicate collection ids can then be inserted by the seeder).
-  it.fails('retries the unique index after a failed index build', async () => {
+  it('retries the unique index after a failed index build', async () => {
     mongo.createIndex.mockRejectedValueOnce(new Error('index build failed'));
     const wc = await load();
     await wc.getWordCollectionCol();

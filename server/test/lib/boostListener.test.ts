@@ -407,13 +407,13 @@ describe('processBoostTransfer: recipients, conversion and failures', () => {
     expect(lk.listRooms).not.toHaveBeenCalled();
   });
 
-  // Latent ledger bug: when the same transfer (txId + opIndex) is processed a
+  // Was a latent ledger bug, fixed: when the same transfer (txId + opIndex) is processed a
   // second time, the duplicate branch calls markBoostRejected on the ORIGINAL
   // entry, so a boost that was broadcast and paid flips to rejected /
   // duplicate_transfer and the host history shows a paid boost as rejected.
   // The poll loop's watermark normally prevents a replay, so this only bites
   // if processBoostTransfer is ever fed the same op twice.
-  it.fails('keeps a paid boost as payout_sent when the same transfer is seen again', async () => {
+  it('keeps a paid boost as payout_sent when the same transfer is seen again', async () => {
     const lk = makeMockLk();
     await processBoostTransfer(baseInput('tx-replay-001'), noop, lk);
     await processBoostTransfer(baseInput('tx-replay-001'), noop, lk);
