@@ -61,9 +61,16 @@ jobs:
         working-directory: docs-site
         run: npm ci && npx vite build
 
+  # The auto-deployer itself, in a sandbox (stubs for GitHub, LiveKit, npm, systemd).
+  deploy-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash deploy/test-autodeploy.sh
+
   # Single check the auto-deployer on the box waits for (deploy/autodeploy.sh).
   ci-ok:
-    needs: [server, frontend]
+    needs: [server, frontend, deploy-scripts]
     runs-on: ubuntu-latest
     steps:
       - run: echo "All CI jobs passed"

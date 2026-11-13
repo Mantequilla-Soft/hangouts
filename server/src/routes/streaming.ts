@@ -135,11 +135,17 @@ export const streamingRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.badRequest('Room is not streaming');
     }
 
-    const info = await egressClient.stopEgress(egressId);
+    // A restream that already ended on LiveKit's side makes stopEgress throw;
+    // the room must still be freed, or every later restream start is a 409.
+    try {
+      await egressClient.stopEgress(egressId);
+    } catch (err) {
+      request.log?.warn?.({ err, room: name }, 'stream/stop: egress already ended, freeing the room');
+    }
     activeStreams.delete(name);
 
     return reply.send({
-      egressId: info.egressId,
+      egressId,
       status: 'stopped',
     });
   });

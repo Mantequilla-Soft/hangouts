@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useConnectionState, useLocalParticipant, useParticipants, useTracks } from '@livekit/components-react';
+import { useConnectionState, useLocalParticipant, useParticipants, useRoomInfo, useTracks } from '@livekit/components-react';
 import { ConnectionQuality, ConnectionState, ParticipantEvent, Track } from 'livekit-client';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { usePremiumStatus } from '../../hooks/usePremiumStatus.js';
@@ -24,6 +24,7 @@ import {
 import { BoostOverlay } from './BoostOverlay.js';
 import { useBoostStore, BOOST_DISPLAY_MS } from '../../hooks/useBoosts.js';
 import { BoostHistoryPanel } from './BoostHistoryPanel.js';
+import { BoostSettingsPanel } from './BoostSettingsPanel.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
 import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
 import { useDvr } from '../../hooks/useDvr.js';
@@ -457,16 +458,18 @@ function drawNameTag(
 }
 
 function drawPlaceholder(ctx: CanvasRenderingContext2D, text: string, sub: string, x: number, y: number, w: number, h: number) {
-  ctx.fillStyle = '#101018';
+  // Neutral dark ground and grey text: no tint, so it reads as "nothing here
+  // yet" in any integrator's theme.
+  ctx.fillStyle = '#111111';
   ctx.fillRect(x, y, w, h);
-  ctx.fillStyle = '#555';
+  ctx.fillStyle = '#a3a3a3';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `600 ${Math.max(16, Math.round(w / 28))}px system-ui, sans-serif`;
+  ctx.font = `700 ${Math.max(16, Math.round(w / 32))}px Roboto, system-ui, sans-serif`;
   ctx.fillText(text, x + w / 2, y + h / 2 - 14);
   if (sub) {
-    ctx.fillStyle = '#3d3d4d';
-    ctx.font = `${Math.max(12, Math.round(w / 46))}px system-ui, sans-serif`;
+    ctx.fillStyle = '#737373';
+    ctx.font = `${Math.max(12, Math.round(w / 52))}px Roboto, system-ui, sans-serif`;
     ctx.fillText(sub, x + w / 2, y + h / 2 + 16);
   }
 }
@@ -933,6 +936,22 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [auxMuted, setAuxMuted] = useState(() => savedSetup.auxMuted === true);
   const [mediaError, setMediaError] = useState('');
   const [boostHistoryOpen, setBoostHistoryOpen] = useState(false);
+  // Boost settings, changeable mid-stream: on/off, the minimum to show a boost
+  // on screen, the payout account. Read live from the room metadata, so the
+  // button and the panel follow what the server stored (the panel's save goes
+  // through PATCH /rooms/:name/boost, which updates that metadata).
+  const [boostSettingsOpen, setBoostSettingsOpen] = useState(false);
+  const roomInfo = useRoomInfo();
+  const boostConfig = useMemo(() => {
+    try {
+      const meta = JSON.parse(roomInfo.metadata || '{}') as { boost?: unknown };
+      const b = meta.boost;
+      return b && typeof b === 'object' && !Array.isArray(b)
+        ? b as { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string }
+        : undefined;
+    } catch { return undefined; }
+  }, [roomInfo.metadata]);
+  const boostsOff = boostConfig?.enabled === false;
   const [copied, setCopied] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   // OBS / external encoder ingest (WHIP).
@@ -1134,7 +1153,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   portraitRef.current = portrait;
   // The placeholder must not tell a phone user to press a button that only
   // exists in the desktop rail.
-  const camHintRef = useRef('Add it via ＋ Add source');
+  const camHintRef = useRef('Add it with Add source');
   /** Last good camera frame, painted while a new camera opens so the swap
    *  doesn't flash a "Camera is off" placeholder for 1-2 seconds. */
   const camFreezeRef = useRef<HTMLCanvasElement | null>(null);
@@ -3738,7 +3757,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const renderSettings = () => (
     <div className="hh-post hh-settings">
       <div className="hh-settings__group">
-        <div className="hh-settings__title">📶 Broadcast quality</div>
+        <div className="hh-settings__title"><span className="hh-settings__icon hh-settings__icon--quality" aria-hidden="true">📶</span>Broadcast quality</div>
         <p className="hh-settings__intro">Higher quality looks better but needs more upload. Change it any time, it applies live.</p>
         {QUALITY_OPTIONS.map((o) => {
           const locked = !!o.pro && !isPremium;
@@ -3760,7 +3779,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       </div>
 
       <div className="hh-settings__group">
-        <div className="hh-settings__title">🎚️ Quality priority</div>
+        <div className="hh-settings__title"><span className="hh-settings__icon hh-settings__icon--priority" aria-hidden="true">🎚️</span>Quality priority</div>
         <p className="hh-settings__intro">When the connection or device can’t send a picture that’s both smooth and sharp, this decides which one wins.</p>
         {PRIORITY_OPTIONS.map((o) => (
           <button
@@ -3850,7 +3869,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // OBS ingest. Pin the scene so a layout picked on desktop can't leave a
   // phone rendering a source it has no way to select.
   useEffect(() => {
-    camHintRef.current = isMobile ? 'Tap to start the camera' : 'Add it via ＋ Add source';
+    camHintRef.current = isMobile ? 'Tap to start the camera' : 'Add it with Add source';
     if (!isMobile) return;
     setScene('cam');
     setSource(null);
@@ -4097,6 +4116,22 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   </div>
   );
 
+  // Browsers throttle hidden tabs (timers, rAF), which stalls the compositor,
+  // so this stays in the host's eyeline and can't be dismissed. Desktop: at the
+  // top of the scenes rail, short; in the header when the rail is collapsed.
+  // Mobile: inside the expandable header (the ⚠️ toggle is the persistent cue).
+  const warnInRail = !isMobile && !leftCollapsed;
+  const throttleWarning = (
+    <span className={`hh-studio__warn${warnInRail ? ' hh-studio__warn--rail' : ''}`} role="alert">
+      <span className="hh-studio__warn-icon" aria-hidden="true">⚠️</span>
+      <span className="hh-studio__warn-text">
+        {isMobile
+          ? 'Keep this screen on and stay in the app — locking the phone or switching apps stops your stream.'
+          : 'Keep this browser tab and browser in front, or your stream will stutter.'}
+      </span>
+    </span>
+  );
+
   return (
     <div className="hh-studio">
       <header className={`hh-studio__header${isMobile ? ' hh-studio__header--mobile' : ''}${isMobile && !headerOpen ? ' hh-studio__header--collapsed' : ''}`}>
@@ -4119,16 +4154,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         {/* Browsers throttle timers/rAF in hidden tabs, stalling the compositor
             — the host has to know. Always up on desktop; on mobile it lives
             inside the expandable header (the ⚠️ toggle is the persistent cue). */}
-        {(!isMobile || headerOpen) && (
-          <span className="hh-studio__warn" role="alert">
-            <span className="hh-studio__warn-icon" aria-hidden="true">⚠️</span>
-            <span className="hh-studio__warn-text">
-              {isMobile
-                ? 'Keep this screen on and stay in the app — locking the phone or switching apps stops your stream.'
-                : 'Keep this window visible at all times — a hidden or minimised tab gets throttled by the browser, which lowers quality and skips frames.'}
-            </span>
-          </span>
-        )}
+        {(isMobile ? headerOpen : !warnInRail) && throttleWarning}
         <div className="hh-studio__header-actions">
           {(streamState === 'live' || streamState === 'paused') && streamStartedAtRef.current != null && (() => {
             const cap = resolveStreamCap(isPremium);
@@ -4187,11 +4213,21 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             </>
           ) : (
             <>
-              <span className="hh-studio__viewers" title="Viewers watching">👁 {viewerCount}</span>
+              <span className="hh-studio__viewers" title="Viewers watching"><span className="hh-studio__viewers-icon" aria-hidden="true">👁</span>{viewerCount}</span>
             </>
           )}
-          {!isMobile && shareUrl && <button className="hh-btn hh-btn--secondary hh-btn--small" onClick={copyShareUrl}>{copied ? '✓ Copied' : '🔗 Share'}</button>}
-          {!isMobile && <button className={`hh-btn hh-btn--small ${boostHistoryOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`} onClick={() => setBoostHistoryOpen((v) => !v)} title="Boost history">💰</button>}
+          {!isMobile && shareUrl && <button className="hh-btn hh-btn--secondary hh-btn--small hh-studio__share-btn" onClick={copyShareUrl}>{copied ? <><span className="hh-studio__icon" aria-hidden="true">✓</span>Copied</> : <><span className="hh-studio__icon" aria-hidden="true">🔗</span>Share</>}</button>}
+          {!isMobile && <button className={`hh-btn hh-btn--small hh-studio__boost-history-btn ${boostHistoryOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`} onClick={() => setBoostHistoryOpen((v) => !v)} title="Boost history" aria-label="Boost history"><span className="hh-studio__icon" aria-hidden="true">💰</span></button>}
+          {!isMobile && (
+            <button
+              className={`hh-btn hh-btn--small hh-studio__boost-settings-btn${boostsOff ? ' hh-studio__boost-settings-btn--off' : ''} ${boostSettingsOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+              onClick={() => setBoostSettingsOpen((v) => !v)}
+              title={boostsOff ? 'Boosts are off: open Boost settings' : 'Boost settings'}
+              aria-label="Boost settings"
+            >
+              <span className="hh-studio__icon" aria-hidden="true">🚀</span>{boostsOff ? 'off' : ''}
+            </button>
+          )}
           {onClose && (
             <button
               className="hh-studio__close"
@@ -4653,6 +4689,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           <button className="hh-studio__reopen" onClick={() => setLeftCollapsed(false)} title="Show scenes & sources">🎬 ▸</button>
         ) : (
           <aside className="hh-studio__scenes" style={{ width: leftW }}>
+            {warnInRail && throttleWarning}
             <div className="hh-studio__panel-head">
               <span>Scenes</span>
               <button className="hh-studio__collapse" onClick={() => setLeftCollapsed(true)} title="Collapse">‹</button>
@@ -4778,7 +4815,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             )}
 
             <button className="hh-studio__scene hh-studio__scene--add" onClick={() => setAddMenuOpen(true)} title="Add a camera, share, media, or audio source">
-              ＋ Add source
+              <span className="hh-studio__icon hh-studio__add-plus" aria-hidden="true">＋</span>Add source
             </button>
             <input ref={mediaInputRef} type="file" accept="image/*,video/*" multiple style={{ display: 'none' }}
               onChange={(e) => { void addMediaFiles(e.target.files); e.target.value = ''; }} />
@@ -4831,7 +4868,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                   {auxDeviceId && renderFader('aux', '🎚️', 'Aux', true, auxMuted, auxGain,
                     () => setAuxMuted((v) => !v), (g) => setAuxGain(g), auxMuted ? 'mute' : `${Math.round(auxGain * 100)}`,
                     auxMuted ? 'Unmute aux' : 'Mute aux', 'Aux / desktop audio', () => void selectAuxDevice(''))}
-                  {!hasAnyChannel && <div className="hh-studio__mixer-empty">No audio yet — add a mic, share, or sound via ＋ Add source.</div>}
+                  {!hasAnyChannel && <div className="hh-studio__mixer-empty">No audio yet. Add a mic, a shared tab or a sound with Add source.</div>}
                 </div>
                 {shareOn && !shareHasAudio && (
                   <p className="hh-studio__mixer-hint">Shares only carry audio from a <strong>browser tab</strong> shared with <strong>“share tab audio”</strong> ticked.</p>
@@ -4866,16 +4903,16 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               {rightTab === 'chat' ? <ChatPanel /> : rightTab === 'settings' ? renderSettings() : renderPostEditor(false)}
             </div>
             <div className="hh-studio__transport">
-              {streamState === 'standby' && <button className="hh-studio__go-btn" onClick={() => { void savePost(); setStreamState('live'); }} title="Cut the program and audio over to your viewers">🔴 START STREAM</button>}
-              {streamState === 'live' && <button className="hh-studio__pause-btn" onClick={() => setStreamState('paused')} title="Viewers get a “We'll be right back” screen and silence">❚❚ PAUSE STREAM</button>}
-              {streamState === 'paused' && <button className="hh-studio__go-btn" onClick={() => setStreamState('live')} title="Back to the program">▶ RESUME STREAM</button>}
+              {streamState === 'standby' && <button className="hh-studio__go-btn" onClick={() => { void savePost(); setStreamState('live'); }} title="Cut the program and audio over to your viewers"><span className="hh-studio__icon" aria-hidden="true">🔴</span>Start stream</button>}
+              {streamState === 'live' && <button className="hh-studio__pause-btn" onClick={() => setStreamState('paused')} title="Viewers get a “We'll be right back” screen and silence"><span className="hh-studio__icon" aria-hidden="true">❚❚</span>Pause stream</button>}
+              {streamState === 'paused' && <button className="hh-studio__go-btn" onClick={() => setStreamState('live')} title="Back to the program"><span className="hh-studio__icon" aria-hidden="true">▶</span>Resume stream</button>}
               {streamState !== 'standby' && (
                 <button
                   className="hh-studio__end-btn"
                   disabled={savingVod}
                   onClick={() => void endStream()}
                 >
-                  {savingVod ? '💾 Saving video…' : '■ END STREAM'}
+                  {savingVod ? <><span className="hh-studio__icon" aria-hidden="true">💾</span>Saving video…</> : <><span className="hh-studio__icon" aria-hidden="true">■</span>End stream</>}
                 </button>
               )}
             </div>
@@ -5016,12 +5053,12 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               <button className="hh-studio__collapse" onClick={() => setAddMenuOpen(false)} title="Close">×</button>
             </div>
             <button className="hh-studio__add-item" onClick={() => { setAddMenuOpen(false); if (camOn) stopCam(); else void startCam(); }}>
-              📷 Camera <span className="hh-studio__add-state">{camOn ? 'on ✓' : ''}</span>
+              <span className="hh-studio__add-icon hh-studio__add-icon--camera" aria-hidden="true">📷</span>Camera <span className="hh-studio__add-state">{camOn ? 'on ✓' : ''}</span>
             </button>
             <button className="hh-studio__add-item" disabled={!shareSupported || shares.length >= MAX_SHARES}
               onClick={() => { setAddMenuOpen(false); void addShare(); }}
               title={!shareSupported ? 'Not available on this device' : shares.length >= MAX_SHARES ? `Max ${MAX_SHARES} shares` : undefined}>
-              🖥️ {chromium ? 'Share a tab / screen' : 'Share a window / screen'}
+              <span className="hh-studio__add-icon hh-studio__add-icon--share" aria-hidden="true">🖥️</span>{chromium ? 'Share a tab / screen' : 'Share a window / screen'}
             </button>
             {(() => {
               // OBS still publishing but its source tile was removed → offer to
@@ -5036,27 +5073,27 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                   onClick={() => { setAddMenuOpen(false); if (obsSourceGone) restoreObs(); else void openObsSetup(); }}
                   title={obsLocked ? 'Streaming from OBS is part of 3Speak Pro'
                     : obsSourceGone ? 'Bring the connected OBS feed back as a source' : 'Publish from OBS (or any WHIP encoder) into this stream'}>
-                  🎥 {obsSourceGone ? 'Reconnect OBS scene' : 'OBS / external encoder'}{obsLocked ? ' 🔒' : ''}
+                  <span className="hh-studio__add-icon hh-studio__add-icon--obs" aria-hidden="true">🎥</span>{obsSourceGone ? 'Reconnect OBS scene' : 'OBS / external encoder'}{obsLocked ? <span className="hh-studio__add-lock" aria-hidden="true">🔒</span> : null}
                   <span className="hh-studio__add-state">{obsLocked ? '3Speak Pro' : obsSourceGone ? 'tap to restore' : obsLive ? 'connected ✓' : obsBusy ? 'setting up…' : ''}</span>
                 </button>
               );
             })()}
             <button className="hh-studio__add-item" onClick={() => { setAddMenuOpen(false); mediaInputRef.current?.click(); }}>
-              🖼️ Media file (image / GIF / video)
+              <span className="hh-studio__add-icon hh-studio__add-icon--media" aria-hidden="true">🖼️</span>Media file (image / GIF / video)
             </button>
             <div className="hh-studio__add-sep">Sound</div>
             <button className="hh-studio__add-item" onClick={() => { setAddMenuOpen(false); if (micOn) stopMic(); else void startMic(); }}>
-              🎤 Microphone <span className="hh-studio__add-state">{micOn ? 'on ✓' : ''}</span>
+              <span className="hh-studio__add-icon hh-studio__add-icon--mic" aria-hidden="true">🎤</span>Microphone <span className="hh-studio__add-state">{micOn ? 'on ✓' : ''}</span>
             </button>
             <button className="hh-studio__add-item" onClick={() => { setAddMenuOpen(false); soundInputRef.current?.click(); }}>
-              🎵 Audio file (music / jingle)
+              <span className="hh-studio__add-icon hh-studio__add-icon--sound" aria-hidden="true">🎵</span>Audio file (music / jingle)
             </button>
-            <div className="hh-studio__add-sub">🎚️ Desktop / aux audio</div>
+            <div className="hh-studio__add-sub"><span className="hh-studio__add-icon hh-studio__add-icon--aux" aria-hidden="true">🎚️</span>Desktop / aux audio</div>
             {auxDevices.length === 0 && <div className="hh-studio__add-empty">No input devices found — grant mic access first</div>}
             {auxDevices.map((d) => (
               <button key={d.deviceId} className="hh-studio__add-item hh-studio__add-item--sub"
                 onClick={() => { setAddMenuOpen(false); void selectAuxDevice(d.deviceId); }}>
-                {auxDeviceId === d.deviceId ? '● ' : '○ '}{d.label}
+                {auxDeviceId === d.deviceId ? <span className="hh-studio__add-radio hh-studio__add-radio--on" aria-hidden="true">●</span> : <span className="hh-studio__add-radio" aria-hidden="true">○</span>}{d.label}
               </button>
             ))}
           </div>
@@ -5076,6 +5113,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       )}
 
       {boostHistoryOpen && <BoostHistoryPanel onClose={() => setBoostHistoryOpen(false)} />}
+      {boostSettingsOpen && (
+        <BoostSettingsPanel
+          roomName={roomName}
+          currentConfig={boostConfig ? { enabled: boostConfig.enabled ?? true, minBoostUsd: boostConfig.minBoostUsd ?? 0, creatorPayoutAccount: boostConfig.creatorPayoutAccount } : undefined}
+          onClose={() => setBoostSettingsOpen(false)}
+          onSaved={() => { /* the room metadata update re-renders the button */ }}
+        />
+      )}
     </div>
   );
 }

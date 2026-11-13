@@ -3,9 +3,16 @@
 #
 # Run as root by hangouts-autodeploy.timer every 2 minutes (see deploy/README.md).
 # When origin/main has moved and its "ci-ok" GitHub check passed, it
-# fast-forwards the checkout, rebuilds (SDKs, demo, docs, server deps) as the
-# repo owner, restarts the API and health-checks it. If the build or the health
-# check fails, it rolls back to the previous commit and restarts that.
+# fast-forwards the checkout, rebuilds (SDKs, demo, docs, server) as the repo
+# owner, restarts the API and health-checks it. If the build or the health check
+# fails, it rolls back to the previous commit and restarts that.
+#
+# With QUIET_WAIT_MAX_MIN set, a deploy never lands while someone is live: it
+# waits until no LiveKit room has anyone in it (a restart loses running
+# recordings, see the README), up to that many minutes. Still busy after that,
+# the deploy of that commit is CANCELLED: not retried on its own; the next merge
+# starts a fresh wait, or the force file deploys it. Each tick checks once and
+# exits, so a long wait never blocks the timer.
 #
 # Logs: journalctl -u hangouts-autodeploy
 
@@ -13,6 +20,8 @@ set -euo pipefail
 
 REPO_DIR=${REPO_DIR:-/opt/hangouts}
 REPO_SLUG=${REPO_SLUG:-Mantequilla-Soft/hangouts}
+REPO_URL=${REPO_URL:-https://github.com/$REPO_SLUG.git}
+GITHUB_API=${GITHUB_API:-https://api.github.com}
 BRANCH=${BRANCH:-main}
 CHECK_NAME=${CHECK_NAME:-ci-ok}
 SERVICE=${SERVICE:-hangouts-api}
@@ -20,6 +29,21 @@ HEALTH_URL=${HEALTH_URL:-http://127.0.0.1:3002/rooms}
 STATE_DIR=${STATE_DIR:-/var/lib/hangouts-autodeploy}
 LOCK_FILE=${LOCK_FILE:-/run/lock/hangouts-deploy.lock}
 SKIP_RESTART=${SKIP_RESTART:-0}   # testing only
+# What to build besides the SDKs and the server:
+#   DEMO_BUILD=site    the demo site (hangout.3speak.tv), with DEMO_API_URL / DEMO_LIVEKIT_URL
+#   DEMO_BUILD=egress  the LiveKit egress recording template: base /egress-template/,
+#                      no VITE_* env (it falls back to the local API and LiveKit)
+#   DEMO_BUILD=none    skip it
+DEMO_BUILD=${DEMO_BUILD:-site}
+DEMO_API_URL=${DEMO_API_URL:-https://hangout-api.3speak.tv}
+DEMO_LIVEKIT_URL=${DEMO_LIVEKIT_URL:-wss://livekit.3speak.tv}
+DOCS_BUILD=${DOCS_BUILD:-1}
+# Wait for live rooms to empty before deploying, at most this many minutes, then
+# cancel that commit's deploy (0 = off: deploy without asking).
+QUIET_WAIT_MAX_MIN=${QUIET_WAIT_MAX_MIN:-0}
+LIVEKIT_HTTP=${LIVEKIT_HTTP:-http://127.0.0.1:7880}
+# Read for LIVEKIT_API_KEY / LIVEKIT_API_SECRET (never printed).
+LIVEKIT_KEYS_FILE=${LIVEKIT_KEYS_FILE:-/opt/livekit/lk.env}
 
 APP_USER=$(stat -c %U "$REPO_DIR")
 APP_HOME=$(getent passwd "$APP_USER" | cut -d: -f6)
@@ -45,18 +69,78 @@ log_once() {
   fi
 }
 
+# How many LiveKit rooms have someone in them; prints the count, fails when LiveKit
+# can't be asked. Signs a short-lived admin token with the box's own key pair, so
+# it sees every room: unlisted ones and OBS streams included, which /rooms and
+# /streams leave out.
+busy_rooms() {
+  local key secret now header payload sig token body
+  key=$(grep -m1 '^LIVEKIT_API_KEY=' "$LIVEKIT_KEYS_FILE" 2>/dev/null | cut -d= -f2-) || return 1
+  secret=$(grep -m1 '^LIVEKIT_API_SECRET=' "$LIVEKIT_KEYS_FILE" 2>/dev/null | cut -d= -f2-) || return 1
+  [ -n "$key" ] && [ -n "$secret" ] || return 1
+  b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+  now=$(date +%s)
+  header=$(printf '{"alg":"HS256","typ":"JWT"}' | b64url)
+  payload=$(jq -cn --arg iss "$key" --argjson now "$now" \
+    '{iss:$iss, sub:"autodeploy", nbf:($now-10), exp:($now+300), video:{roomList:true}}' | b64url)
+  sig=$(printf '%s.%s' "$header" "$payload" | openssl dgst -sha256 -hmac "$secret" -binary | b64url)
+  token="$header.$payload.$sig"
+  body=$(curl -fsS --max-time 10 -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    -d '{}' "$LIVEKIT_HTTP/twirp/livekit.RoomService/ListRooms") || return 1
+  jq -r '[.rooms[]? | select((.num_participants // 0) > 0)] | length' <<<"$body"
+}
+
+# 0 = deploy now, 1 = not now (this tick ends). Only when QUIET_WAIT_MAX_MIN > 0.
+# Never deploys while someone is live, nor when that can't be checked: LiveKit
+# not answering counts as busy. The wait starts with the first busy tick and is
+# not reset by a newer commit; when it runs out, the deploy of $target is
+# cancelled (see the header).
+quiet_gate() {
+  [ "${QUIET_WAIT_MAX_MIN:-0}" -gt 0 ] || return 0
+  if [ -f "$STATE_DIR/force" ]; then
+    rm -f "$STATE_DIR/force" "$STATE_DIR/quiet_since" "$STATE_DIR/quiet" "$STATE_DIR/cancelled"
+    log "force file found, deploying $short without checking for live rooms"
+    return 0
+  fi
+  local busy now since waited what
+  if busy=$(busy_rooms); then
+    if [ "$busy" = 0 ]; then
+      [ -f "$STATE_DIR/quiet_since" ] && log "no live rooms any more, deploying"
+      rm -f "$STATE_DIR/quiet_since" "$STATE_DIR/quiet"
+      return 0
+    fi
+    what="$busy live room(s)"
+  else
+    what="LiveKit ($LIVEKIT_HTTP) not answering, so live rooms unknown"
+  fi
+  now=$(date +%s)
+  [ -f "$STATE_DIR/quiet_since" ] || echo "$now" > "$STATE_DIR/quiet_since"
+  since=$(cat "$STATE_DIR/quiet_since")
+  waited=$(( (now - since) / 60 ))
+  if [ "$waited" -ge "$QUIET_WAIT_MAX_MIN" ]; then
+    echo "$target" > "$STATE_DIR/cancelled"
+    rm -f "$STATE_DIR/quiet_since" "$STATE_DIR/quiet"
+    log "deploy of $short CANCELLED: $what after ${waited} min (max $QUIET_WAIT_MAX_MIN). The next merge tries again; to deploy it now: touch $STATE_DIR/force"
+    return 1
+  fi
+  log_once quiet "not deploying $short while someone is live: $what (waiting up to $QUIET_WAIT_MAX_MIN min since $(date -u -d "@$since" +%H:%MZ), then cancelling)"
+  return 1
+}
+
 mkdir -p "$STATE_DIR"
 exec 9>"$LOCK_FILE"
 flock -n 9 || { log "another deploy is running, skipping"; exit 0; }
 
 # Public repo: fetch over HTTPS so no SSH key is needed.
-git_app fetch -q "https://github.com/$REPO_SLUG.git" "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+git_app fetch -q "$REPO_URL" "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
 current=$(git_app rev-parse HEAD)
 target=$(git_app rev-parse "origin/$BRANCH")
 [ "$current" = "$target" ] && exit 0
 
 short=${target:0:7}
 [ "$(cat "$STATE_DIR/failed" 2>/dev/null)" = "$target" ] && exit 0
+# Cancelled for live rooms: wait for a newer commit, or the force file.
+[ "$(cat "$STATE_DIR/cancelled" 2>/dev/null)" = "$target" ] && [ ! -f "$STATE_DIR/force" ] && exit 0
 
 if ! git_app merge-base --is-ancestor HEAD "origin/$BRANCH"; then
   log_once blocked "HEAD ${current:0:7} is not an ancestor of origin/$BRANCH (local commits?), not deploying $short"
@@ -70,7 +154,7 @@ fi
 
 # Gate on the ci-ok check for this exact commit.
 runs=$(curl -fsS --max-time 20 -H 'Accept: application/vnd.github+json' \
-  "https://api.github.com/repos/$REPO_SLUG/commits/$target/check-runs?check_name=$CHECK_NAME") || {
+  "$GITHUB_API/repos/$REPO_SLUG/commits/$target/check-runs?check_name=$CHECK_NAME") || {
   log "GitHub API unreachable, retrying next tick"; exit 0; }
 read -r status conclusion < <(jq -r '.check_runs | sort_by(.started_at) | last | "\(.status // "none") \(.conclusion // "none")"' <<<"$runs")
 
@@ -88,7 +172,9 @@ fi
 # `set -e` applies. `npm ci` only where the lockfile changed or deps are missing.
 build() {
   local from=$1 to=$2
-  as_app bash -euo pipefail -c '
+  as_app env DEMO_BUILD="$DEMO_BUILD" DOCS_BUILD="$DOCS_BUILD" \
+    DEMO_API_URL="$DEMO_API_URL" DEMO_LIVEKIT_URL="$DEMO_LIVEKIT_URL" \
+    bash -euo pipefail -c '
     repo=$1 from=$2 to=$3
     [ -f "$repo/.env.local" ] && source "$repo/.env.local"
     deps() {
@@ -101,11 +187,25 @@ build() {
     echo "--- sdk-react"; cd "$repo/packages/sdk-react"; deps packages/sdk-react
     rsync -a --delete "$repo/packages/sdk-core/dist/" ./node_modules/@snapie/hangouts-core/dist/
     npm run build
-    echo "--- demo";      cd "$repo/demo"; deps demo
-    VITE_API_URL=https://hangout-api.3speak.tv VITE_LIVEKIT_URL=wss://livekit.3speak.tv \
-      VITE_IMAGE_SERVER_API_KEY=${VITE_IMAGE_SERVER_API_KEY:-} npx vite build --logLevel warn
-    echo "--- docs";      cd "$repo/docs-site"; deps docs-site; npx vite build --logLevel warn
-    echo "--- server";    cd "$repo/server"; deps server
+    case "$DEMO_BUILD" in
+      site)
+        echo "--- demo";   cd "$repo/demo"; deps demo
+        VITE_API_URL=$DEMO_API_URL VITE_LIVEKIT_URL=$DEMO_LIVEKIT_URL \
+          VITE_IMAGE_SERVER_API_KEY=${VITE_IMAGE_SERVER_API_KEY:-} npx vite build --logLevel warn ;;
+      egress)
+        # The recording template must NOT get VITE_* URLs: it falls back to the
+        # local API and LiveKit, which is what the egress container can reach.
+        echo "--- demo (egress template)"; cd "$repo/demo"; deps demo
+        env -u VITE_API_URL -u VITE_LIVEKIT_URL -u VITE_IMAGE_SERVER_API_KEY \
+          npx vite build --base /egress-template/ --logLevel warn ;;
+      none) ;;
+      *) echo "unknown DEMO_BUILD=$DEMO_BUILD"; exit 1 ;;
+    esac
+    if [ "$DOCS_BUILD" = 1 ]; then
+      echo "--- docs";    cd "$repo/docs-site"; deps docs-site; npx vite build --logLevel warn
+    fi
+    # dist/ is not in git: without the compile the restarted API runs the old build.
+    echo "--- server";    cd "$repo/server"; deps server; npm run build
   ' build "$REPO_DIR" "$from" "$to"
 }
 
@@ -120,6 +220,8 @@ restart_and_check() {
   systemctl status "$SERVICE" --no-pager -n 20 || true
   return 1
 }
+
+quiet_gate || exit 0
 
 log "deploying ${current:0:7} -> $short: $(git_app log -1 --format=%s "$target")"
 git_app merge --ff-only -q "origin/$BRANCH"

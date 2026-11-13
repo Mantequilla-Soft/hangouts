@@ -65,8 +65,16 @@ async function finishAndPublishVod(
   opts?: { stopEgress?: boolean; filePath?: string; duration?: number; background?: boolean },
 ): Promise<void> {
   const pending = pendingVods.get(roomName);
-  if (!pending || hasPublish(roomName)) return;
+  if (!pending) return;
+  // Claimed synchronously, so a second caller (watchdog vs. /record/stop vs. the
+  // cap timer) finds nothing and returns: that is what keeps this idempotent.
   pendingVods.delete(roomName);
+  // A replay was already published for this room within the hour (a second
+  // recording in the same stream): it is NOT published over the first one, but
+  // the egress is still stopped and the room's state cleared. Returning early
+  // here used to leave the egress recording past the free cap and the crash
+  // watchdog calling deleteRoom on every sweep forever.
+  const alreadyPublished = hasPublish(roomName);
 
   let filePath = opts?.filePath || pending.filepath;
   let duration = opts?.duration ?? 0;
@@ -81,7 +89,7 @@ async function finishAndPublishVod(
   activeRecordings.delete(roomName);
   hostLastSeen.delete(roomName);
 
-  if (!pending.publish) return;
+  if (!pending.publish || alreadyPublished) return;
   const publish = async () => {
     await publishRecordingToVod({
       filePath,
@@ -517,8 +525,18 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.badRequest('Room is not being recorded');
     }
 
-    const info = await egressClient.stopEgress(rec.egressId);
+    // An egress that already ended on LiveKit's side (egress crash, disk full,
+    // LiveKit restart) makes stopEgress throw. The room must still be freed:
+    // otherwise it reports "recording" forever and every /record/start is a
+    // 409. Fall back to the path recorded at start, like stopStandaloneVod.
+    let stopped: Awaited<ReturnType<typeof egressClient.stopEgress>> | null = null;
+    try {
+      stopped = await egressClient.stopEgress(rec.egressId);
+    } catch (err) {
+      request.log?.warn?.({ err, room: name }, 'record/stop: egress already ended, freeing the room');
+    }
     activeRecordings.delete(name);
+    const info = { egressId: stopped?.egressId || rec.egressId, fileResults: stopped?.fileResults };
 
     const filePath = info.fileResults?.[0]?.filename || rec.filepath;
     const duration = Number(info.fileResults?.[0]?.duration || 0) / 1e9;
