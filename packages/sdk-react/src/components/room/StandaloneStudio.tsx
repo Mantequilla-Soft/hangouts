@@ -7,7 +7,7 @@ import { useWhipIngress } from '../../hooks/useWhipIngress.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
 import { ChatPanel } from './ChatPanel.js';
-import { AUTO_VOD_KEY, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
+import { AUTO_VOD_KEY, AUTO_VOD_DEFAULT, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
 import { resolveStreamCap, FREE_STREAM_CAP_LABEL } from '../../lib/streamLimits.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
 import { readStudioSetup, writeStudioSetup, saveStudioFile, deleteStudioFile, loadStudioFiles } from '../../lib/studioSetup.js';
@@ -977,7 +977,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // Pro: record the whole broadcast and publish it as the session's VOD when
   // the host ends the stream. Persisted so the preference sticks per host.
   const [autoVod, setAutoVod] = useState(() => {
-    return readPref(AUTO_VOD_KEY);
+    return readPref(AUTO_VOD_KEY, AUTO_VOD_DEFAULT);
   });
   const [savingVod, setSavingVod] = useState(false);
   // Chromium-only capture features (tab picking + tab/system audio) shape both

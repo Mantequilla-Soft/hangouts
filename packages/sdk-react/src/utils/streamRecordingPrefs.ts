@@ -10,6 +10,11 @@
 
 /** "Replace the stream with a video when it ends." */
 export const AUTO_VOD_KEY = 'hh-studio-auto-vod';
+/**
+ * Hosts who never touched the switch get the replay on the announcement post
+ * (owner 2026-11-13): new hosts start with it ON, a saved choice still wins.
+ */
+export const AUTO_VOD_DEFAULT = true;
 
 /** "Record the session and download it when it ends." */
 export const AUTO_DL_KEY = 'hh-studio-auto-download';
