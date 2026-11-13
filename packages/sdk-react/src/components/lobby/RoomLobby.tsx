@@ -3,7 +3,8 @@ import type { Room } from '@snapie/hangouts-core';
 import { useHangoutsAuth } from '../../hooks/useHangoutsAuth.js';
 import { useRoomList } from '../../hooks/useRoomList.js';
 import { RoomCard } from './RoomCard.js';
-import { CreateRoomDialog, type AnnounceType, type CreateRoomDraft, type StepLabels } from './CreateRoomDialog.js';
+import { CreateRoomDialog, type AnnounceType, type CreateRoomDraft, type StepLabels, type CreateRoomLabels } from './CreateRoomDialog.js';
+import type { ProPerk } from '../pro/ProUpsellDialog.js';
 import type { RoomMode } from '@snapie/hangouts-core';
 
 export interface RoomLobbyProps {
@@ -65,9 +66,15 @@ export interface RoomLobbyProps {
   stepped?: boolean;
   /** Straight through to CreateRoomDialog — see `stepLabels` there. */
   stepLabels?: Partial<StepLabels>;
+  /** Straight through to CreateRoomDialog — see `labels` there. */
+  labels?: Partial<CreateRoomLabels>;
+  /** Straight through to CreateRoomDialog — see `upsellPerks` there. */
+  upsellPerks?: ProPerk[];
+  /** Straight through to CreateRoomDialog — see `locale` there. */
+  locale?: string;
 }
 
-export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false, allowStandalone = false, defaultCreateOpen = false, renderAnnounceOptions, renderDescriptionEditor, fetchRooms, isPremium, defaultMode, allowSnapAnnounce = true, hideEmptyState = false, createOnly = false, onCreateCancel, renderStandaloneExtras, stepped, stepLabels }: RoomLobbyProps) {
+export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false, allowStandalone = false, defaultCreateOpen = false, renderAnnounceOptions, renderDescriptionEditor, fetchRooms, isPremium, defaultMode, allowSnapAnnounce = true, hideEmptyState = false, createOnly = false, onCreateCancel, renderStandaloneExtras, stepped, stepLabels, labels, upsellPerks, locale }: RoomLobbyProps) {
   const auth = useHangoutsAuth();
   const { rooms, isLoading, error } = useRoomList(fetchRooms);
   const [showCreate, setShowCreate] = useState(defaultCreateOpen);
@@ -139,6 +146,9 @@ export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false,
           renderStandaloneExtras={renderStandaloneExtras}
           stepped={stepped}
           stepLabels={stepLabels}
+          labels={labels}
+          upsellPerks={upsellPerks}
+          locale={locale}
         />
       </div>
     );
@@ -178,6 +188,9 @@ export function RoomLobby({ onJoinRoom, onRoomCreated, allowGuestBrowse = false,
           renderStandaloneExtras={renderStandaloneExtras}
           stepped={stepped}
           stepLabels={stepLabels}
+          labels={labels}
+          upsellPerks={upsellPerks}
+          locale={locale}
         />
       )}
 
