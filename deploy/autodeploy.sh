@@ -7,10 +7,12 @@
 # owner, restarts the API and health-checks it. If the build or the health check
 # fails, it rolls back to the previous commit and restarts that.
 #
-# With QUIET_WAIT_MAX_MIN set, a deploy first waits until no LiveKit room has
-# anyone in it (a restart loses running recordings, see the README), up to that
-# many minutes; after that it deploys anyway. Each tick checks once and exits,
-# so a long wait never blocks the timer.
+# With QUIET_WAIT_MAX_MIN set, a deploy never lands while someone is live: it
+# waits until no LiveKit room has anyone in it (a restart loses running
+# recordings, see the README), up to that many minutes. Still busy after that,
+# the deploy of that commit is CANCELLED: not retried on its own; the next merge
+# starts a fresh wait, or the force file deploys it. Each tick checks once and
+# exits, so a long wait never blocks the timer.
 #
 # Logs: journalctl -u hangouts-autodeploy
 
@@ -36,7 +38,8 @@ DEMO_BUILD=${DEMO_BUILD:-site}
 DEMO_API_URL=${DEMO_API_URL:-https://hangout-api.3speak.tv}
 DEMO_LIVEKIT_URL=${DEMO_LIVEKIT_URL:-wss://livekit.3speak.tv}
 DOCS_BUILD=${DOCS_BUILD:-1}
-# Wait for live rooms to empty before deploying, at most this many minutes (0 = off).
+# Wait for live rooms to empty before deploying, at most this many minutes, then
+# cancel that commit's deploy (0 = off: deploy without asking).
 QUIET_WAIT_MAX_MIN=${QUIET_WAIT_MAX_MIN:-0}
 LIVEKIT_HTTP=${LIVEKIT_HTTP:-http://127.0.0.1:7880}
 # Read for LIVEKIT_API_KEY / LIVEKIT_API_SECRET (never printed).
@@ -87,37 +90,40 @@ busy_rooms() {
   jq -r '[.rooms[]? | select((.num_participants // 0) > 0)] | length' <<<"$body"
 }
 
-# 0 = deploy now, 1 = keep waiting (this tick ends). Only when QUIET_WAIT_MAX_MIN > 0.
-# The wait starts with the first busy tick and is not reset by a newer commit, so
-# merges during a long stream can't push the deploy out forever.
+# 0 = deploy now, 1 = not now (this tick ends). Only when QUIET_WAIT_MAX_MIN > 0.
+# Never deploys while someone is live, nor when that can't be checked: LiveKit
+# not answering counts as busy. The wait starts with the first busy tick and is
+# not reset by a newer commit; when it runs out, the deploy of $target is
+# cancelled (see the header).
 quiet_gate() {
   [ "${QUIET_WAIT_MAX_MIN:-0}" -gt 0 ] || return 0
   if [ -f "$STATE_DIR/force" ]; then
-    rm -f "$STATE_DIR/force" "$STATE_DIR/quiet_since" "$STATE_DIR/quiet"
-    log "force file found, deploying without waiting for live rooms"
+    rm -f "$STATE_DIR/force" "$STATE_DIR/quiet_since" "$STATE_DIR/quiet" "$STATE_DIR/cancelled"
+    log "force file found, deploying $short without checking for live rooms"
     return 0
   fi
-  local busy now since waited
-  if ! busy=$(busy_rooms); then
-    log_once quiet "could not ask LiveKit ($LIVEKIT_HTTP) for live rooms, deploying without waiting"
-    rm -f "$STATE_DIR/quiet_since"
-    return 0
-  fi
-  if [ "$busy" = 0 ]; then
-    [ -f "$STATE_DIR/quiet_since" ] && log "no live rooms any more, deploying"
-    rm -f "$STATE_DIR/quiet_since" "$STATE_DIR/quiet"
-    return 0
+  local busy now since waited what
+  if busy=$(busy_rooms); then
+    if [ "$busy" = 0 ]; then
+      [ -f "$STATE_DIR/quiet_since" ] && log "no live rooms any more, deploying"
+      rm -f "$STATE_DIR/quiet_since" "$STATE_DIR/quiet"
+      return 0
+    fi
+    what="$busy live room(s)"
+  else
+    what="LiveKit ($LIVEKIT_HTTP) not answering, so live rooms unknown"
   fi
   now=$(date +%s)
   [ -f "$STATE_DIR/quiet_since" ] || echo "$now" > "$STATE_DIR/quiet_since"
   since=$(cat "$STATE_DIR/quiet_since")
   waited=$(( (now - since) / 60 ))
   if [ "$waited" -ge "$QUIET_WAIT_MAX_MIN" ]; then
-    log "still $busy live room(s) after ${waited} min (max $QUIET_WAIT_MAX_MIN), deploying anyway"
+    echo "$target" > "$STATE_DIR/cancelled"
     rm -f "$STATE_DIR/quiet_since" "$STATE_DIR/quiet"
-    return 0
+    log "deploy of $short CANCELLED: $what after ${waited} min (max $QUIET_WAIT_MAX_MIN). The next merge tries again; to deploy it now: touch $STATE_DIR/force"
+    return 1
   fi
-  log_once quiet "waiting for live rooms to end before deploying $short (max $QUIET_WAIT_MAX_MIN min, since $(date -u -d "@$since" +%H:%MZ))"
+  log_once quiet "not deploying $short while someone is live: $what (waiting up to $QUIET_WAIT_MAX_MIN min since $(date -u -d "@$since" +%H:%MZ), then cancelling)"
   return 1
 }
 
@@ -133,6 +139,8 @@ target=$(git_app rev-parse "origin/$BRANCH")
 
 short=${target:0:7}
 [ "$(cat "$STATE_DIR/failed" 2>/dev/null)" = "$target" ] && exit 0
+# Cancelled for live rooms: wait for a newer commit, or the force file.
+[ "$(cat "$STATE_DIR/cancelled" 2>/dev/null)" = "$target" ] && [ ! -f "$STATE_DIR/force" ] && exit 0
 
 if ! git_app merge-base --is-ancestor HEAD "origin/$BRANCH"; then
   log_once blocked "HEAD ${current:0:7} is not an ancestor of origin/$BRANCH (local commits?), not deploying $short"

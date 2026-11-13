@@ -130,10 +130,11 @@ if case_ quiet-busy; then t quiet-busy; setup
   assert_eq "$RC" 0 "exits 0 while waiting"
   assert_eq "$(head_sha)" "$LIVE0" "does not deploy while a room has people in it"
   assert_eq "$(calls systemctl)" 0 "does not restart the API"
-  assert_contains "$OUT" "waiting for live rooms to end" "says why"
+  assert_contains "$OUT" "not deploying" "says why"
+  assert_contains "$OUT" "1 live room(s)" "counts only rooms with someone in them"
   [ -f "$SB/state/quiet_since" ] && ok "remembers when the wait began" || bad "remembers when the wait began"
   run QUIET_WAIT_MAX_MIN=240
-  assert_not_contains "$OUT" "waiting for live rooms" "logs the wait once, not every tick"
+  assert_not_contains "$OUT" "not deploying" "logs the wait once, not every tick"
   # The token LiveKit got: three parts, our key as issuer, roomList, and a valid HS256 signature.
   tok=$(grep -m1 '^livekit ' "$SB/calls.log" | cut -d' ' -f2)
   IFS=. read -r h p s <<<"$tok"
@@ -166,8 +167,30 @@ if case_ quiet-max; then t quiet-max; setup
   sha=$(commit v2); rooms '{"name":"s1","num_participants":2}'
   echo $(( $(date +%s) - 241*60 )) > "$SB/state/quiet_since"
   run QUIET_WAIT_MAX_MIN=240
-  assert_eq "$(head_sha)" "$sha" "deploys anyway after the maximum wait"
-  assert_contains "$OUT" "deploying anyway" "says so"
+  assert_eq "$(head_sha)" "$LIVE0" "never deploys while someone is live, also after the maximum wait"
+  assert_eq "$(calls systemctl)" 0 "does not restart the API"
+  assert_contains "$OUT" "CANCELLED" "cancels the deploy and says so"
+  assert_eq "$(cat "$SB/state/cancelled")" "$sha" "remembers the cancelled commit"
+  [ -f "$SB/state/quiet_since" ] && bad "clears the wait" || ok "clears the wait"
+
+  t quiet-cancelled-stays; rooms ''
+  run QUIET_WAIT_MAX_MIN=240
+  assert_eq "$(head_sha)" "$LIVE0" "a cancelled commit is not retried on its own, even once the rooms are empty"
+
+  t quiet-cancelled-force; touch "$SB/state/force"
+  run QUIET_WAIT_MAX_MIN=240
+  assert_eq "$(head_sha)" "$sha" "the force file deploys the cancelled commit"
+  [ -f "$SB/state/cancelled" ] && bad "and clears the cancel" || ok "and clears the cancel"
+
+  t quiet-cancelled-next-merge; setup
+  a=$(commit v2); rooms '{"name":"s1","num_participants":2}'
+  echo $(( $(date +%s) - 241*60 )) > "$SB/state/quiet_since"
+  run QUIET_WAIT_MAX_MIN=240
+  b=$(commit v3); run QUIET_WAIT_MAX_MIN=240
+  assert_eq "$(head_sha)" "$LIVE0" "the next merge waits again while the stream runs"
+  assert_contains "$OUT" "not deploying" "with a fresh wait"
+  rooms ''; run QUIET_WAIT_MAX_MIN=240
+  assert_eq "$(head_sha)" "$b" "and deploys once the rooms are empty"
 fi
 
 if case_ quiet-newer-commit; then t quiet-newer-commit; setup
@@ -188,13 +211,16 @@ fi
 if case_ quiet-livekit-down; then t quiet-livekit-down; setup
   sha=$(commit v2); touch "$SB/ctl/livekit_down"
   run QUIET_WAIT_MAX_MIN=240
-  assert_eq "$(head_sha)" "$sha" "deploys when LiveKit cannot be asked (nothing streams then)"
-  assert_contains "$OUT" "could not ask LiveKit" "says so"
+  assert_eq "$(head_sha)" "$LIVE0" "does not deploy blind when LiveKit cannot be asked"
+  assert_contains "$OUT" "live rooms unknown" "says so"
+  echo $(( $(date +%s) - 241*60 )) > "$SB/state/quiet_since"
+  run QUIET_WAIT_MAX_MIN=240
+  assert_contains "$OUT" "CANCELLED" "and cancels after the maximum wait"
   t quiet-no-keys; setup
   sha=$(commit v2); rm "$SB/lk.env"
   run QUIET_WAIT_MAX_MIN=240
-  assert_eq "$(head_sha)" "$sha" "deploys when the key file is missing, with a log line"
-  assert_contains "$OUT" "could not ask LiveKit" "says so"
+  assert_eq "$(head_sha)" "$LIVE0" "does not deploy blind when the key file is missing"
+  assert_contains "$OUT" "live rooms unknown" "says so"
 fi
 
 if case_ rollback; then t rollback; setup

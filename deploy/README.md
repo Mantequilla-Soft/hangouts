@@ -25,7 +25,7 @@ The script is copied, not linked, so a merge can't change the deployer itself. R
 
 - Logs: `journalctl -u hangouts-autodeploy -f`
 - Deploy now instead of waiting: `sudo systemctl start hangouts-autodeploy`
-- Skip the wait for live rooms once: `sudo touch /var/lib/hangouts-autodeploy/force` (then the line above)
+- Deploy without checking for live rooms (also a cancelled commit): `sudo touch /var/lib/hangouts-autodeploy/force` (then the line above)
 - Pause: `sudo systemctl stop hangouts-autodeploy.timer` (`start` to resume)
 - A commit whose CI failed, or whose deploy was rolled back, is skipped. The next commit on `main` is tried normally.
 - It refuses to deploy if tracked files in `/opt/hangouts` were edited by hand, or the checkout has commits that aren't on `main`.
@@ -38,9 +38,9 @@ Set with a systemd drop-in (`/etc/systemd/system/hangouts-autodeploy.service.d/*
 |---|---|---|
 | `DEMO_BUILD` | `site` | `site`: the demo site with `DEMO_API_URL` / `DEMO_LIVEKIT_URL`. `egress`: the LiveKit egress recording template (`--base /egress-template/`, no `VITE_*` URLs). `none`: skip. |
 | `DOCS_BUILD` | `1` | `0` skips the docs site. |
-| `QUIET_WAIT_MAX_MIN` | `0` (off) | Before deploying, wait until no LiveKit room has anyone in it, at most this many minutes; then deploy anyway. Each tick asks once and exits, so the timer is never blocked. A newer merge during the wait does not restart it. |
+| `QUIET_WAIT_MAX_MIN` | `0` (off) | Never deploy while someone is live: wait until no LiveKit room has anyone in it, at most this many minutes. Still busy after that, the deploy of that commit is **cancelled**: it is not retried on its own; the next merge starts a fresh wait, or the force file deploys it. Each tick asks once and exits, so the timer is never blocked. A newer merge during the wait does not restart it. |
 | `LIVEKIT_HTTP` | `http://127.0.0.1:7880` | LiveKit for that check. |
-| `LIVEKIT_KEYS_FILE` | `/opt/livekit/lk.env` | Holds `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`; the script signs a 5-minute room-list token with them and never prints them. If LiveKit can't be asked, it logs that and deploys. |
+| `LIVEKIT_KEYS_FILE` | `/opt/livekit/lk.env` | Holds `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`; the script signs a 5-minute room-list token with them and never prints them. If LiveKit can't be asked, that counts as busy: it never deploys blind. |
 
 The check asks LiveKit itself, not `/rooms` or `/streams`, because those leave out unlisted rooms.
 
@@ -55,7 +55,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now hangouts-autodeploy.timer
 ```
 
-`live.conf` builds the demo as the egress template, skips the docs and waits up to 4 hours for streams and rooms to end.
+`live.conf` builds the demo as the egress template, skips the docs, and never deploys while someone is live: it waits up to 4 hours for streams and rooms to end, then cancels that deploy.
 
 ## Notes
 
