@@ -7702,3 +7702,9 @@
 .hh-settings__title { font-size: 0.9rem; font-weight: 700; margin-bottom: 0.25rem; }
 .hh-settings__intro { margin: 0 0 0.6rem; font-size: 0.78rem; line-height: 1.35; color: var(--st-muted); }
 .hh-settings .hh-optsheet__opt:last-child { margin-bottom: 0; }
+
+/* Leading symbols in studio labels sit in their own element (so an integrator
+   can swap them for its icon set); this keeps the space the text used to have. */
+.hh-studio__icon { display: inline-block; margin-right: 0.35em; }
+.hh-studio__boost-history-btn .hh-studio__icon,
+.hh-studio__boost-settings-btn:not(.hh-studio__boost-settings-btn--off) .hh-studio__icon { margin-right: 0; }
