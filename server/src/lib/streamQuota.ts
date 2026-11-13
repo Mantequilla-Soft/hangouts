@@ -78,6 +78,8 @@ export async function recordGoLive(owner: string, roomName: string): Promise<voi
  * Fails OPEN: a quota store that cannot answer must not stop everyone streaming.
  */
 export async function nextFreeStreamAt(owner: string, room?: string): Promise<Date | null> {
+  // Exempt accounts (STREAM_LIMIT_EXEMPT) may start as many streams as they like.
+  if (config.STREAM_LIMIT_EXEMPT.has(owner.toLowerCase())) return null;
   try {
     const c = await goLives();
     if (!c) return null;
