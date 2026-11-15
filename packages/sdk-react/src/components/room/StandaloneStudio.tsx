@@ -33,6 +33,15 @@ import { BoostSettingsPanel } from './BoostSettingsPanel.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
 import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
 import { useDvr } from '../../hooks/useDvr.js';
+// H17 overlays, H19 phone version, H20 stream health (each in its own module).
+import { OverlayLayerList, FadeTransition, type FrameInfo, type OutputShape } from '../../lib/studioOverlays.js';
+import { useStudioOverlays } from '../../hooks/useStudioOverlays.js';
+import { StudioOverlaysPanel } from './StudioOverlaysPanel.js';
+import { useVerticalOutput } from '../../hooks/useVerticalOutput.js';
+import { VerticalCropBox, VerticalSettings } from './VerticalCropBox.js';
+import { STUDIO_PROGRAM_TRACK, STUDIO_VERTICAL_TRACK, followTarget, sceneRegions } from '../../lib/verticalCrop.js';
+import { useStreamHealth } from '../../hooks/useStreamHealth.js';
+import { StreamHealthPanel } from './StreamHealthPanel.js';
 
 /** Program canvas resolution — every scene composites into this fixed
  *  16:9 frame, and this exact frame is what gets published. */
@@ -515,7 +524,7 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, text: string, sub: strin
     ctx.fillText(sub, x + w / 2, y + h / 2 + 16);
   }
 }
-function drawSlate(ctx: CanvasRenderingContext2D, w: number, h: number, title: string, now: number, kind: 'soon' | 'brb') {
+function drawSlate(ctx: CanvasRenderingContext2D, w: number, h: number, title: string, now: number, kind: 'soon' | 'brb', opts?: { headline?: string }) {
   // Scale font sizes off the height so the slate reads the same at any
   // published resolution.
   const k = h / 720;
@@ -537,7 +546,8 @@ function drawSlate(ctx: CanvasRenderingContext2D, w: number, h: number, title: s
   grad.addColorStop(1, '#08080f');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, w, h);
-  const headline = kind === 'soon' ? 'STARTING SOON' : "WE'LL BE RIGHT BACK";
+  // The host's own Be right back message (Overlays panel) replaces the default.
+  const headline = opts?.headline || (kind === 'soon' ? 'STARTING SOON' : "WE'LL BE RIGHT BACK");
   const dotColor = kind === 'soon' ? '227, 19, 55' : '241, 196, 15';
   const pulse = 0.55 + 0.45 * Math.sin(now / 500);
   ctx.textAlign = 'center';
@@ -1249,11 +1259,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // skin sets them (canvas can't read CSS variables, so they are resolved to
   // plain colours here and re-read now and then, e.g. after a theme switch).
   const tierColorsRef = useRef<string[]>([]);
+  /** The theme accent for the text overlays (lower third edge, ticker). */
+  const accentRef = useRef('');
   useEffect(() => {
     const resolve = () => {
       const el = previewRef.current;
       if (!el) return;
       tierColorsRef.current = [0, 1, 2, 3].map((lvl) => resolveTokenColor(el, boostTierColorVar(lvl)));
+      accentRef.current = resolveTokenColor(el, '--hh-primary');
     };
     resolve();
     const t = window.setInterval(resolve, 5000);
@@ -2999,7 +3012,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           if (f && f.kind === 'sound' && !used.has(snd.id)) { used.add(snd.id); addSoundFile(f.file, snd); }
         }
         // Files no saved setup refers to any more (e.g. a tab closed mid-change).
-        for (const f of files) if (!used.has(f.id)) void deleteStudioFile(setupUser, f.id);
+        for (const f of files) if (!used.has(f.id) && f.kind !== 'overlay') void deleteStudioFile(setupUser, f.id);
         // Camera / mic back on if they were. Phones open them on their own (see
         // requestDevices); on a desktop the host otherwise has to add them again.
         // With the permission already granted this asks nothing.
@@ -3111,6 +3124,42 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     return () => ro.disconnect();
   }, [portrait]);
 
+  // ---- overlays (H17), phone version (H19), stream health (H20) ----------
+  // The compositor draws `overlayLayersRef` over the scene on every output
+  // (program, vertical, the host's preview). Other features that burn
+  // something into the stream add a layer there instead of editing the loop.
+  const overlayLayersRef = useRef<OverlayLayerList | null>(null);
+  if (!overlayLayersRef.current) overlayLayersRef.current = new OverlayLayerList();
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [overlaysOpen, setOverlaysOpen] = useState(false);
+  const lpName = localParticipant?.name && localParticipant.name !== localParticipant.identity
+    ? localParticipant.name : (localParticipant?.identity ? `@${localParticipant.identity}` : '');
+  const overlays = useStudioOverlays({
+    layers: overlayLayersRef.current,
+    streamState,
+    getAudio: () => { const ctx = ensureAudioGraph(); return destRef.current ? { ctx, dest: destRef.current } : null; },
+    defaultName: lpName,
+    defaultTitle: postTitle || title,
+  });
+  const overlayConfigRef = overlays.configRef;
+  const [programPublished, setProgramPublished] = useState(false);
+  const vertical = useVerticalOutput({
+    roomName, localParticipant, published: programPublished,
+    available: !isMobile && !portrait,
+    programHeight: STREAM_QUALITY[streamQuality].height,
+    programMaxBitrate: STREAM_QUALITY[streamQuality].maxBitrate,
+    degradePref,
+  });
+  const verticalOutRef = useRef(vertical.output);
+  verticalOutRef.current = vertical.output;
+  /** Frames the compositor drew since the health hook last read it. */
+  const composedFramesRef = useRef(0);
+  const health = useStreamHealth({
+    localParticipant, published: programPublished,
+    trackNames: [STUDIO_PROGRAM_TRACK, STUDIO_VERTICAL_TRACK],
+    framesRef: composedFramesRef, connectionQuality: connQuality,
+  });
+
   // ---- draw loop ---------------------------------------------------------
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -3123,6 +3172,11 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     let raf = 0;
     const ready = (v: HTMLVideoElement | null | undefined): v is HTMLVideoElement =>
       !!v && v.readyState >= 2 && v.videoWidth > 0;
+    // H17 fades: one for scene changes (on the display canvas, so every output
+    // carries it), one for the program going in and out of the slates.
+    const sceneFade = new FadeTransition(400);
+    const programFade = new FadeTransition(450);
+    let previewOverlayDrawn = false;
     const drawMediaInto = (id: string, x: number, y: number, w: number, h: number, now: number) => {
       const m = mediaMapRef.current.get(id);
       if (!m) { drawPlaceholder(ctx, 'Media removed', '', x, y, w, h); return; }
@@ -3196,6 +3250,27 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       path();
       ctx.stroke();
     };
+    const drawBoostsInto = (c: CanvasRenderingContext2D, w: number, h: number) => {
+      // Boosts ride on the OUTPUTS only (program, vertical). The host already has
+      // the DOM overlay as their monitor, and drawing here keeps them clear of
+      // the stacked-scene strip swap above.
+      const cardW = Math.min(w * 0.62, w - 24);
+      let cardY = Math.round(h * 0.04);
+      // WALL CLOCK, not `now`. `now` here is performance.now() — ms since page
+      // load — while a boost's timestamp is a Unix epoch. Subtracting them
+      // gives a huge negative number that is always under the window, so the
+      // card never expired and sat burned into the stream forever.
+      const boostNow = Date.now();
+      // Each boost stays for its tier's time; with more up than the two
+      // slots, the bigger tiers keep theirs.
+      const tiersOn = boostTiersRef.current;
+      const live = pickPinnedBoosts(boostsRef.current, boostNow, tiersOn, 2);
+      for (const b of live) {
+        const level = tiersOn ? boostTier(b.usdAmount).level : null;
+        const accent = level === null ? '' : tierColorsRef.current[level] ?? '';
+        cardY += drawBoostCard(c, b, Math.round((w - cardW) / 2), cardY, cardW, { level, accent }) + 10;
+      }
+    };
     const draw = () => {
       const now = performance.now();
       const p = paramsRef.current;
@@ -3204,6 +3279,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       // portrait (720×1280) on mobile and every rect below must follow.
       const CW = ctx.canvas.width;
       const CH = ctx.canvas.height;
+      composedFramesRef.current += 1;
+      const fadeOn = overlayConfigRef.current.fade;
+      sceneFade.track(`${p.scene}|${p.source ?? ''}|${p.guestName ?? ''}`, canvas, now, fadeOn);
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, CW, CH);
       switch (p.scene) {
@@ -3305,9 +3383,25 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         }
       }
 
+      sceneFade.paint(ctx, CW, CH, now);
+
       // Program output — scaled into the (resolution-capped) program canvas.
       const state = streamStateRef.current;
       const pw = program.width, ph = program.height;
+      const wall = Date.now();
+      const frameInfo = (shape: OutputShape, st = state): FrameInfo => ({ state: st, shape, now, wall, accent: accentRef.current });
+      // Everything an output gets on top of its picture: the slate when not
+      // live, the overlay layers, and (live) the boost cards. Shared by the
+      // program and the vertical phone version, each at its own size.
+      const drawExtras = (c: CanvasRenderingContext2D, w: number, h: number, shape: OutputShape) => {
+        if (state !== 'live') {
+          const brbHeadline = state === 'paused' ? overlayConfigRef.current.brb.message : '';
+          drawSlate(c, w, h, titleRef.current, now, state === 'standby' ? 'soon' : 'brb', { headline: brbHeadline });
+        }
+        overlayLayersRef.current?.draw(c, w, h, frameInfo(shape));
+        if (state === 'live') drawBoostsInto(c, w, h);
+      };
+      programFade.track(state, program, now, fadeOn);
       if (state === 'live') {
         if (p.scene === 'splitv' && p.guestName) {
           // The host's canvas has the guest on top; viewers want the host on
@@ -3329,29 +3423,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         } else {
           pctx.drawImage(canvas, 0, 0, pw, ph);
         }
-
-        // Boosts ride on the PROGRAM only. The host already has the DOM
-        // overlay as their monitor, and drawing here keeps them clear of the
-        // stacked-scene strip swap above.
-        const cardW = Math.min(pw * 0.62, pw - 24);
-        let cardY = Math.round(ph * 0.04);
-        // WALL CLOCK, not `now`. `now` here is performance.now() — ms since page
-        // load — while a boost's timestamp is a Unix epoch. Subtracting them
-        // gives a huge negative number that is always under the window, so the
-        // card never expired and sat burned into the stream forever.
-        const boostNow = Date.now();
-        // Each boost stays for its tier's time; with more up than the two
-        // slots, the bigger tiers keep theirs.
-        const tiersOn = boostTiersRef.current;
-        const live = pickPinnedBoosts(boostsRef.current, boostNow, tiersOn, 2);
-        for (const b of live) {
-          const level = tiersOn ? boostTier(b.usdAmount).level : null;
-          const accent = level === null ? '' : tierColorsRef.current[level] ?? '';
-          cardY += drawBoostCard(pctx, b, Math.round((pw - cardW) / 2), cardY, cardW, { level, accent }) + 10;
-        }
-      } else {
-        drawSlate(pctx, pw, ph, titleRef.current, now, state === 'standby' ? 'soon' : 'brb');
       }
+      drawExtras(pctx, pw, ph, portraitRef.current ? 'portrait' : 'landscape');
+      programFade.paint(pctx, pw, ph, now);
 
       // Watermark LAST, stamped onto EACH canvas at its OWN top-left. Stamping
       // it on the display BEFORE the program's stacked-scene strip swap made it
@@ -3364,6 +3438,33 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         const wmOpts = isMobileRef.current ? { scale: 0.82 } : undefined;
         drawWatermark(pctx, pw, ph, watermarkLogoRef.current, wmOpts);
         drawWatermark(ctx, CW, CH, watermarkLogoRef.current, wmOpts);
+      }
+
+      // H19: the 9:16 phone version, cropped from the composed landscape scene.
+      const vo = verticalOutRef.current;
+      if (vo.mode !== 'off' && !portraitRef.current) {
+        const pr = pipRect(p);
+        const regions = sceneRegions(p.scene, p.splitRatio,
+          { x: pr.x / CANVAS_W, y: pr.y / CANVAS_H, w: pr.w / CANVAS_W, h: pr.h / CANVAS_H }, ready(cam), !!p.source);
+        vo.step(now, followTarget(vo.follow, regions), CW, CH);
+        if (vo.mode === 'track') {
+          vo.render(canvas, state === 'live', now, state, fadeOn,
+            (c, w, h) => drawExtras(c, w, h, 'vertical'),
+            (c, w, h) => { if (showWatermarkRef.current) drawWatermark(c, w, h, watermarkLogoRef.current); });
+        }
+      }
+
+      // The host's preview of the overlays: a transparent canvas over the
+      // preview, so the display canvas (which the outputs copy) stays clean.
+      // Drawn as if live, so a lower third can be checked before going live.
+      const oc = overlayCanvasRef.current;
+      const octx = oc?.getContext('2d');
+      if (oc && octx) {
+        if (oc.width !== CW || oc.height !== CH) { oc.width = CW; oc.height = CH; previewOverlayDrawn = true; }
+        // Cleared only after a frame that drew something: an idle overlay
+        // canvas costs nothing.
+        if (previewOverlayDrawn) octx.clearRect(0, 0, CW, CH);
+        previewOverlayDrawn = overlayLayersRef.current?.draw(octx, CW, CH, frameInfo(portraitRef.current ? 'portrait' : 'landscape', 'live')) ?? false;
       }
     };
     // Cap compositing at ~30fps (the capture rate). rAF fires at the display
@@ -3422,7 +3523,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     } catch { /* wasn't published */ }
     await lp.publishTrack(track, {
       source: Track.Source.Camera,
-      name: 'studio-program',
+      name: STUDIO_PROGRAM_TRACK,
       // Simulcast means encoding the program canvas 3× in parallel. A phone
       // SoC is already running the compositor's captureStream at 30fps, so
       // the extra layers are what tips it into dropping frames — publish a
@@ -3469,6 +3570,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         // publishVideo owns the program video track (it may swap it on a
         // resolution change), so it's cleaned up via publishedVideoTrackRef.
         await publishVideo();
+        setProgramPublished(true);
         ensureAudioGraph();
         const audioTrack = destRef.current?.stream.getAudioTracks()[0];
         if (audioTrack) {
@@ -3855,6 +3957,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         ))}
       </div>
 
+      <VerticalSettings api={vertical} />
+
       <div className="hh-settings__group">
         <div className="hh-settings__title">🎬 Recording</div>
         {/* Publish the recording as this session's video when the stream ends,
@@ -4142,6 +4246,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         style={!camOn ? { cursor: 'pointer' } : undefined}
         title={!camOn ? (isMobile ? 'Start camera' : 'Add a source') : undefined}
       />
+      {/* The text overlays as the host sees them (H17): their own transparent
+          layer, so the outputs never copy them twice. */}
+      <canvas
+        ref={overlayCanvasRef}
+        className={`hh-studio__canvas hh-studio__overlay-canvas${isMobile ? (portrait ? ' hh-studio__canvas--cover' : ' hh-studio__canvas--contain') : ''}`}
+        aria-hidden="true"
+      />
+      {vertical.available && vertical.prefs.mode !== 'off' && <VerticalCropBox api={vertical} />}
       {/* The OBS ingest feed. Rendered by React (never createElement +
           appendChild) because Firefox only decodes a <video> that is
           actually in the document — audio worked without it, video
@@ -4206,11 +4318,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         {/* Uplink health — always visible (incl. the collapsed mobile header) so
             the host learns of a weak connection the moment it happens. Bars are
             static; the modifier class colours + fills them by quality. */}
-        {connQuality !== ConnectionQuality.Unknown && (
-          <span className={`hh-studio__conn${connBadge.cls}`} title={connBadge.tip} role="status" aria-label={`Connection: ${connBadge.label}`}>
-            <span className="hh-studio__conn-bars" aria-hidden="true"><i /><i /><i /></span>
-            {(!isMobile || connBad) && <span className="hh-studio__conn-label">{connBadge.label}</span>}
-          </span>
+        {/* H20: the pill opens the stream health panel (bitrate, frame rate,
+            dropped frames, loss, what viewers get, Auto quality). */}
+        {(connQuality !== ConnectionQuality.Unknown || health.health) && (
+          <StreamHealthPanel badge={connBadge} showLabel={!isMobile || connBad} state={health} />
         )}
         {/* Title eats a whole row on a phone and isn't needed there (the host
             knows their own stream) — desktop keeps it. */}
@@ -4244,6 +4355,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                   nothing (there's no viewer list to open here). */}
               <button className="hh-studio__hbtn hh-studio__hbtn--static hh-studio__hbtn--views" type="button" title="Viewers watching" aria-label={`${viewerCount} watching`}>
                 👁<span className="hh-studio__hbtn-val">{viewerCount}</span>
+              </button>
+              <button
+                className={`hh-studio__hbtn${overlaysOpen ? ' hh-studio__hbtn--on' : ''}`}
+                onClick={() => setOverlaysOpen((v) => !v)}
+                title="Overlays: lower third, ticker, countdown, be right back"
+                aria-label="Overlays"
+              >
+                <span className="hh-studio__hbtn-aa" aria-hidden="true">Aa</span>
               </button>
               <button
                 className={`hh-studio__hbtn${mobileSheet === 'settings' ? ' hh-studio__hbtn--on' : ''}`}
@@ -4281,6 +4400,16 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             </>
           )}
           {!isMobile && shareUrl && <button className="hh-btn hh-btn--secondary hh-btn--small hh-studio__share-btn" onClick={copyShareUrl}>{copied ? <><span className="hh-studio__icon" aria-hidden="true">✓</span>Copied</> : <><span className="hh-studio__icon" aria-hidden="true">🔗</span>Share</>}</button>}
+          {!isMobile && (
+            <button
+              className={`hh-btn hh-btn--small hh-studio__overlays-btn ${overlaysOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+              onClick={() => setOverlaysOpen((v) => !v)}
+              title="Overlays: lower third, ticker, countdown, be right back"
+              aria-label="Overlays"
+            >
+              <span className="hh-studio__icon" aria-hidden="true">Aa</span>Overlays
+            </button>
+          )}
           {!isMobile && <button className={`hh-btn hh-btn--small hh-studio__boost-history-btn ${boostHistoryOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`} onClick={() => setBoostHistoryOpen((v) => !v)} title="Boost history" aria-label="Boost history"><span className="hh-studio__icon" aria-hidden="true">💰</span></button>}
           {!isMobile && (
             <button
@@ -5177,6 +5306,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       )}
 
       {boostHistoryOpen && <BoostHistoryPanel onClose={() => setBoostHistoryOpen(false)} />}
+      {overlaysOpen && <StudioOverlaysPanel api={overlays} streamState={streamState} onClose={() => setOverlaysOpen(false)} />}
       {boostSettingsOpen && (
         <BoostSettingsPanel
           roomName={roomName}

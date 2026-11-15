@@ -8,6 +8,7 @@ import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { BoostStoreProvider } from '../../hooks/useBoosts.js';
 import { StreamBoostGoal } from './StreamBoostGoal.js';
 import type { BoostLabels } from '../../lib/boostLabels.js';
+import { STUDIO_VERTICAL_TRACK, prefersVertical, readVerticalMeta, type VerticalMeta } from '../../lib/verticalCrop.js';
 
 /**
  * Composable watch-side of a standalone stream. Unlike <StandaloneViewer>
@@ -30,6 +31,8 @@ interface StreamCtxValue {
    *  studio has the Guests panel for accepting collab requests, so it also
    *  tells a viewer whether asking to join can lead anywhere. */
   portrait?: boolean;
+  /** The host's phone crop (H19), from the live room metadata, or null. */
+  vertical?: VerticalMeta | null;
 }
 const StreamContext = createContext<StreamCtxValue>({ hostIdentity: null, isGuest: true, roomName: '' });
 export const useStreamContext = () => useContext(StreamContext);
@@ -117,12 +120,13 @@ function StreamContextBridge({ roomName, isGuest, joinMeta, children }: {
   children: ReactNode;
 }) {
   const roomInfo = useRoomInfo();
-  const meta = useMemo((): { host?: string; boost?: BoostConfig; portrait?: boolean } => {
+  const meta = useMemo((): { host?: string; boost?: BoostConfig; portrait?: boolean; vertical?: unknown } => {
     if (roomInfo.metadata) {
       try { return JSON.parse(roomInfo.metadata); } catch { /* fall back below */ }
     }
     return (joinMeta as { host?: string; boost?: BoostConfig; portrait?: boolean }) ?? {};
   }, [roomInfo.metadata, joinMeta]);
+  const vertical = useMemo(() => readVerticalMeta(meta as Record<string, unknown>), [meta]);
   return (
     <StreamContext.Provider value={{
       hostIdentity: meta.host ?? null,
@@ -130,6 +134,7 @@ function StreamContextBridge({ roomName, isGuest, joinMeta, children }: {
       roomName,
       boostConfig: meta.boost,
       portrait: meta.portrait,
+      vertical,
     }}>
       {children}
     </StreamContext.Provider>
@@ -144,6 +149,50 @@ function useProgramTrack() {
     const remote = cameraTracks.filter((t) => !t.participant.isLocal);
     return remote.find((t) => t.participant.identity === hostIdentity) ?? remote[0] ?? null;
   }, [cameraTracks, hostIdentity]);
+}
+
+/** The host's vertical phone track (H19), when the studio sends one. Under
+ *  the Unknown source, so useProgramTrack never mistakes it for the program. */
+function useVerticalTrack() {
+  const { hostIdentity } = useStreamContext();
+  const tracks = useTracks([Track.Source.Unknown]);
+  return useMemo(() => tracks.find((t) => !t.participant.isLocal
+    && t.publication?.trackName === STUDIO_VERTICAL_TRACK
+    && t.publication?.kind === 'video'
+    && !t.publication.isMuted
+    && (!hostIdentity || t.participant.identity === hostIdentity)) ?? null, [tracks, hostIdentity]);
+}
+
+/**
+ * What the stream offers for phones (H19): `hasVertical` when the studio
+ * sends its own 9:16 video, and `crop`, where the host placed the 9:16 box
+ * over the landscape picture (for a viewer-side crop when there is no
+ * vertical video, e.g. an OBS stream). Use it to decide whether to offer a
+ * vertical/full switch, and where to start a crop.
+ */
+export function useStreamFormats(): { hasVertical: boolean; crop: VerticalMeta | null } {
+  const track = useVerticalTrack();
+  const { vertical } = useStreamContext();
+  return { hasVertical: !!track, crop: vertical ?? null };
+}
+
+/** A phone held upright, following resizes and rotation. */
+function usePrefersVertical(enabled: boolean): boolean {
+  const read = () => {
+    if (typeof window === 'undefined') return false;
+    const coarse = !!window.matchMedia?.('(pointer: coarse)').matches;
+    return prefersVertical(window.innerWidth, window.innerHeight, coarse);
+  };
+  const [v, setV] = useState(() => (enabled ? read() : false));
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const on = () => setV(read());
+    on();
+    window.addEventListener('resize', on);
+    window.addEventListener('orientationchange', on);
+    return () => { window.removeEventListener('resize', on); window.removeEventListener('orientationchange', on); };
+  }, [enabled]);
+  return v;
 }
 
 /** True when the streamer is connected and publishing. */
@@ -161,6 +210,10 @@ export interface StreamVideoProps {
   showBoostGoal?: boolean;
   /** Translated text for the goal bar (see BoostLabels). */
   boostLabels?: Partial<BoostLabels>;
+  /** Which picture to show (H19). 'landscape' (default): the program.
+   *  'vertical': the studio's 9:16 phone video when it sends one, else the
+   *  program. 'auto': vertical on a phone held upright. */
+  format?: 'landscape' | 'vertical' | 'auto';
 }
 /** How long after connecting an absent host still counts as "not here yet"
  *  rather than offline. The participant list arrives a moment after the room
@@ -188,15 +241,22 @@ function useConnectionSettled(): boolean {
   return settled;
 }
 
-export function StreamVideo({ showLiveBadge = true, showBoostGoal = true, boostLabels }: StreamVideoProps) {
-  const track = useProgramTrack();
+export function StreamVideo({ showLiveBadge = true, showBoostGoal = true, boostLabels, format = 'landscape' }: StreamVideoProps) {
+  const program = useProgramTrack();
+  const verticalTrack = useVerticalTrack();
+  const autoVertical = usePrefersVertical(format === 'auto');
+  const wantVertical = format === 'vertical' || (format === 'auto' && autoVertical);
+  // Only the picture on screen is attached, so with adaptive streaming the
+  // other one is paused on the server and costs this viewer nothing.
+  const showingVertical = wantVertical && !!verticalTrack;
+  const track = showingVertical ? verticalTrack : program;
   const live = useStreamLive();
   const settled = useConnectionSettled();
   const placeholder = live ? 'Stream is starting…' : (settled ? 'The streamer is offline' : 'Connecting…');
   return (
-    <div className="hh-stream-video">
+    <div className={`hh-stream-video${showingVertical ? ' hh-stream-video--vertical' : ''}`}>
       {track ? (
-        <VideoTrack trackRef={track} className="hh-stream-video__el" />
+        <VideoTrack key={showingVertical ? 'vertical' : 'program'} trackRef={track} className="hh-stream-video__el" />
       ) : (
         <div className="hh-stream-video__placeholder">{placeholder}</div>
       )}

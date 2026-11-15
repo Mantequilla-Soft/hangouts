@@ -103,7 +103,7 @@ export {
   StreamVideo, type StreamVideoProps,
   StreamViewerCount, type StreamViewerCountProps,
   StreamQualityControl,
-  useStreamContext, useStreamLive,
+  useStreamContext, useStreamLive, useStreamFormats,
 } from './components/room/StandaloneWatch.js';
 
 // Hooks — Chat
@@ -171,3 +171,16 @@ export { useIsMobile, MOBILE_QUERY } from './hooks/useIsMobile.js';
 // the same format the form reads, instead of copying storage keys.
 export { readPostDraft, writePostDraft, type PostDraft, type DraftMode } from './lib/postDraft.js';
 export { AUTO_VOD_KEY, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from './utils/streamRecordingPrefs.js';
+
+// Studio overlays (H17), the phone version (H19) and stream health (H20).
+export {
+  OverlayLayerList, FadeTransition, createTextOverlayLayers, cleanOverlayConfig, DEFAULT_OVERLAY_CONFIG,
+  type OverlayLayer, type FrameInfo, type OverlayConfig, type OverlayTemplate, type OutputShape,
+} from './lib/studioOverlays.js';
+export { BUILTIN_TRACKS, type BuiltinTrackId } from './lib/brbMusic.js';
+export {
+  STUDIO_PROGRAM_TRACK, STUDIO_VERTICAL_TRACK, readVerticalMeta, objectPositionFor, prefersVertical,
+  type VerticalMeta, type VerticalMode, type VerticalFollow,
+} from './lib/verticalCrop.js';
+export { useStreamHealth, type StreamHealthState } from './hooks/useStreamHealth.js';
+export { describeViewerQuality, type StreamHealth } from './lib/streamHealth.js';

@@ -1,0 +1,243 @@
+/* Studio tools: text overlays (H17), the phone version (H19) and stream
+   health (H20). Imported at the top of hangouts.css. Theme tokens only
+   (--hh-*, and --st-* inside the studio), so a skin restyles everything. */
+
+/* ---- H17: host preview of the overlays ---------------------------------- */
+.hh-studio__overlay-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* The Overlays button glyph (header). */
+.hh-studio__hbtn-aa,
+.hh-studio__overlays-btn .hh-studio__icon {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* ---- H17: the Overlays panel (portalled to <body>) ----------------------- */
+.hh-overlays {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(86vh, 760px);
+  box-sizing: border-box;
+  background: var(--hh-bg);
+  color: var(--hh-text);
+  border: 1px solid var(--hh-border);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  font-size: 0.9rem;
+}
+@media (max-width: 767px) {
+  .hh-overlays {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    transform: none;
+    width: 100%;
+    max-height: 88vh;
+    border-radius: 18px 18px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+.hh-overlays__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.1rem 0.4rem;
+  font-weight: 700;
+  font-size: 1rem;
+}
+.hh-overlays__close {
+  background: none;
+  border: none;
+  color: var(--hh-text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.hh-overlays__close:hover { background: var(--hh-bg-hover); color: var(--hh-text); }
+.hh-overlays__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 0.2rem 1.1rem 1.1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.hh-overlays__intro,
+.hh-overlays__hint { margin: 0; font-size: 0.78rem; line-height: 1.4; color: var(--hh-text-muted); }
+.hh-overlays__error { margin: 0; font-size: 0.8rem; color: var(--hh-primary); }
+.hh-overlays__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--hh-border-light, var(--hh-border));
+}
+.hh-overlays__section-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--hh-text-muted);
+}
+.hh-overlays__field { display: flex; flex-direction: column; gap: 0.25rem; }
+.hh-overlays__field > span { font-size: 0.8rem; font-weight: 600; }
+.hh-overlays__input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--hh-input-border, var(--hh-border));
+  border-radius: 8px;
+  background: var(--hh-bg-secondary);
+  color: var(--hh-text);
+  font: inherit;
+}
+.hh-overlays__textarea { resize: vertical; min-height: 3.2rem; }
+.hh-overlays__row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.hh-overlays__row > .hh-overlays__input { flex: 1 1 10rem; }
+.hh-overlays__row > .hh-btn { margin-left: auto; }
+.hh-overlays__minutes { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; }
+.hh-overlays__minutes .hh-overlays__input { width: 4.6rem; }
+.hh-overlays__count { font-size: 1.2rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.hh-overlays__seg { display: inline-flex; border: 1px solid var(--hh-border); border-radius: 999px; overflow: hidden; }
+.hh-overlays__seg button {
+  border: 0;
+  background: transparent;
+  color: var(--hh-text);
+  padding: 0.35rem 0.7rem;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.hh-overlays__seg button + button { border-left: 1px solid var(--hh-border); }
+.hh-overlays__seg button.is-active { background: var(--hh-primary); color: #fff; }
+.hh-overlays__chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.hh-overlays__chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--hh-border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.hh-overlays__chip button {
+  border: 0;
+  background: transparent;
+  color: var(--hh-text);
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+}
+.hh-overlays__chip .hh-overlays__chip-x { padding: 0.3rem 0.5rem 0.3rem 0.1rem; color: var(--hh-text-muted); }
+.hh-overlays__chip.is-active { border-color: var(--hh-primary); }
+.hh-overlays__chip.is-active button:first-child { font-weight: 700; }
+.hh-overlays__toggle { display: flex; align-items: center; gap: 0.55rem; font-weight: 600; cursor: pointer; }
+.hh-overlays__toggle input { width: 18px; height: 18px; accent-color: var(--hh-primary); }
+
+/* ---- H19: the phone crop box over the preview ---------------------------- */
+.hh-vcrop {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  box-sizing: border-box;
+  border: 2px dashed rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.28);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.hh-vcrop--follow { border-style: solid; cursor: grab; }
+.hh-vcrop__label {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.hh-vsettings__follow { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
+.hh-vsettings__chip {
+  border: 1px solid var(--st-border-strong, var(--hh-border));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--st-text, var(--hh-text));
+  padding: 0.3rem 0.65rem;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.hh-vsettings__chip.is-active { border-color: var(--hh-primary); color: var(--hh-primary); font-weight: 700; }
+.hh-vsettings__error { margin: 0.4rem 0 0; font-size: 0.78rem; color: var(--hh-primary); }
+
+/* Viewer: the 9:16 phone video fills a portrait player. */
+.hh-stream-video--vertical .hh-stream-video__el { object-fit: cover; }
+
+/* ---- H20: stream health -------------------------------------------------- */
+.hh-health { position: relative; display: inline-flex; }
+/* The health panel drops down over the preview: lift the header above the
+   studio body (its backdrop filter makes it a stacking context). */
+.hh-studio__header { position: relative; z-index: 20; }
+.hh-health__pill { border: 0; font: inherit; cursor: pointer; }
+.hh-health__notice { font-size: 0.6rem; font-weight: 700; margin-left: 0.15rem; }
+.hh-health__step { font-size: 0.55rem; margin-left: 0.1rem; }
+.hh-health__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  width: min(320px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 0.75rem 0.9rem 0.9rem;
+  background: var(--st-panel, var(--hh-bg-secondary));
+  color: var(--st-text, var(--hh-text));
+  border: 1px solid var(--st-border-strong, var(--hh-border));
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  font-size: 0.82rem;
+  text-align: left;
+}
+@media (max-width: 767px) {
+  /* The header's backdrop filter makes it the containing block: span it. */
+  .hh-health__panel { position: fixed; top: calc(100% + 6px); left: 8px; right: 8px; width: auto; }
+}
+.hh-health__head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; margin-bottom: 0.35rem; }
+.hh-health__close {
+  background: none;
+  border: 0;
+  color: var(--st-muted, var(--hh-text-muted));
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+.hh-health__verdict { margin: 0 0 0.6rem; line-height: 1.4; }
+.hh-health__verdict--good { color: var(--st-green, #2ecc71); }
+.hh-health__verdict--weak { color: var(--st-amber, #f1c40f); }
+.hh-health__verdict--bad { color: var(--hh-primary); }
+.hh-health__grid { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.8rem; margin: 0 0 0.7rem; }
+.hh-health__grid dt { color: var(--st-muted, var(--hh-text-muted)); }
+.hh-health__grid dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.hh-health__grid dd.is-bad { color: var(--st-amber, #f1c40f); }
+.hh-health__auto { display: flex; gap: 0.55rem; align-items: flex-start; cursor: pointer; font-weight: 700; }
+.hh-health__auto input { margin-top: 0.15rem; accent-color: var(--hh-primary); }
+.hh-health__auto em { display: block; font-style: normal; font-weight: 400; font-size: 0.75rem; line-height: 1.4; color: var(--st-muted, var(--hh-text-muted)); margin-top: 0.15rem; }
