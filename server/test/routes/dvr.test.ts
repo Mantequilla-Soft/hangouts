@@ -221,12 +221,12 @@ describe('DVR start', () => {
 });
 
 describe('DVR segment janitor', () => {
-  it('every 30 s deletes only .ts segments older than the 10 min buffer (DVR_BUFFER_SEC, the rewind window)', async () => {
+  it('every 30 s deletes only .ts segments older than the 150 s buffer (DVR_BUFFER_SEC default)', async () => {
     await post('start');
     const now = Date.now();
     disk[SEG_DIR] = {
-      'seg_old.ts': now - 700_000,
-      'seg_rewindable.ts': now - 500_000,
+      'seg_old.ts': now - 200_000,
+      'seg_kept.ts': now - 100_000,
       'seg_new.ts': now - 1_000,
       'index.m3u8': now - 999_999,
     };

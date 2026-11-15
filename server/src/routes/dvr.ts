@@ -39,7 +39,7 @@ const DVR_DIR = '/tmp/livekit-recordings/dvr';
 const CLIP_DIR = '/tmp/livekit-dvr-clips';
 const SEGMENT_SEC = 2;                 // HLS segment length
 // How much is kept on disk: the rewind window (H14) and the range a highlight
-// clip can come from (H13). DVR_BUFFER_SEC, 10 minutes by default.
+// clip can come from (H13). DVR_BUFFER_SEC, 150 s by default.
 const BUFFER_SEC = config.DVR_BUFFER_SEC;
 const CLIP_SEC = 30;                   // clip window
 // Clips are kept so they can be posted as Shorts after the stream (H13).

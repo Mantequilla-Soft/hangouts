@@ -75,10 +75,14 @@ const envSchema = z.object({
   STREAM_LIMIT_EXEMPT: z.string().default('')
     .transform((v) => new Set(v.split(',').map((s) => s.trim().replace(/^@/, '').toLowerCase()).filter(Boolean))),
   // --- Highlights, clips, rewind, podcast recording (H13, H14, H23) ----------
-  // How far back the DVR keeps segments: the rewind window viewers can seek in
-  // and the range a highlight clip can come from. About 225 MB per stream at
-  // the DVR's 3 Mbps for the default 10 minutes, pruned every 30 s.
-  DVR_BUFFER_SEC: z.coerce.number().int().min(60).max(3600).default(600),
+  // How far back the DVR keeps segments: the range a highlight clip can come
+  // from and, with REWIND_ENABLED, the rewind window viewers can seek in. About
+  // 56 MB per stream at the DVR's 3 Mbps for the default 150 s (600 s, the
+  // rewind window we built for, is about 225 MB), pruned every 30 s.
+  DVR_BUFFER_SEC: z.coerce.number().int().min(60).max(3600).default(150),
+  // Rewind during a live stream (H14): off until the owner turns it on (then
+  // set DVR_BUFFER_SEC=600 too for a 10 minute window).
+  REWIND_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   // DVR clips (viewer, host and automatic highlight clips) are kept this long so
   // they can still be posted as Shorts after the stream, then swept.
   CLIP_KEEP_HOURS: z.coerce.number().positive().max(24 * 14).default(48),
