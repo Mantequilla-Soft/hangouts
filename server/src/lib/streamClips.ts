@@ -29,6 +29,11 @@ export interface StreamClip {
   durationSec: number;
   /** Why an automatic clip was made (the highlight's reasons). */
   reasons?: string[];
+  /** The host's 9:16 phone crop at clip time (room metadata `vertical`, H19):
+   *  centre x and width as fractions of the landscape frame. */
+  crop?: { x: number; w: number };
+  /** The vertical (cropped) copy, made on request (POST /clips/:id/vertical). */
+  verticalFile?: string;
   createdAt: Date;
   expiresAt: Date;
 }
@@ -45,6 +50,7 @@ export interface ClipStore {
   listForClipper(clipper: string): Promise<StreamClip[]>;
   get(id: string): Promise<StreamClip | null>;
   remove(id: string): Promise<void>;
+  setVerticalFile(id: string, file: string): Promise<void>;
 }
 
 const live = (c: StreamClip, now: number) => c.expiresAt.getTime() > now;
@@ -61,6 +67,7 @@ export function memoryClipStore(): ClipStore {
     async listForClipper(clipper) { return all().filter((c) => c.clipper === clipper).sort(newestFirst).slice(0, 50); },
     async get(id) { const c = rows.get(id); return c && live(c, Date.now()) ? c : null; },
     async remove(id) { rows.delete(id); },
+    async setVerticalFile(id, file) { const c = rows.get(id); if (c) rows.set(id, { ...c, verticalFile: file }); },
   };
 }
 
@@ -78,6 +85,7 @@ function mongoClipStore(c: Collection<StreamClip>): ClipStore {
     },
     async get(id) { return c.findOne({ id, expiresAt: now() }, { projection: { _id: 0 } }); },
     async remove(id) { await c.deleteOne({ id }); },
+    async setVerticalFile(id, file) { await c.updateOne({ id }, { $set: { verticalFile: file } }); },
   };
 }
 
@@ -120,6 +128,7 @@ export type ClipRefusal = 'room_full' | 'clipper_full';
 export async function registerClip(input: {
   room: string; host: string | null; clipper: string | null; source: ClipSource;
   file: string; offsetSec: number | null; durationSec: number; reasons?: string[];
+  crop?: { x: number; w: number } | null;
 }): Promise<{ clip: StreamClip } | { refused: ClipRefusal }> {
   const store = await clipStore();
   if (await store.countForRoom(input.room) >= MAX_CLIPS_PER_ROOM) return { refused: 'room_full' };
@@ -137,6 +146,7 @@ export async function registerClip(input: {
     offsetSec: input.offsetSec,
     durationSec: input.durationSec,
     ...(input.reasons?.length ? { reasons: input.reasons } : {}),
+    ...(input.crop ? { crop: input.crop } : {}),
     createdAt: now,
     expiresAt: new Date(now.getTime() + config.CLIP_KEEP_HOURS * 3_600_000),
   };
@@ -156,7 +166,23 @@ export function clipView(c: StreamClip) {
     offsetSec: c.offsetSec,
     durationSec: c.durationSec,
     reasons: c.reasons ?? [],
+    // A Shorts-ready 9:16 version: possible when the host had the phone crop
+    // on; `path` once it has been made.
+    vertical: { available: !!c.crop, path: c.verticalFile ? `/dvr/clips/${c.verticalFile}` : null },
     createdAt: c.createdAt.toISOString(),
     expiresAt: c.expiresAt.toISOString(),
   };
+}
+
+/**
+ * The phone crop from room metadata (`vertical: { on, x, w }`, H19) when it is
+ * on and sane, else null. Fractions of the landscape frame width.
+ */
+export function cropFromMeta(meta: Record<string, unknown> | null | undefined): { x: number; w: number } | null {
+  const v = meta?.vertical as { on?: unknown; x?: unknown; w?: unknown } | undefined;
+  if (!v || v.on !== true) return null;
+  const x = Number(v.x);
+  const w = Number(v.w);
+  if (!(w >= 0.05 && w <= 1) || !(x - w / 2 >= -0.001 && x + w / 2 <= 1.001)) return null;
+  return { x, w };
 }

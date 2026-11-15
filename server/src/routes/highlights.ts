@@ -1,25 +1,29 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { unlink } from 'node:fs/promises';
+import { unlink, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { requireAuth } from '../middleware/requireAuth.js';
 import {
-  noteChat, getHighlights, onHighlight, setRoomResolver, startHighlightSweep,
+  getHighlights, onHighlight, setRoomResolver, startHighlightSweep,
   type HighlightMoment, type RoomInfo,
 } from '../lib/streamHighlights.js';
-import { clipStore, clipView, registerClip } from '../lib/streamClips.js';
-import { readRoomFacts, optionalUser } from '../lib/roomInfo.js';
+import { clipStore, clipView, registerClip, cropFromMeta } from '../lib/streamClips.js';
+import { readRoomFacts } from '../lib/roomInfo.js';
 import { cutDvrClip, dvrDirOf } from './dvr.js';
 
 /**
  * Highlight clips that become Shorts (H13).
  *
- *   POST   /rooms/:name/highlights/chat   one chat line happened (sender's client)
  *   GET    /rooms/:name/highlights        the host: moments + every kept clip;
  *                                         anyone else signed in: their own clips
  *   GET    /clips/mine                    the signed-in user's recent clips
  *   DELETE /clips/:id                     the host or the clipper drops a clip
+ *   POST   /clips/:id/vertical            a 9:16 copy cut with the host's phone
+ *                                         crop (H19), for posting as a Short
  *
- * And, while a Pro host's DVR runs, every highlight moment cuts its own clip
+ * Chat lines are counted by the chat backlog route (POST /rooms/:name/chat,
+ * routes/chat.ts), so a line costs one request. And, while a Pro host's DVR runs, every highlight moment cuts its own clip
  * from the DVR buffer (source 'auto'), so the host finds the best moments ready
  * to post after the stream.
  */
@@ -35,15 +39,40 @@ export async function autoClipMoment(room: string, moment: HighlightMoment, info
   if (!dvrDirOf(room)) return false;
   const cut = await cutDvrClip(room);
   if (cut.error) return false;
+  const facts = await readRoomFacts(room);
   const kept = await registerClip({
     room, host: info.host, clipper: null, source: 'auto', file: cut.file,
     offsetSec: moment.offsetSec, durationSec: cut.durationSec, reasons: moment.reasons,
+    crop: cropFromMeta(facts?.meta),
   }).catch(() => null);
   if (!kept || !('clip' in kept)) {
     await unlink(join(CLIP_DIR, cut.file)).catch(() => { /* already gone */ });
     return false;
   }
   return true;
+}
+
+/** Pure: the ffmpeg arguments for the 9:16 copy (crop x*W - w*W/2 .. x*W + w*W/2,
+ *  full height, even sizes for H.264). The only re-encode in the clip code. */
+export function verticalArgs(input: string, output: string, crop: { x: number; w: number }): string[] {
+  const w = `trunc(iw*${crop.w}/2)*2`;
+  const x = `max(0\\,min(iw-${w}\\,trunc(iw*${Math.round((crop.x - crop.w / 2) * 10000) / 10000}/2)*2))`;
+  return ['-y', '-hide_banner', '-loglevel', 'error', '-i', input,
+    '-vf', `crop=${w}:ih:${x}:0`,
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'copy', '-movflags', '+faststart', output];
+}
+
+// One vertical encode at a time on the box; the rest wait their turn.
+let encodeQueue: Promise<unknown> = Promise.resolve();
+function runNiced(args: string[]): Promise<void> {
+  const run = () => new Promise<void>((resolve, reject) => {
+    const p = spawn('nice', ['-n', '15', 'ffmpeg', ...args], { stdio: 'ignore' });
+    p.on('error', reject);
+    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`))));
+  });
+  const next = encodeQueue.catch(() => undefined).then(run);
+  encodeQueue = next;
+  return next;
 }
 
 let wired = false;
@@ -59,22 +88,10 @@ function wireOnce() {
 }
 
 /** Tests only. */
-export function resetHighlightRoutes(): void { wired = false; }
+export function resetHighlightRoutes(): void { wired = false; encodeQueue = Promise.resolve(); }
 
 export const highlightRoutes: FastifyPluginAsync = async (fastify) => {
   wireOnce();
-
-  // Fire-and-forget from the chat composer. No body; a signed-in sender is
-  // counted by name, a guest by IP. Rate limited well above human chat speed.
-  fastify.post('/rooms/:name/highlights/chat', {
-    config: { rateLimit: { max: 40, timeWindow: '1 minute' } },
-    schema: nameParams,
-  }, async (request, reply) => {
-    const { name } = request.params as { name: string };
-    const user = await optionalUser(request);
-    noteChat(name, user ? `u:${user}` : `ip:${request.ip}`);
-    return reply.code(204).send();
-  });
 
   fastify.get('/rooms/:name/highlights', {
     preHandler: [requireAuth],
@@ -107,6 +124,34 @@ export const highlightRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ clips: (await store.listForClipper(request.username)).map(clipView) });
   });
 
+  fastify.post('/clips/:id/vertical', {
+    preHandler: [requireAuth],
+    config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
+    schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', pattern: '^[0-9a-f]{18}$' } } } },
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const store = await clipStore();
+    const clip = await store.get(id);
+    if (!clip) return reply.notFound('Clip not found');
+    if (request.username !== clip.host && request.username !== clip.clipper) {
+      return reply.forbidden('Only the host or the person who made the clip can do that');
+    }
+    if (clip.verticalFile && await stat(join(CLIP_DIR, clip.verticalFile)).catch(() => null)) {
+      return reply.send({ clip: clipView(clip) });
+    }
+    if (!clip.crop) return reply.badRequest('This stream had no phone crop');
+    const out = `${clip.file.replace(/\.mp4$/, '')}-v-${randomBytes(3).toString('hex')}.mp4`;
+    try {
+      await runNiced(verticalArgs(join(CLIP_DIR, clip.file), join(CLIP_DIR, out), clip.crop));
+    } catch (err) {
+      request.log.error({ err }, '[clips] vertical failed');
+      await unlink(join(CLIP_DIR, out)).catch(() => { /* never written */ });
+      return reply.code(500).send({ message: 'Could not make the vertical clip.' });
+    }
+    await store.setVerticalFile(id, out);
+    return reply.send({ clip: clipView({ ...clip, verticalFile: out }) });
+  });
+
   fastify.delete('/clips/:id', {
     preHandler: [requireAuth],
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
@@ -121,6 +166,7 @@ export const highlightRoutes: FastifyPluginAsync = async (fastify) => {
     }
     await store.remove(id);
     await unlink(join(CLIP_DIR, clip.file)).catch(() => { /* already swept */ });
+    if (clip.verticalFile) await unlink(join(CLIP_DIR, clip.verticalFile)).catch(() => { /* already swept */ });
     return reply.send({ deleted: true });
   });
 };

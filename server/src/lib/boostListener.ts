@@ -27,6 +27,7 @@ import { sendBoostPayout, sendBoostRefund } from './boostPayout.js';
 import { recordBoost } from './streamStats.js';
 import { recordBoostTally } from './boostGoals.js';
 import { noteBoost } from './streamHighlights.js';
+import { recordBattleBoost } from './battles.js';
 
 interface BoostTransferInput {
   /** The account that sent the transfer: where a refund goes. Taken from the
@@ -288,6 +289,17 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
     if (reachedNow) log(`[Boost] ${memo.room} reached its boost goal`);
   } catch (err) {
     log(`[Boost] could not update the boost tally for ${memo.room}`, err);
+  }
+
+  // Live battle meter (lib/battles.ts): only when this room is in one, so a
+  // stream without a battle costs nothing extra. Counted by block time.
+  if (meta.battle) {
+    try {
+      const at = Number.isFinite(input.timestamp) && input.timestamp > 0 ? input.timestamp : Date.now();
+      await recordBattleBoost(memo.room, { hbd: usdAmount, atMs: at }, lk);
+    } catch (err) {
+      log(`[Boost] could not count the boost for the battle in ${memo.room}`, err);
+    }
   }
 
   try {

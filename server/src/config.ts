@@ -88,6 +88,40 @@ const envSchema = z.object({
   HIGHLIGHTS_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   // "Record as podcast" in audio rooms: one audio track egress per speaker.
   PODCAST_RECORDING_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // --- HLS for large audiences (backlog idea H1) ------------------------------
+  // How many viewers of ONE stream watch over WebRTC before the rest get the
+  // stream over HLS. Unset/empty = HLS off: every viewer is on WebRTC and the
+  // guest cap (MAX_GUESTS_PER_ROOM) refuses extra anonymous viewers, as before.
+  // 50 = the first 50 viewers on WebRTC, viewer 51 on gets HLS. 0 = every viewer
+  // on HLS. HLS viewers stay connected to the room for chat, boosts and the
+  // viewer count, but receive no media from LiveKit (canSubscribe=false), so
+  // they cost the SFU almost nothing. The HLS egress for a stream starts when
+  // its first HLS viewer arrives and stops when the stream ends or nobody has
+  // watched over HLS for a few minutes.
+  HLS_VIEWER_THRESHOLD: z.string().default('')
+    .transform((v) => (v.trim() === '' ? null : Number(v.trim())))
+    .pipe(z.number().int().min(0).nullable()),
+  // Where players fetch the playlist and segments. Empty = this API's own
+  // /rooms/:name/hls/* routes (relative URL, the client prefixes its API base).
+  // Set it to a CDN pull zone whose origin is this API, e.g.
+  // https://live-hls.b-cdn.net, so segments are served by the CDN.
+  HLS_PUBLIC_BASE: z.string().default('').refine((v) => v === '' || /^https?:\/\//.test(v), 'must be an http(s) URL or empty'),
+  // A WebRTC viewer whose connection stays poor may ask for HLS even below the
+  // threshold. Only matters while HLS_VIEWER_THRESHOLD is set.
+  HLS_WEAK_FALLBACK: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // Video bitrate of the HLS rendition in kbps (one rendition, 720p or the
+  // stream's own size).
+  HLS_VIDEO_BITRATE: z.coerce.number().int().min(300).max(8000).default(2000),
+  // Live captions (H11): the host's browser streams its own mic to the speech
+  // server and sends the text over the data channel; this server only hands out
+  // caption slots, at most CAPTIONS_MAX_STREAMS at once, so the speech box never
+  // carries more continuous recognitions from streams than that. A slot lapses
+  // CAPTIONS_SLOT_TTL_SEC after the studio's last renewal (it renews every 30 s).
+  // Off by default: the speech box (speech.okinoko.io) is the same machine as
+  // live.3speak.tv and the Mongo primary; the owner turns it on with CAPTIONS_ENABLED=true.
+  CAPTIONS_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  CAPTIONS_MAX_STREAMS: z.coerce.number().int().min(0).max(100).default(3),
+  CAPTIONS_SLOT_TTL_SEC: z.coerce.number().int().min(30).max(3600).default(90),
   PORT: z.coerce.number().default(3002),
 });
 

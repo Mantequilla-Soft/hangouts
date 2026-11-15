@@ -2,35 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
-  sendChatTick, hangoutsJson, HangoutsHttpError, podcastApi, waitForEpisode, clock, chapterTitle, type PodcastEpisode,
+  hangoutsJson, HangoutsHttpError, podcastApi, waitForEpisode, clock, chapterTitle, type PodcastEpisode,
 } from '../src/lib/hangoutsHttp.js';
 import { HangoutsContext, type HangoutsContextValue } from '../src/context/HangoutsContext.js';
 import { PodcastRecordControls } from '../src/components/room/PodcastRecordControls.js';
 
 const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
-
-describe('sendChatTick', () => {
-  it('posts a keepalive count to the room with the session, fire and forget', () => {
-    const f = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
-    sendChatTick('https://live.example/', 'badadib-r 1', 'tok', f);
-    expect(f).toHaveBeenCalledWith('https://live.example/rooms/badadib-r%201/highlights/chat', {
-      method: 'POST', keepalive: true, headers: { Authorization: 'Bearer tok' },
-    });
-    sendChatTick('https://live.example', 'r', null, f);
-    expect(f.mock.calls[1][1].headers).toEqual({});
-  });
-
-  it('does nothing without a base, a room or fetch, and swallows every failure', async () => {
-    const f = vi.fn();
-    sendChatTick(undefined, 'r', 't', f);
-    sendChatTick('https://x', undefined, 't', f);
-    sendChatTick('https://x', 'r', 't', undefined);
-    expect(f).not.toHaveBeenCalled();
-    expect(() => sendChatTick('https://x', 'r', 't', () => { throw new Error('sync'); })).not.toThrow();
-    sendChatTick('https://x', 'r', 't', () => Promise.reject(new Error('async')));
-    await Promise.resolve();
-  });
-});
 
 describe('hangoutsJson and podcastApi', () => {
   it('sends the bearer and a JSON body, and returns the JSON', async () => {

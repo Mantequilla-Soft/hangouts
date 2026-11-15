@@ -151,6 +151,17 @@ describe('DVR start', () => {
     expect(await dvrStatus()).toEqual({ recording: true });
   });
 
+  it('records the landscape program, not the vertical phone track (H19), whatever order they come in', async () => {
+    const vertical = { sid: 'TR_vert', name: 'studio-vertical', type: TrackType.VIDEO, source: TrackSource.UNKNOWN, width: 406, height: 720 };
+    const vertAsCam = { ...vertical, sid: 'TR_vert2', source: TrackSource.CAMERA };
+    const program = camera({ sid: 'TR_prog', name: 'studio-program', width: 1280, height: 720 });
+    vi.mocked(lk.listParticipants).mockResolvedValue(hostWithTracks([vertical, vertAsCam, program, mic('TR_mix', 'studio-mix')]) as never);
+    await post('start');
+    const opts = egress.startTrackCompositeEgress.mock.calls[0][2];
+    expect(opts.videoTrackId).toBe('TR_prog');
+    expect(opts.encodingOptions).toMatchObject({ width: 1280, height: 720 });
+  });
+
   it('falls back to the first microphone when none is named studio-mix', async () => {
     vi.mocked(lk.listParticipants).mockResolvedValue(hostWithTracks([camera(), mic('TR_a', 'mic'), mic('TR_b', 'mic2')]) as never);
     await post('start');
@@ -274,13 +285,15 @@ describe('DVR clip', () => {
   });
 
   it('keeps the clip for posting: a signed-in viewer is credited as the clipper, with the offset since go-live', async () => {
-    vi.mocked(lk.listRooms).mockResolvedValue([{ name: ROOM, metadata: JSON.stringify({ host: 'alice', mode: 'standalone', liveAt: new Date(Date.now() - 125_000).toISOString() }) }] as never);
+    vi.mocked(lk.listRooms).mockResolvedValue([{ name: ROOM, metadata: JSON.stringify({ host: 'alice', mode: 'standalone', liveAt: new Date(Date.now() - 125_000).toISOString(), vertical: { on: true, x: 0.6, w: 0.316 } }) }] as never);
     await post('start');
     disk[SEG_DIR] = { 's1.ts': Date.now() - 1000, 's2.ts': Date.now() };
     const res = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip`, headers: { authorization: `Bearer ${await makeToken('fan')}` } });
     expect(res.statusCode).toBe(200);
     const { path, clip } = res.json();
     expect(clip).toMatchObject({ room: ROOM, host: 'alice', clipper: 'fan', source: 'viewer', path, durationSec: 4 });
+    // The host's phone crop is on: a vertical copy can be made (POST /clips/:id/vertical).
+    expect(clip.vertical).toEqual({ available: true, path: null });
     expect(clip.offsetSec).toBeGreaterThanOrEqual(124);
     expect(clip.offsetSec).toBeLessThanOrEqual(126);
   });
@@ -289,7 +302,7 @@ describe('DVR clip', () => {
     await post('start');
     disk[SEG_DIR] = { 's.ts': Date.now() };
     const mine = (await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip`, headers: auth })).json();
-    expect(mine.clip).toMatchObject({ clipper: 'alice', source: 'host', offsetSec: null });
+    expect(mine.clip).toMatchObject({ clipper: 'alice', source: 'host', offsetSec: null, vertical: { available: false, path: null } });
     const guest = (await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip`, headers: { authorization: 'Bearer nonsense' } })).json();
     expect(guest.clip).toMatchObject({ clipper: null, source: 'viewer' });
   });

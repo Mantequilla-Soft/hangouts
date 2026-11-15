@@ -9,6 +9,7 @@ import { participantRoutes } from './routes/participants.js';
 import { recordingRoutes } from './routes/recording.js';
 import { streamingRoutes } from './routes/streaming.js';
 import { dvrRoutes } from './routes/dvr.js';
+import { hlsRoutes } from './routes/hls.js';
 import { boostRoutes } from './routes/boosts.js';
 import { eventRoutes } from './routes/events.js';
 import { gameRoutes } from './routes/games.js';
@@ -18,6 +19,12 @@ import { whipRoutes } from './routes/whip.js';
 import { highlightRoutes } from './routes/highlights.js';
 import { dvrRewindRoutes } from './routes/dvrRewind.js';
 import { podcastRoutes } from './routes/podcast.js';
+import { chatRoutes } from './routes/chat.js';
+import { pollRoutes } from './routes/polls.js';
+import { raidRoutes } from './routes/raids.js';
+import { battleRoutes } from './routes/battles.js';
+import { captionRoutes } from './routes/captions.js';
+import { studioToolRoutes } from './routes/studioTools.js';
 import { seedWordCollections } from './lib/seed-word-collections.js';
 import './games/index.js';
 
@@ -42,6 +49,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await server.register(recordingRoutes);
   await server.register(streamingRoutes);
   await server.register(dvrRoutes);
+  await server.register(hlsRoutes);
   await server.register(boostRoutes);
   await server.register(eventRoutes);
   await server.register(gameRoutes);
@@ -52,6 +60,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   await server.register(highlightRoutes);
   await server.register(dvrRewindRoutes);
   await server.register(podcastRoutes);
+  // Live interaction: chat backlog, polls and predictions, raids.
+  await server.register(chatRoutes);
+  await server.register(pollRoutes);
+  await server.register(raidRoutes);
+  await server.register(battleRoutes);
+  await server.register(captionRoutes);
+  await server.register(studioToolRoutes);
 
   return server;
 }

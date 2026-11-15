@@ -1,25 +1,13 @@
 /**
  * Small fetch helpers for the highlight, clip, rewind and podcast endpoints
- * (H13, H14, H23). Kept out of the core api client so the client stays as it
+ * (H13, H23; chat lines reach the highlight counters through the chat backlog
+ * route useChat already posts to). Kept out of the core api client so the client stays as it
  * is; they take the same base URL and session token the provider holds.
  */
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 const trim = (base: string) => base.replace(/\/+$/, '');
 const room = (name: string) => encodeURIComponent(name);
-
-/** One chat line happened in `roomName`: a fire-and-forget count for the
- *  stream's highlight moments. Never throws, never blocks the chat. */
-export function sendChatTick(apiBaseUrl: string | undefined, roomName: string | undefined, token: string | null | undefined, fetchFn: FetchLike | undefined = globalThis.fetch?.bind(globalThis)): void {
-  if (!apiBaseUrl || !roomName || !fetchFn) return;
-  try {
-    void fetchFn(`${trim(apiBaseUrl)}/rooms/${room(roomName)}/highlights/chat`, {
-      method: 'POST',
-      keepalive: true,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    }).catch(() => { /* counting is best effort */ });
-  } catch { /* never let counting break chat */ }
-}
 
 export class HangoutsHttpError extends Error {
   constructor(public status: number, message: string) { super(message); }

@@ -5,7 +5,14 @@ import rateLimit from '@fastify/rate-limit';
 import { makeToken } from '../setup.js';
 
 const dvr = vi.hoisted(() => ({ dvrDirOf: vi.fn(), cutDvrClip: vi.fn() }));
-const fsp = vi.hoisted(() => ({ unlink: vi.fn() }));
+const fsp = vi.hoisted(() => ({ unlink: vi.fn(), stat: vi.fn() }));
+const cp = vi.hoisted(() => ({ spawn: vi.fn() }));
+vi.mock('node:child_process', async (orig) => ({ ...(await orig<object>()), ...cp }));
+function proc(code: number) {
+  const listeners: Record<string, (v: number) => void> = {};
+  queueMicrotask(() => listeners.close?.(code));
+  return { on: (ev: string, fn: (v: number) => void) => { listeners[ev] = fn; } };
+}
 vi.mock('../../src/routes/dvr.js', () => dvr);
 vi.mock('node:fs/promises', async (orig) => ({ ...(await orig<object>()), ...fsp }));
 vi.mock('../../src/lib/livekit.js', () => ({ roomService: { listRooms: vi.fn(), listParticipants: vi.fn() } }));
@@ -33,36 +40,14 @@ beforeEach(async () => {
   dvr.dvrDirOf.mockReturnValue(null);
   dvr.cutDvrClip.mockResolvedValue({ error: null, file: 'auto.mp4', durationSec: 34 });
   fsp.unlink.mockResolvedValue(undefined);
+  fsp.stat.mockRejectedValue(new Error('ENOENT'));
+  cp.spawn.mockReset().mockImplementation(() => proc(0));
   app = Fastify();
   await app.register(sensible);
   await app.register(rateLimit, { global: false });
   await app.register(routes.highlightRoutes);
 });
 afterEach(async () => { await app.close(); hl.resetHighlights(); });
-
-const chat = (headers: Record<string, string> = {}, ip = '10.0.0.1', room = ROOM) =>
-  app.inject({ method: 'POST', url: `/rooms/${room}/highlights/chat`, headers, remoteAddress: ip });
-
-describe('POST /rooms/:name/highlights/chat', () => {
-  it('counts a line (204), signed-in senders by name and guests by IP', async () => {
-    const spy = vi.spyOn(hl, 'noteChat');
-    expect((await chat(await bearer('fan'))).statusCode).toBe(204);
-    expect((await chat({}, '10.0.0.7')).statusCode).toBe(204);
-    // A real burst ends up as a moment.
-    for (let i = 0; i < 6; i++) await chat(await bearer(`fan${i}`));
-    hl.sweepHighlights(Date.now() + 25_000);
-    const data = await hl.getHighlights(ROOM);
-    expect(data!.moments.length).toBe(1);
-    expect(data!.moments[0].chatters).toBeGreaterThanOrEqual(6);
-    spy.mockRestore();
-  });
-
-  it('refuses a bad room name and is rate limited per IP', async () => {
-    expect((await chat({}, '10.0.0.2', 'bad%20name')).statusCode).toBe(400);
-    for (let i = 0; i < 40; i++) expect((await chat({}, '10.0.0.3')).statusCode).toBe(204);
-    expect((await chat({}, '10.0.0.3')).statusCode).toBe(429);
-  });
-});
 
 describe('GET /rooms/:name/highlights', () => {
   const get = async (u?: string) => app.inject({ method: 'GET', url: `/rooms/${ROOM}/highlights`, headers: u ? await bearer(u) : {} });
@@ -130,9 +115,51 @@ describe('automatic clips from highlights', () => {
 
   it('is wired to the highlight counter when the routes register', async () => {
     dvr.dvrDirOf.mockReturnValue('/d');
-    for (let i = 0; i < 6; i++) await chat(await bearer(`w${i}`));
-    hl.sweepHighlights(Date.now() + 25_000);
+    vi.mocked(lk.listRooms).mockResolvedValue([{ name: ROOM, metadata: JSON.stringify({ host: 'badadib', vertical: { on: true, x: 0.5, w: 0.316 } }) }] as never);
+    const t = Date.now();
+    for (let i = 0; i < 6; i++) hl.noteChat(ROOM, `w${i}`, t);
+    hl.sweepHighlights(t + 25_000);
     await vi.waitFor(() => expect(dvr.cutDvrClip).toHaveBeenCalledWith(ROOM));
+    await vi.waitFor(async () => expect((await (await clips.clipStore()).listForRoom(ROOM))[0]?.crop).toEqual({ x: 0.5, w: 0.316 }));
+  });
+});
+
+describe('POST /clips/:id/vertical', () => {
+  const vert = async (u: string, id: string) => app.inject({ method: 'POST', url: `/clips/${id}/vertical`, headers: await bearer(u) });
+  const keep = async (crop: { x: number; w: number } | null) => {
+    const r = await clips.registerClip({ room: ROOM, host: 'badadib', clipper: 'fan', source: 'viewer', file: 'v.mp4', offsetSec: 1, durationSec: 30, crop });
+    if (!('clip' in r)) throw new Error('refused');
+    return r.clip;
+  };
+
+  it('crops the kept clip with the phone crop (niced, one re-encode) and remembers the copy', async () => {
+    const c = await keep({ x: 0.5, w: 0.316 });
+    const res = await vert('fan', c.id);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().clip.vertical).toEqual({ available: true, path: expect.stringMatching(/^\/dvr\/clips\/v-v-[0-9a-f]{6}\.mp4$/) });
+    const [bin, args] = cp.spawn.mock.calls[0];
+    expect(bin).toBe('nice');
+    expect(args[args.indexOf('-vf') + 1]).toBe('crop=trunc(iw*0.316/2)*2:ih:max(0\\,min(iw-trunc(iw*0.316/2)*2\\,trunc(iw*0.342/2)*2)):0');
+    expect(args).toEqual(expect.arrayContaining(['-c:v', 'libx264', '-c:a', 'copy']));
+    // Asked again: the same copy, no second encode.
+    fsp.stat.mockResolvedValue({ size: 1 });
+    expect((await vert('badadib', c.id)).json().clip.vertical.path).toBe(res.json().clip.vertical.path);
+    expect(cp.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses strangers, unknown clips, and clips without a crop; a failed encode is a 500', async () => {
+    const plain = await keep(null);
+    expect((await vert('stranger', plain.id)).statusCode).toBe(403);
+    expect((await vert('fan', 'abcdefabcdefabcdef')).statusCode).toBe(404);
+    expect((await vert('fan', plain.id)).statusCode).toBe(400);
+    const c = await keep({ x: 0.3, w: 0.2 });
+    cp.spawn.mockImplementationOnce(() => proc(1));
+    expect((await vert('fan', c.id)).statusCode).toBe(500);
+    expect(fsp.unlink).toHaveBeenCalledWith(expect.stringMatching(/^\/tmp\/livekit-dvr-clips\/v-v-/));
+  });
+
+  it('verticalArgs keeps the crop inside the frame', () => {
+    expect(routes.verticalArgs('/a.mp4', '/b.mp4', { x: 0.9, w: 0.2 })).toContain('crop=trunc(iw*0.2/2)*2:ih:max(0\\,min(iw-trunc(iw*0.2/2)*2\\,trunc(iw*0.8/2)*2)):0');
   });
 });
 
@@ -151,7 +178,9 @@ describe('clips of a user, and deleting', () => {
     expect((await del('stranger')).statusCode).toBe(403);
     expect((await del('fan', 'abcdefabcdefabcdef')).statusCode).toBe(404);
     expect((await del('fan', 'nothex')).statusCode).toBe(400);
+    await (await clips.clipStore()).setVerticalFile(r.clip.id, 'v-v.mp4');
     expect((await del('badadib')).json()).toEqual({ deleted: true });
+    expect(fsp.unlink).toHaveBeenCalledWith('/tmp/livekit-dvr-clips/v-v.mp4');
     expect(fsp.unlink).toHaveBeenCalledWith('/tmp/livekit-dvr-clips/v.mp4');
     expect((await del('fan')).statusCode).toBe(404);
   });

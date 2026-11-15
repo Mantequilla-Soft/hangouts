@@ -1,6 +1,6 @@
 {
   "name": "@snapie/hangouts-react",
-  "version": "0.26.24",
+  "version": "0.26.27",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -25,7 +25,9 @@
   "dependencies": {
     "@snapie/hangouts-core": "^0.16.0",
     "chess.js": "^1.4.0",
+    "hls.js": "^1.6.18",
     "perfect-freehand": "^1.2.3",
+    "qrcode.react": "^4.2.0",
     "react-chessboard": "^5.10.0"
   },
   "peerDependencies": {

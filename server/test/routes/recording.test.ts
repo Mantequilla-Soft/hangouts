@@ -234,6 +234,24 @@ describe('record start: standalone streams', () => {
     expect(rec.isRecording(ROOM)).toBe(true);
   });
 
+  it('records the landscape program, never the vertical phone track (H19)', async () => {
+    const vertical = { sid: 'TR_vert', name: 'studio-vertical', type: TrackType.VIDEO, source: TrackSource.CAMERA, width: 406, height: 720 };
+    const program = { ...camera, sid: 'TR_prog', name: 'studio-program', width: 1280, height: 720 };
+    vi.mocked(lk.listParticipants).mockResolvedValue([{ identity: 'alice', tracks: [vertical, studioMix, program] }] as never);
+    await startRec({ mode: 'video' });
+    const opts = egress.startTrackCompositeEgress.mock.calls[0][2];
+    expect(opts).toMatchObject({ videoTrackId: 'TR_prog', audioTrackId: 'TR_mix' });
+    expect(opts.encodingOptions).toMatchObject({ width: 1280, height: 720 });
+  });
+
+  it('falls back to the template when the only video is the vertical phone track', async () => {
+    const vertical = { sid: 'TR_vert', name: 'studio-vertical', type: TrackType.VIDEO, source: TrackSource.UNKNOWN, width: 406, height: 720 };
+    vi.mocked(lk.listParticipants).mockResolvedValue([{ identity: 'alice', tracks: [vertical, studioMix] }] as never);
+    await startRec({ mode: 'video' });
+    expect(egress.startTrackCompositeEgress).not.toHaveBeenCalled();
+    expect(egress.startRoomCompositeEgress).toHaveBeenCalledTimes(1);
+  });
+
   it('uses the first microphone when none is named studio-mix, and orientation dims when the track has none', async () => {
     setRoom({ ...STANDALONE, portrait: true });
     vi.mocked(lk.listParticipants).mockResolvedValue([{ identity: 'alice', tracks: [{ ...camera, width: 0, height: 0 }, monitor] }] as never);

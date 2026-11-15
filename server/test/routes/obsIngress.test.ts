@@ -79,3 +79,30 @@ describe('POST /rooms/:name/ingress (OBS in the studio) is Pro-only', () => {
     expect(ingress.createIngress).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('POST /rooms/:name/ingress for the phone/tablet screen source is free', () => {
+  const postPhone = (headers = { authorization: `Bearer ${hostToken}` }) => app.inject({
+    method: 'POST', url: `/rooms/${ROOM}/ingress`, headers, payload: { source: 'phone', transcode: true },
+  });
+
+  it('sets up the same VP8 ingress for a free host', async () => {
+    const res = await postPhone();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ingressId: 'IN_1', streamKey: 'key123', participantIdentity: `obs-ingress-${ROOM}` });
+    expect(res.json().whipUrl).toMatch(/\/key123$/);
+    expect(ingress.createIngress.mock.calls[0][1]).toMatchObject({ roomName: ROOM, enableTranscoding: true });
+  });
+
+  it('still only lets the host set it up', async () => {
+    const res = await postPhone({ authorization: `Bearer ${await makeToken('mallory')}` });
+    expect(res.statusCode).toBe(403);
+    expect(ingress.createIngress).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown source', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/rooms/${ROOM}/ingress`, headers: { authorization: `Bearer ${hostToken}` }, payload: { source: 'rtmp' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});

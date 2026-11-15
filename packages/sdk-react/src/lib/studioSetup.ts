@@ -68,7 +68,9 @@ export function writeStudioSetup(user: string | null | undefined, setup: StudioS
 
 // ---- files (IndexedDB) ------------------------------------------------------
 
-export interface StoredFile { key: string; user: string; id: string; kind: 'media' | 'sound'; name: string; type: string; blob: Blob; }
+/** 'overlay': files the overlay tools keep (the "be right back" music), which
+ *  the setup restore must leave alone. */
+export interface StoredFile { key: string; user: string; id: string; kind: 'media' | 'sound' | 'overlay'; name: string; type: string; blob: Blob; }
 
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 function openDb(): Promise<IDBDatabase | null> {

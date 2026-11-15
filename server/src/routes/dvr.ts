@@ -7,11 +7,12 @@ import { readdir, stat, unlink, mkdir, chmod, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { roomService } from '../lib/livekit.js';
+import { pickProgramVideoTrack } from '../lib/programTrack.js';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { isUserPremium } from '../lib/users.js';
-import { registerClip, clipView } from '../lib/streamClips.js';
+import { registerClip, clipView, cropFromMeta } from '../lib/streamClips.js';
 import { readRoomFacts, optionalUser } from '../lib/roomInfo.js';
 
 /**
@@ -142,7 +143,8 @@ export async function startDvrSession(
   try {
     const parts = await roomService.listParticipants(name);
     const host = parts.find((pt) => pt.identity === meta.host);
-    const videoInfo = host?.tracks.find((t) => t.type === TrackType.VIDEO && t.source === TrackSource.CAMERA);
+    // The landscape program, never the vertical phone crop (lib/programTrack).
+    const videoInfo = pickProgramVideoTrack(host?.tracks, { portrait });
     videoTrackId = videoInfo?.sid ?? '';
     vw = videoInfo?.width ?? 0;
     vh = videoInfo?.height ?? 0;
@@ -280,6 +282,7 @@ export const dvrRoutes: FastifyPluginAsync = async (fastify) => {
       file: cut.file,
       offsetSec: facts?.liveAt ? Math.max(0, Math.round((Date.now() - facts.liveAt) / 1000)) : null,
       durationSec: cut.durationSec,
+      crop: cropFromMeta(facts?.meta),
     }).catch(() => null);
     // Past the per-stream caps the MP4 still works for the hour-old download
     // flow; it just is not offered for posting.
