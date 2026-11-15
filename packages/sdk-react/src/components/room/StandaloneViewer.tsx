@@ -6,6 +6,7 @@ import type { BoostConfig } from '@snapie/hangouts-core';
 type ViewerQuality = 'auto' | 'high' | 'medium' | 'low' | 'audio';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { ChatPanel } from './ChatPanel.js';
+import { StreamBoostGoal } from './StreamBoostGoal.js';
 import { BoostOverlay } from './BoostOverlay.js';
 import { SendBoostDialog } from './SendBoostDialog.js';
 
@@ -106,6 +107,7 @@ export function StandaloneViewer({ roomName, title, hostIdentity, onLeave, isGue
           )}
         </div>
         <BoostOverlay />
+        <StreamBoostGoal variant="overlay" />
         {boostDialogOpen && (
           <SendBoostDialog roomName={roomName} boostConfig={boostConfig ?? { enabled: true, minBoostUsd: 0 }} onClose={() => setBoostDialogOpen(false)} />
         )}
@@ -144,6 +146,7 @@ export function StandaloneViewer({ roomName, title, hostIdentity, onLeave, isGue
             </div>
           )}
           <BoostOverlay />
+          <StreamBoostGoal variant="overlay" />
         </div>
 
         <aside className="hh-studio__chat">

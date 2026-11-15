@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
-import type { Room, RoomVisibility, RoomMode } from '@snapie/hangouts-core';
+import { HangoutsApiError, type Room, type RoomVisibility, type RoomMode } from '@snapie/hangouts-core';
 import { useHangoutsContext } from '../context/HangoutsContext.js';
+import { type Delivery, type DeliveryAnswer, type JoinOptions, EMPTY_DELIVERY, deliveryBody, deliveryState } from '../lib/hlsDelivery.js';
 
 interface RoomState {
   livekitToken: string | null;
@@ -11,7 +12,17 @@ interface RoomState {
   /** True when the local user joined as an unauthenticated guest
    *  listener — listen-only, no chat, no hand-raise. */
   isGuest: boolean;
+  /** How this viewer gets the picture. 'hls' = a big stream (or a poor
+   *  connection): the room connection carries chat and presence only, and the
+   *  picture plays from `hlsUrl`. */
+  delivery: Delivery;
+  /** Absolute playlist URL while `delivery` is 'hls'. */
+  hlsUrl: string | null;
+  /** The server lets this WebRTC viewer ask for HLS on a poor connection. */
+  hlsFallback: boolean;
 }
+
+export type { Delivery, JoinOptions } from '../lib/hlsDelivery.js';
 
 interface BoostConfigInput {
   enabled: boolean;
@@ -28,8 +39,26 @@ export function useHangoutsRoom() {
     isHost: false,
     isPremium: false,
     isGuest: false,
+    ...EMPTY_DELIVERY,
   });
   const [isLoading, setIsLoading] = useState(false);
+
+  /** POST /join or /listen with a JSON body. Plain fetch, not apiClient, so an
+   *  app bundling an older @snapie/hangouts-core still sends `delivery`. */
+  const post = useCallback(async (path: string, body: Record<string, unknown>, withAuth: boolean) => {
+    const token = withAuth ? apiClient.getSessionToken() : null;
+    const res = await fetch(`${apiBaseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      // Same error class apiClient throws, so callers handle both paths alike.
+      const err = await res.json().catch(() => undefined) as { message?: string } | undefined;
+      throw new HangoutsApiError(res.status, err?.message || res.statusText, err);
+    }
+    return res.json() as Promise<{ token: string; roomName: string; identity: string; isHost: boolean; isPremium?: boolean } & DeliveryAnswer>;
+  }, [apiClient, apiBaseUrl]);
 
   const create = useCallback(async (
     title: string,
@@ -73,6 +102,7 @@ export function useHangoutsRoom() {
         isHost: true,
         isPremium: response.isPremium ?? false,
         isGuest: false,
+        ...EMPTY_DELIVERY,
       });
       return response.room;
     } finally {
@@ -80,13 +110,15 @@ export function useHangoutsRoom() {
     }
   }, [apiClient, apiBaseUrl]);
 
-  const join = useCallback(async (roomName: string) => {
+  const join = useCallback(async (roomName: string, opts?: JoinOptions) => {
     setIsLoading(true);
     try {
       // getRoom (not listRooms + find) so unlisted rooms keep their
       // metadata too — mode, background, boost config all ride on it.
       const [result, meta] = await Promise.all([
-        apiClient.joinRoom(roomName),
+        (deliveryBody(opts)
+          ? post(`/rooms/${encodeURIComponent(roomName)}/join`, deliveryBody(opts)!, true)
+          : apiClient.joinRoom(roomName)) as Promise<Awaited<ReturnType<typeof apiClient.joinRoom>> & DeliveryAnswer>,
         apiClient.getRoom(roomName).catch(() => null),
       ]);
       setState({
@@ -96,12 +128,13 @@ export function useHangoutsRoom() {
         isHost: result.isHost,
         isPremium: result.isPremium ?? false,
         isGuest: false,
+        ...deliveryState(apiBaseUrl, result),
       });
       return result;
     } finally {
       setIsLoading(false);
     }
-  }, [apiClient]);
+  }, [apiClient, apiBaseUrl, post]);
 
   /**
    * Guest entry: anyone with the room URL can join to listen, raise hand,
@@ -109,11 +142,14 @@ export function useHangoutsRoom() {
    *
    * @param displayName - Name shown to other participants. 2–32 chars.
    */
-  const listen = useCallback(async (roomName: string, displayName?: string) => {
+  const listen = useCallback(async (roomName: string, displayName?: string, opts?: JoinOptions) => {
     setIsLoading(true);
     try {
       const [result, meta] = await Promise.all([
-        apiClient.listenAsGuest(roomName, displayName),
+        (deliveryBody(opts)
+          ? post(`/rooms/${encodeURIComponent(roomName)}/listen`,
+            { ...(displayName ? { displayName } : {}), ...deliveryBody(opts)! }, true)
+          : apiClient.listenAsGuest(roomName, displayName)) as Promise<Awaited<ReturnType<typeof apiClient.listenAsGuest>> & DeliveryAnswer>,
         apiClient.getRoom(roomName).catch(() => null),
       ]);
       setState({
@@ -129,12 +165,13 @@ export function useHangoutsRoom() {
         // anonymous, which hides everything gated on being a known account
         // (asking to join the stream, chatting as yourself).
         isGuest: !username || result.identity !== username,
+        ...deliveryState(apiBaseUrl, result),
       });
       return result;
     } finally {
       setIsLoading(false);
     }
-  }, [apiClient]);
+  }, [apiClient, apiBaseUrl, post, username]);
 
   const leave = useCallback(() => {
     setState({
@@ -144,6 +181,7 @@ export function useHangoutsRoom() {
       isHost: false,
       isPremium: false,
       isGuest: false,
+      ...EMPTY_DELIVERY,
     });
   }, []);
 

@@ -5392,6 +5392,15 @@
   color: #888;
   font-size: 1rem;
 }
+/* HLS: the <video> is mounted from the start, so "starting" sits over it. */
+.hh-stream-video__placeholder--over {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
 .hh-stream-badge {
   position: absolute;
   top: 10px;
@@ -5951,6 +5960,31 @@
   margin: 0.7rem 0.9rem 0;
   font-weight: 700;
   font-size: 0.8rem;
+}
+
+/* --- Phone or tablet screen source (same WHIP ingress as OBS) --- */
+.hh-studio__phone-modal { max-height: 92vh; overflow-y: auto; }
+.hh-studio__phone-steps {
+  margin: 0 0.9rem 0.7rem;
+  padding-left: 1.2rem;
+}
+.hh-studio__phone-steps li { margin: 0.3rem 0; }
+.hh-studio__phone-qr {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin: 0 0.9rem 0.7rem;
+  font-size: 0.78rem;
+  opacity: 0.85;
+}
+/* Always black on white, whatever the theme: scanners need the contrast. */
+.hh-studio__phone-qr svg {
+  flex: none;
+  background: #fff;
+  border-radius: 6px;
+}
+@media (max-width: 480px) {
+  .hh-studio__phone-qr { flex-direction: column; align-items: flex-start; }
 }
 
 /* The OBS ingest <video>. Must be a real, laid-out element in the document —
@@ -7717,3 +7751,223 @@
   font-size: 0.78rem;
 }
 .hh-studio__warn--rail .hh-studio__warn-icon { font-size: 1.4rem; }
+
+/* ── Boost goals, tiers, presets, top supporters (0.26.23) ───────────
+   Colours only from the theme tokens (an integrator's skin maps them);
+   neutral parts follow currentColor so they read in the dark default boost
+   panels and in a skinned light one alike. */
+
+/* Goal bar */
+.hh-boost-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.hh-boost-goal--overlay {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  max-width: 560px;
+  margin: 0 auto;
+  z-index: 4;
+  padding: 0.4rem 0.65rem 0.5rem;
+  border-radius: 10px;
+  background: rgba(13, 13, 18, 0.78);
+  color: #fff;
+  pointer-events: none;
+}
+.hh-boost-goal--inline {
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+.hh-boost-goal__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+.hh-boost-goal__title {
+  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hh-boost-goal__amount {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.hh-boost-goal__track {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+.hh-boost-goal__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--hh-primary);
+  transition: width 0.6s ease;
+}
+.hh-boost-goal--reached .hh-boost-goal__fill { background: var(--hh-success); }
+.hh-boost-goal__celebrate {
+  align-self: center;
+  margin-top: 0.15rem;
+  padding: 0.15rem 0.65rem;
+  border-radius: 999px;
+  background: var(--hh-success);
+  color: var(--hh-bg);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+@keyframes hh-boost-goal-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+.hh-boost-goal--celebrate { animation: hh-boost-goal-pulse 0.9s ease-in-out 3; }
+.hh-boost-goal--celebrate .hh-boost-goal__celebrate { animation: hh-boost-slidein 0.3s ease; }
+.hh-studio__boost-goal { z-index: 6; }
+@media (prefers-reduced-motion: reduce) {
+  .hh-boost-goal--celebrate,
+  .hh-boost-goal--celebrate .hh-boost-goal__celebrate { animation: none; }
+  .hh-boost-goal__fill { transition: none; }
+}
+
+/* Amount tiers: the accent token, and a heavier frame the bigger it gets, so
+   tiers stay apart in a skin that maps two tokens to one colour. */
+.hh-boost-overlay__item--tier-0 { border-color: color-mix(in srgb, var(--hh-text-muted) 70%, transparent); }
+.hh-boost-overlay__item--tier-1 { border-color: var(--hh-success); }
+.hh-boost-overlay__item--tier-2 { border: 2px solid var(--hh-primary); }
+.hh-boost-overlay__item--tier-3 {
+  border: 3px solid var(--hh-pro-gold);
+  background: color-mix(in srgb, var(--hh-pro-gold) 16%, rgba(13, 13, 18, 0.92));
+}
+.hh-boost-overlay__item--tier-1 .hh-boost-overlay__label { color: var(--hh-success); }
+.hh-boost-overlay__item--tier-2 .hh-boost-overlay__label { color: var(--hh-primary); }
+.hh-boost-overlay__item--tier-3 .hh-boost-overlay__label { color: var(--hh-pro-gold); }
+.hh-boost-overlay__item--tier-3 .hh-boost-overlay__message { font-size: 0.95rem; font-weight: 600; }
+
+.hh-boost-history__item--tier-0 { border-left: 3px solid color-mix(in srgb, var(--hh-text-muted) 70%, transparent); }
+.hh-boost-history__item--tier-1 { border-left: 3px solid var(--hh-success); }
+.hh-boost-history__item--tier-2 { border-left: 3px solid var(--hh-primary); }
+.hh-boost-history__item--tier-3 { border-left: 3px solid var(--hh-pro-gold); }
+.hh-boost-history__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem 0;
+}
+.hh-boost-history__summary:empty { display: none; }
+
+/* Top supporters */
+.hh-boost-top {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.hh-boost-top__title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  opacity: 0.7;
+}
+.hh-boost-top__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.hh-boost-top__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  min-width: 0;
+}
+.hh-boost-top__rank {
+  flex-shrink: 0;
+  width: 1.3rem;
+  height: 1.3rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 800;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.hh-boost-top__item:first-child .hh-boost-top__rank {
+  background: var(--hh-pro-gold-soft, color-mix(in srgb, var(--hh-pro-gold) 12%, transparent));
+  color: var(--hh-pro-gold);
+}
+.hh-boost-top__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hh-boost-top__amount {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Preset amounts in the Send a Boost dialog */
+.hh-boost-dialog__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.hh-boost-dialog__preset {
+  min-height: 36px;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.hh-boost-dialog__preset:hover:not(:disabled) { border-color: var(--hh-primary); }
+.hh-boost-dialog__preset.is-active {
+  border-color: var(--hh-primary);
+  background: color-mix(in srgb, var(--hh-primary) 15%, transparent);
+}
+.hh-boost-dialog__preset:disabled { opacity: 0.4; cursor: not-allowed; }
+.hh-boost-dialog__top {
+  padding-top: 0.6rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
+/* Boost settings: more fields now, so the body scrolls inside the panel. */
+.hh-boost-settings__body {
+  max-height: min(64vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.hh-boost-settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+.hh-boost-settings__section-title {
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.hh-boost-settings__try { align-self: flex-start; }

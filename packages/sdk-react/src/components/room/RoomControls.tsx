@@ -504,7 +504,7 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           roomName={roomName}
           currentConfig={liveBoostConfig}
           onClose={() => setBoostSettingsOpen(false)}
-          onSaved={(cfg) => setLiveBoostConfig(cfg)}
+          onSaved={(cfg) => setLiveBoostConfig({ ...cfg, enabled: cfg.enabled ?? true, minBoostUsd: cfg.minBoostUsd ?? 0 })}
         />
       )}
     </div>

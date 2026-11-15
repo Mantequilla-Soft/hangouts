@@ -6,6 +6,7 @@ import {
 import { config } from '../config.js';
 import { roomService, createLivekitToken } from '../lib/livekit.js';
 import { mutateRoomMetadata } from '../lib/roomMeta.js';
+import { boostSummary, parseBoostExtras, readGoal, readStats, restampGoal, type BoostExtrasInput } from '../lib/boostGoals.js';
 import { verifySessionToken } from '../lib/session.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
@@ -18,6 +19,43 @@ import {
 import { ParticipantInfo_State } from '@livekit/protocol';
 import { endHeadlessStreamForRoom, headlessViewerIdentity } from '../lib/headlessStreams.js';
 import { nextFreeStreamAt, recordGoLive, dailyLimitBody, obsProRequiredBody } from '../lib/streamQuota.js';
+import {
+  type Delivery, chooseDelivery, ensureHlsSession, hlsEnabled, hlsPlaylistUrl, hlsUnavailable,
+  hlsWeakFallbackEnabled, isMediaViewer,
+} from '../lib/hlsLive.js';
+
+/** Optional body of /join and /listen. `hlsCapable`: the client can play HLS,
+ *  so it may be moved there (never sent by clients that can't). `delivery:
+ *  'hls'`: a viewer on a poor connection asks for HLS (honoured only when the
+ *  server has HLS and the weak fallback on). */
+const DELIVERY_PROP = {
+  delivery: { type: 'string', enum: ['webrtc', 'hls'] },
+  hlsCapable: { type: 'boolean' },
+} as const;
+
+/**
+ * The delivery fields of a /join or /listen answer. An HLS viewer gets the
+ * playlist URL, and its egress is started in the background (the player waits
+ * for the playlist; a failed start makes the next join hand out WebRTC).
+ * `hlsFallback` tells a WebRTC viewer of a standalone stream that it may ask
+ * for HLS when its connection stays poor.
+ */
+function deliveryFields(
+  name: string,
+  meta: Partial<RoomMetadata>,
+  delivery: Delivery,
+  hlsCapable: boolean,
+  log: { warn: (obj: unknown, msg?: string) => void },
+) {
+  if (delivery === 'hls') {
+    ensureHlsSession(name, meta, log).catch((err) => log.warn({ err, room: name }, '[hls] egress start failed'));
+    return { delivery, hlsUrl: hlsPlaylistUrl(name) };
+  }
+  return {
+    delivery,
+    ...(hlsCapable && meta.mode === 'standalone' && hlsWeakFallbackEnabled() ? { hlsFallback: true } : {}),
+  };
+}
 
 // OBS/WHIP ingest. Same credentials as roomService — the ingress service reads
 // the identical key pair from its own config and talks to LiveKit over loopback.
@@ -313,6 +351,8 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       // non-Pro watermark the studio would otherwise have drawn in.
       headless: meta.headless === true ? true : undefined,
       watermark: meta.headless === true ? meta.watermark === true : undefined,
+      // Goal progress, totals and top supporters for this stream.
+      boostSummary: boostSummary(meta as Record<string, unknown>),
     });
   });
 
@@ -425,9 +465,11 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         required: ['name'],
         properties: { name: { type: 'string' } },
       },
+      body: { type: ['object', 'null'], properties: DELIVERY_PROP },
     },
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
+    const { delivery: wantsDelivery, hlsCapable = false } = (request.body ?? {}) as { delivery?: Delivery; hlsCapable?: boolean };
     const identity = request.username;
     const { premium } = await getUserStatus(identity);
 
@@ -463,10 +505,16 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     const lkIdentity = watchOnly ? headlessViewerIdentity(identity) : identity;
     const isHost = meta.host === identity && !watchOnly;
     const isApprovedGuest = approvedGuest && !watchOnly;
+    // Viewers of a big (or, on request, a poorly connected) stream get HLS;
+    // the host and the on-air co-host always publish over WebRTC.
+    const delivery: Delivery = isHost || isApprovedGuest
+      ? 'webrtc'
+      : await chooseDelivery(name, meta, lkIdentity, wantsDelivery, hlsCapable);
 
     const token = await createLivekitToken(name, lkIdentity, {
       canPublish: isHost || isApprovedGuest,
       canPublishData: true, // all participants can send data (hand raise, etc.)
+      canSubscribe: delivery !== 'hls',
       premium,
       // Keep the chat name the plain account even under the ~watch identity.
       name: watchOnly ? identity : undefined,
@@ -477,6 +525,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       // Lets a client say "you are live from another device" instead of
       // silently showing the host a viewer page.
       ...(onAirElsewhere ? { liveElsewhere: true } : {}),
+      ...deliveryFields(name, meta, delivery, hlsCapable, request.log),
     });
   });
 
@@ -502,13 +551,14 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
           /** When true, issues an obs- identity: read-only, no data channel,
            *  invisible in participant lists. Used by the OBS browser source overlay. */
           silent: { type: 'boolean' },
+          ...DELIVERY_PROP,
         },
       },
     },
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
-    const { displayName: rawDisplayName, silent = false } =
-      (request.body ?? {}) as { displayName?: string; silent?: boolean };
+    const { displayName: rawDisplayName, silent = false, delivery: wantsDelivery, hlsCapable = false } =
+      (request.body ?? {}) as { displayName?: string; silent?: boolean; delivery?: Delivery; hlsCapable?: boolean };
     const displayName = rawDisplayName?.trim() || undefined;
 
     const rooms = await roomService.listRooms([name]);
@@ -552,31 +602,46 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     // bans are guest IP bans (accounts have their own bans). Checking them before
     // the session was read held signed-in viewers to guest rules: a full guest
     // room refused them, and so did sharing an address with a banned guest.
-    if (!silent && !authedUser) {
-      if (isGuestBanned(name, request.ip)) {
-        return reply.forbidden('You have been removed from this room');
-      }
-
-      try {
-        const participants = await roomService.listParticipants(name);
-        const guestCount = participants.filter((p) => p.identity.startsWith(GUEST_PREFIX)).length;
-        if (guestCount >= MAX_GUESTS_PER_ROOM) {
-          return reply.code(409).send({
-            message: `Guest listener limit reached (${MAX_GUESTS_PER_ROOM}). Try again later.`,
-          });
-        }
-      } catch (err) {
-        request.log?.warn?.({ err }, 'guest listen: listParticipants failed, allowing through');
-      }
-    }
-
-
     // Same duplicate-identity guard as /join. /listen never publishes, so the
     // host (whose identity the ingress or their studio holds) and the on-air
     // co-host always watch under the ~watch identity: their plain identity here
     // would kick the device that is actually broadcasting.
     const onAirIdentity = !!authedUser
       && (authedUser === meta.host || (!!meta.collabGuest && authedUser === meta.collabGuest));
+
+    // WebRTC or HLS (see lib/hlsLive.ts). The OBS overlay and the on-air
+    // people watching their own stream always stay on WebRTC.
+    let delivery: Delivery = silent || onAirIdentity
+      ? 'webrtc'
+      : await chooseDelivery(name, meta, authedUser, wantsDelivery, hlsCapable);
+
+    if (!silent && !authedUser) {
+      if (isGuestBanned(name, request.ip)) {
+        return reply.forbidden('You have been removed from this room');
+      }
+
+      // The cap protects the SFU, so it counts guests LiveKit sends media to.
+      // HLS guests cost it nothing and never count. With HLS on, a full room
+      // hands the next guest HLS instead of refusing them.
+      if (delivery === 'webrtc') {
+        try {
+          const participants = await roomService.listParticipants(name);
+          const guestCount = participants.filter((p) => p.identity.startsWith(GUEST_PREFIX)
+            && isMediaViewer(p, meta)).length;
+          if (guestCount >= MAX_GUESTS_PER_ROOM) {
+            if (hlsCapable && hlsEnabled() && meta.mode === 'standalone' && !hlsUnavailable(name)) {
+              delivery = 'hls';
+            } else {
+              return reply.code(409).send({
+                message: `Guest listener limit reached (${MAX_GUESTS_PER_ROOM}). Try again later.`,
+              });
+            }
+          }
+        } catch (err) {
+          request.log?.warn?.({ err }, 'guest listen: listParticipants failed, allowing through');
+        }
+      }
+    }
     const viewerIdentity = authedUser && onAirIdentity
       ? headlessViewerIdentity(authedUser)
       : authedUser;
@@ -589,6 +654,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       premium: false,
       ttl: silent ? '12h' : '6h',
       name: displayName ?? authedUser ?? undefined,
+      canSubscribe: delivery !== 'hls',
     });
 
     // Guest caps and IP bans apply to actual guests, not signed-in users.
@@ -609,6 +675,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       isHost: false,
       isGuest: !silent && !authedUser,
       isPremium: false,
+      ...(silent ? {} : deliveryFields(name, meta, delivery, hlsCapable, request.log)),
     });
   });
 
@@ -690,6 +757,27 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
           enabled: { type: 'boolean' },
           minBoostUsd: { type: 'number', minimum: 0 },
           creatorPayoutAccount: { type: 'string', maxLength: 16 },
+          // Goal bar ("50 HBD for a new mic"); null removes it.
+          goal: {
+            type: ['object', 'null'],
+            properties: {
+              title: { type: 'string', maxLength: 200 },
+              targetHbd: { type: 'number' },
+            },
+            required: ['targetHbd'],
+          },
+          // Amount tiers (colour + how long a boost stays pinned); false = off.
+          tiers: { type: 'boolean' },
+          alerts: {
+            type: 'object',
+            properties: {
+              sound: { type: 'boolean' },
+              tts: { type: 'boolean' },
+              ttsMinHbd: { type: 'number' },
+            },
+          },
+          // Preset amounts in the viewer's boost dialog; [] = the defaults.
+          presets: { type: 'array', maxItems: 20, items: { type: 'number' } },
         },
       },
     },
@@ -699,7 +787,12 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       enabled?: boolean;
       minBoostUsd?: number;
       creatorPayoutAccount?: string;
-    };
+    } & BoostExtrasInput;
+
+    // Ranges and normalising for the goal / tiers / alerts / presets, checked
+    // before taking the lock so a bad value never half-applies.
+    const extras = parseBoostExtras(body);
+    if (!extras.ok) return reply.badRequest(extras.error);
 
     // Under the per-room metadata lock: hosts change Boosts MID-STREAM now, and
     // an unlocked read-modify-write here raced the studio's broadcast heartbeat
@@ -712,19 +805,39 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         const existing = (meta.boost && typeof meta.boost === 'object' && !Array.isArray(meta.boost))
           ? meta.boost as Record<string, unknown>
           : {};
-        boost = {
+        boost = extras.apply({
           ...existing,
           ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
           ...(body.minBoostUsd !== undefined ? { minBoostUsd: body.minBoostUsd } : {}),
           ...(body.creatorPayoutAccount !== undefined ? { creatorPayoutAccount: body.creatorPayoutAccount || undefined } : {}),
-        };
-        return { ...meta, boost };
+        });
+        const next: Record<string, unknown> = { ...meta, boost };
+        // A changed goal re-checks "reached" against this stream's progress:
+        // raising it past the progress lets reaching it celebrate again.
+        if (body.goal !== undefined && meta.boostStats !== undefined) {
+          next.boostStats = restampGoal(readStats(meta), readGoal(next));
+        }
+        return next;
       });
     } catch {
       return reply.notFound('Room not found');
     }
     if (forbidden) return reply.forbidden('Only the host can update boost settings');
     return reply.send({ boost });
+  });
+
+  // This stream's boost goal, totals and top supporters, for surfaces that are
+  // not in the LiveKit room (the room metadata carries the same live). Public:
+  // every boost is a public Hive transfer already.
+  fastify.get('/rooms/:name/boost/summary', {
+    schema: { params: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } } },
+  }, async (request, reply) => {
+    const { name } = request.params as { name: string };
+    const rooms = await roomService.listRooms([name]);
+    if (rooms.length === 0) return reply.notFound('Room not found');
+    let meta: Record<string, unknown> = {};
+    try { meta = JSON.parse(rooms[0].metadata || '{}') as Record<string, unknown>; } catch { /* empty */ }
+    return reply.send(boostSummary(meta));
   });
 
   // Update the feed-post details (title/thumbnail/description/tags) for a
@@ -794,11 +907,18 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       params: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
       body: {
         type: 'object',
-        properties: { transcode: { type: 'boolean' } },
+        properties: {
+          transcode: { type: 'boolean' },
+          /** 'phone' = the studio's "Phone or tablet screen" source (a
+           *  screen-broadcast app such as Larix Screencaster). Free for every
+           *  host; 'obs' (default) stays a Pro feature. */
+          source: { type: 'string', enum: ['obs', 'phone'] },
+        },
       },
     },
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
+    const source = (request.body as { source?: 'obs' | 'phone' } | undefined)?.source ?? 'obs';
     // Passthrough forwards OBS's encoded H.264 untouched, which is cheap —
     // but plenty of Firefox builds (any Linux one without the OpenH264
     // plugin) offer only VP8/VP9/AV1, and the SFU then can't bind the track
@@ -816,8 +936,13 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     let meta: Partial<RoomMetadata> = {};
     try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
     if (meta.host !== request.username) return reply.forbidden('Only the host can set up OBS ingest');
-    // OBS is a Pro feature (lib/streamQuota.ts).
-    if (!(await getUserStatus(request.username)).premium) return reply.code(403).send(obsProRequiredBody());
+    // OBS is a Pro feature (lib/streamQuota.ts). The phone/tablet screen source
+    // is free (owner 2026-11-15). It is the same WHIP ingress, so this is a
+    // product line, not a technical one: the endpoint can't tell which app
+    // connects to it.
+    if (source !== 'phone' && !(await getUserStatus(request.username)).premium) {
+      return reply.code(403).send(obsProRequiredBody());
+    }
 
     const identity = `obs-ingress-${name}`;
 

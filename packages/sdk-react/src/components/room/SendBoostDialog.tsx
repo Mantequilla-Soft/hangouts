@@ -4,6 +4,10 @@ import { useParticipants } from '@livekit/components-react';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { useStreamContext } from './StandaloneWatch.js';
 import type { BoostConfig } from '@snapie/hangouts-core';
+import { useRoomBoost } from '../../hooks/useRoomBoost.js';
+import { fillLabel } from '../../lib/boostGoals.js';
+import { boostLabels, type BoostLabels } from '../../lib/boostLabels.js';
+import { StreamBoostGoal, BoostTopSupporters } from './StreamBoostGoal.js';
 
 interface Props {
   roomName: string;
@@ -14,6 +18,9 @@ interface Props {
    *  knows to open their app and sign. Defaults to running the op directly, so
    *  Keychain / HiveSigner are unaffected. */
   signWrapper?: <T>(op: () => Promise<T>, message?: string) => Promise<T>;
+  /** The dialog's text, for integrators that translate it (see BoostLabels).
+   *  Anything left out stays English. */
+  labels?: Partial<BoostLabels>;
 }
 
 /**
@@ -51,8 +58,11 @@ function keychainTransfer(
   });
 }
 
-export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper }: Props) {
+export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, labels }: Props) {
   const { apiBaseUrl, username, aioha } = useHangoutsContext();
+  const L = useMemo(() => boostLabels(labels), [labels]);
+  // The host's preset amounts (or the defaults), live from the room metadata.
+  const { presets } = useRoomBoost();
   const [platformAccount, setPlatformAccount] = useState<string | null>(null);
   const [feePercent, setFeePercent] = useState<number | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
@@ -89,10 +99,10 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper }:
       .then((r) => r.json() as Promise<{ enabled: boolean; platformAccount: string; feePercent?: number }>)
       .then((cfg) => {
         if (!cfg.enabled) {
-          setConfigError('Boosts are not enabled on this server');
+          setConfigError(L.errNotEnabled);
           setPlatformAccount(null);
         } else if (!cfg.platformAccount) {
-          setConfigError('Platform wallet not configured');
+          setConfigError(L.errNoWallet);
           setPlatformAccount(null);
         } else {
           setPlatformAccount(cfg.platformAccount);
@@ -102,7 +112,7 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper }:
       })
       .catch((err: unknown) => {
         setPlatformAccount(null);
-        setConfigError(`Could not reach boost config: ${err instanceof Error ? err.message : String(err)}`);
+        setConfigError(fillLabel(L.errConfig, { error: err instanceof Error ? err.message : String(err) }));
         setConfigLoading(false);
       });
   }, [apiBaseUrl]);
@@ -110,8 +120,8 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper }:
   const send = useCallback(async () => {
     if (!username || !platformAccount) return;
     const amtNum = parseFloat(amount);
-    if (!Number.isFinite(amtNum) || amtNum <= 0) { setError('Enter a valid amount'); return; }
-    if (!message.trim()) { setError('Enter a message'); return; }
+    if (!Number.isFinite(amtNum) || amtNum <= 0) { setError(L.errAmount); return; }
+    if (!message.trim()) { setError(L.errMessage); return; }
     // REFUSE to send below the room's minimum. The server accepts these and
     // broadcasts them, but the on-screen overlay filters them out — so without
     // this the money leaves the sender's wallet and nothing whatsoever appears,
@@ -119,7 +129,7 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper }:
     // can rely on; the HIVE rate isn't known client-side.
     const min = boostConfig.minBoostUsd ?? 0;
     if (min > 0 && asset === 'HBD' && amtNum < min) {
-      setError(`This stream's minimum is $${min.toFixed(2)}. A smaller boost won't show on screen.`);
+      setError(fillLabel(L.errMinimum, { min: min.toFixed(2) }));
       return;
     }
 
@@ -141,48 +151,71 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper }:
 
     try {
       const runSign = signWrapper ?? (<T,>(op: () => Promise<T>) => op());
-      const msg = 'Approve the boost in your HiveAuth app';
+      const msg = L.approveHiveAuth;
       // Capture into consts so the narrowing survives into the arrow closure
       // below; call() keeps `this` bound to the aioha instance.
       const a = aioha;
       const transfer = a?.transfer;
       if (a && transfer) {
         const result = await runSign(() => transfer.call(a, platformAccount, amtNum, asset, memo), msg);
-        if (!result.success) throw new Error(result.error || 'Transfer failed');
+        if (!result.success) throw new Error(result.error || L.errTransfer);
       } else {
         await runSign(() => keychainTransfer(username, platformAccount, amtStr, memo, asset), msg);
       }
       setStatus('done');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Transfer failed');
+      setError(err instanceof Error ? err.message : L.errTransfer);
       setStatus('error');
     }
-  }, [username, platformAccount, amount, asset, message, roomName, aioha, activeRecipient]);
+  }, [username, platformAccount, amount, asset, message, roomName, aioha, activeRecipient, L, boostConfig.minBoostUsd, signWrapper]);
+
+  const amountNum = parseFloat(amount);
+  const minUsd = boostConfig.minBoostUsd ?? 0;
 
   return createPortal(
     <div className="hh-boost-dialog__overlay" onClick={onClose}>
-      <div className="hh-boost-dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Send a Boost">
+      <div className="hh-boost-dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={L.dialogTitle}>
         <div className="hh-boost-dialog__header">
-          <span>🚀 Send a Boost</span>
-          <button className="hh-boost-dialog__close" onClick={onClose} aria-label="Close">✕</button>
+          <span><span className="hh-boost-dialog__icon" aria-hidden="true">🚀</span> {L.dialogTitle}</span>
+          <button className="hh-boost-dialog__close" onClick={onClose} aria-label={L.close}>✕</button>
         </div>
 
         {status === 'done' ? (
           <div className="hh-boost-dialog__body hh-boost-dialog__body--success">
             <div className="hh-boost-dialog__success-icon">✅</div>
-            <p>Boost sent! It'll appear on screen in a moment.</p>
-            <button className="hh-btn hh-btn--primary" onClick={onClose}>Done</button>
+            <p>{L.success}</p>
+            <button className="hh-btn hh-btn--primary" onClick={onClose}>{L.done}</button>
           </div>
         ) : (
           <>
             <div className="hh-boost-dialog__body">
+              <StreamBoostGoal variant="inline" labels={labels} />
+
+              <div className="hh-boost-dialog__presets" role="group" aria-label={L.presetsLabel}>
+                {presets.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={`hh-boost-dialog__preset${amountNum === p ? ' is-active' : ''}`}
+                    aria-pressed={amountNum === p}
+                    // Below the minimum a boost won't show on screen, so the
+                    // dialog refuses it anyway (HBD only, see send()).
+                    disabled={status === 'sending' || (asset === 'HBD' && minUsd > 0 && p < minUsd)}
+                    onClick={() => { setAmount(String(p)); setError(null); }}
+                  >
+                    {p} {asset}
+                  </button>
+                ))}
+              </div>
+
               <div className="hh-boost-dialog__amount-row">
                 <input
                   className="hh-boost-dialog__amount"
                   type="number"
                   min="0.001"
                   step="0.001"
-                  placeholder="0.000"
+                  placeholder={L.customAmount}
+                  aria-label={L.customAmount}
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   disabled={status === 'sending'}
@@ -200,7 +233,7 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper }:
 
               {recipients.length > 1 && (
                 <div className="hh-boost-dialog__recipients">
-                  <span className="hh-boost-dialog__recipients-label">Boost</span>
+                  <span className="hh-boost-dialog__recipients-label">{L.recipientsLabel}</span>
                   {recipients.map((id) => (
                     <button
                       key={id}
@@ -210,38 +243,34 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper }:
                       disabled={status === 'sending'}
                     >
                       @{id}
-                      {id === hostIdentity && <em> · host</em>}
+                      {id === hostIdentity && <em> · {L.hostTag}</em>}
                     </button>
                   ))}
                 </div>
               )}
 
               <p className="hh-boost-dialog__rate-hint">
-                {asset === 'HBD'
-                  ? '1 HBD = $1.00 — pegged to USD'
-                  : 'HIVE price varies with the market'}
+                {asset === 'HBD' ? L.rateHbd : L.rateHive}
               </p>
 
               {boostConfig.minBoostUsd > 0 && (
                 <p className="hh-boost-dialog__hint">
-                  Minimum ${boostConfig.minBoostUsd.toFixed(2)} USD to appear on screen
+                  {fillLabel(L.minimumHint, { min: boostConfig.minBoostUsd.toFixed(2) })}
                 </p>
               )}
 
               {feePercent !== null && feePercent > 0 && (
                 <p className="hh-boost-dialog__hint">
-                  {`${feePercent}% platform fee — @${activeRecipient ?? roomName.split('-')[0]} receives ${(100 - feePercent)}%`}
-                  {(() => {
-                    const amt = parseFloat(amount);
-                    if (!Number.isFinite(amt) || amt <= 0) return null;
-                    return ` (${(amt * (100 - feePercent) / 100).toFixed(3)} ${asset})`;
-                  })()}
+                  {fillLabel(L.feeHint, { fee: feePercent, recipient: activeRecipient ?? roomName.split('-')[0], share: 100 - feePercent })}
+                  {Number.isFinite(amountNum) && amountNum > 0
+                    ? ` ${fillLabel(L.feeAmount, { amount: (amountNum * (100 - feePercent) / 100).toFixed(3), asset })}`
+                    : null}
                 </p>
               )}
 
               <textarea
                 className="hh-boost-dialog__message"
-                placeholder={`Your message (max ${BOOST_MESSAGE_MAX} characters)`}
+                placeholder={fillLabel(L.messagePlaceholder, { max: BOOST_MESSAGE_MAX })}
                 maxLength={BOOST_MESSAGE_MAX}
                 rows={3}
                 value={message}
@@ -252,18 +281,20 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper }:
 
               {error && <p className="hh-boost-dialog__error">{error}</p>}
               {configError && <p className="hh-boost-dialog__error">{configError}</p>}
+
+              <BoostTopSupporters labels={labels} className="hh-boost-dialog__top" />
             </div>
 
             <div className="hh-boost-dialog__footer">
               <button className="hh-btn hh-btn--secondary" onClick={onClose} disabled={status === 'sending'}>
-                Cancel
+                {L.cancel}
               </button>
               <button
                 className="hh-btn hh-btn--primary"
                 onClick={send}
                 disabled={status === 'sending' || configLoading || !platformAccount}
               >
-                {configLoading ? 'Loading…' : status === 'sending' ? 'Sending…' : 'Send Boost'}
+                {configLoading ? L.loading : status === 'sending' ? L.sending : L.send}
               </button>
             </div>
           </>

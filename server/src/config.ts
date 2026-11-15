@@ -74,6 +74,31 @@ const envSchema = z.object({
   // still apply. Empty = nobody is exempt.
   STREAM_LIMIT_EXEMPT: z.string().default('')
     .transform((v) => new Set(v.split(',').map((s) => s.trim().replace(/^@/, '').toLowerCase()).filter(Boolean))),
+  // --- HLS for large audiences (backlog idea H1) ------------------------------
+  // How many viewers of ONE stream watch over WebRTC before the rest get the
+  // stream over HLS. Default 50, from the 2026-11-05 stress test (clean at 50
+  // viewers, broken at 100): viewer 51 on gets HLS. 0 = every viewer on HLS.
+  // Set it EMPTY (HLS_VIEWER_THRESHOLD=) to switch HLS off: every viewer on
+  // WebRTC and the guest cap (MAX_GUESTS_PER_ROOM) refuses extra anonymous
+  // viewers, as before. HLS viewers stay connected to the room for chat, boosts and the
+  // viewer count, but receive no media from LiveKit (canSubscribe=false), so
+  // they cost the SFU almost nothing. The HLS egress for a stream starts when
+  // its first HLS viewer arrives and stops when the stream ends or nobody has
+  // watched over HLS for a few minutes.
+  HLS_VIEWER_THRESHOLD: z.string().default('50')
+    .transform((v) => (v.trim() === '' ? null : Number(v.trim())))
+    .pipe(z.number().int().min(0).nullable()),
+  // Where players fetch the playlist and segments. Empty = this API's own
+  // /rooms/:name/hls/* routes (relative URL, the client prefixes its API base).
+  // Set it to a CDN pull zone whose origin is this API, e.g.
+  // https://live-hls.b-cdn.net, so segments are served by the CDN.
+  HLS_PUBLIC_BASE: z.string().default('').refine((v) => v === '' || /^https?:\/\//.test(v), 'must be an http(s) URL or empty'),
+  // A WebRTC viewer whose connection stays poor may ask for HLS even below the
+  // threshold. Only matters while HLS_VIEWER_THRESHOLD is set.
+  HLS_WEAK_FALLBACK: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // Video bitrate of the HLS rendition in kbps (one rendition, 720p or the
+  // stream's own size).
+  HLS_VIDEO_BITRATE: z.coerce.number().int().min(300).max(8000).default(2000),
   PORT: z.coerce.number().default(3002),
 });
 

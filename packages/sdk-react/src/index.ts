@@ -43,6 +43,27 @@ export { useHandRaiseChime } from './hooks/useHandRaiseChime.js';
 export { useHostControls } from './hooks/useHostControls.js';
 export { useHiveAvatar } from './hooks/useHiveAvatar.js';
 export { useBoosts, useBoostStore, BoostStoreProvider } from './hooks/useBoosts.js';
+// Boost goals, tiers, alerts, preset amounts and top supporters.
+export { useRoomBoost, useGoalCelebration, type RoomBoostState } from './hooks/useRoomBoost.js';
+export { useBoostAlerts, type BoostAlertOptions } from './hooks/useBoostAlerts.js';
+export {
+  BOOST_TIERS,
+  DEFAULT_BOOST_PRESETS,
+  boostTier,
+  boostDisplayMs,
+  boostPresets,
+  alertSettings as boostAlertSettings,
+  formatHbd,
+  type BoostGoal,
+  type BoostRoomConfig,
+  type BoostStats,
+  type BoostSupporter,
+  type BoostTier,
+  type BoostAlertSettings,
+  type GoalProgress,
+} from './lib/boostGoals.js';
+export { DEFAULT_BOOST_LABELS, type BoostLabels } from './lib/boostLabels.js';
+export { playBoostChime } from './lib/boostChime.js';
 // Stream time caps (free / Pro), so an integrator shows the same numbers the studio enforces.
 export { resolveStreamCap, FREE_STREAM_CAP_MS, FREE_STREAM_CAP_LABEL, PRO_STREAM_CAP_MS, PRO_STREAM_CAP_LABEL } from './lib/streamLimits.js';
 
@@ -57,11 +78,19 @@ export { RoomHeader, type RoomHeaderProps } from './components/room/RoomHeader.j
 export { ChatPanel } from './components/room/ChatPanel.js';
 export { BoostOverlay } from './components/room/BoostOverlay.js';
 export { SendBoostDialog } from './components/room/SendBoostDialog.js';
+export {
+  StreamBoostGoal,
+  BoostTopSupporters,
+  BoostAlerts,
+  type StreamBoostGoalProps,
+  type BoostTopSupportersProps,
+  type BoostAlertsProps,
+} from './components/room/StreamBoostGoal.js';
 export { useWhipIngress, type UseWhipIngress } from './hooks/useWhipIngress.js';
 export { isChromium, isInAppBrowser, canBroadcast } from './lib/browser.js';
 export { CollabRequest, type CollabRequestProps } from './components/room/CollabRequest.js';
 export { BoostHistoryPanel } from './components/room/BoostHistoryPanel.js';
-export { BoostSettingsPanel } from './components/room/BoostSettingsPanel.js';
+export { BoostSettingsPanel, type BoostSettingsUpdate } from './components/room/BoostSettingsPanel.js';
 export { RecordingControls, RecordingIndicator } from './components/room/RecordingControls.js';
 export { StreamingPanel, StopStreamingPanel, type StreamingPanelProps, type StopStreamingPanelProps } from './components/room/StreamingPanel.js';
 export { HangoutsErrorBoundary } from './components/room/HangoutsErrorBoundary.js';
@@ -76,6 +105,12 @@ export {
   StreamQualityControl,
   useStreamContext, useStreamLive,
 } from './components/room/StandaloneWatch.js';
+export { HlsStreamVideo, type HlsStreamVideoProps } from './components/room/HlsStreamVideo.js';
+export {
+  PhoneScreenSourceDialog, DEFAULT_PHONE_SCREEN_LABELS,
+  type PhoneScreenSourceDialogProps, type PhoneScreenSourceLabels,
+} from './components/room/PhoneScreenSourceDialog.js';
+export type { Delivery, JoinOptions } from './lib/hlsDelivery.js';
 
 // Hooks — Chat
 export { useChat, type ChatMessage } from './hooks/useChat.js';

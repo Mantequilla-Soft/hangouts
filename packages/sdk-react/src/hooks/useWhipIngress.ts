@@ -19,6 +19,10 @@ export interface WhipIngressInfo {
 export interface StartWhipIngressOptions {
   /** Re-encode to VP8 instead of forwarding OBS's H.264. Defaults true. */
   transcode?: boolean;
+  /** 'phone' = the "Phone or tablet screen" source (a screen-broadcast app on
+   *  the device). Free for every host; 'obs' (default) is a Pro feature. Same
+   *  ingress either way. */
+  source?: 'obs' | 'phone';
 }
 
 /** The core methods we use if present — see the fallback note below. */
@@ -88,9 +92,13 @@ export function useWhipIngress(roomName: string | null): UseWhipIngress {
       // H.264 passthrough ingress is invisible to a large slice of Firefox.
       const transcode = options?.transcode !== false;
       const client = apiClient as unknown as WhipCapableClient;
-      const next = typeof client.startWhipIngress === 'function'
-        ? await client.startWhipIngress(roomName, { transcode })
-        : await rawRequest('POST', { transcode }) as WhipIngressInfo;
+      // The core method only forwards `transcode`, so `source` always goes
+      // through the raw request.
+      const next = options?.source === 'phone'
+        ? await rawRequest('POST', { transcode, source: 'phone' }) as WhipIngressInfo
+        : typeof client.startWhipIngress === 'function'
+          ? await client.startWhipIngress(roomName, { transcode })
+          : await rawRequest('POST', { transcode }) as WhipIngressInfo;
       setInfo(next);
       return next;
     } catch (err) {

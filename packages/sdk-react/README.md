@@ -230,6 +230,21 @@ Notes:
 - Amount must be `HIVE` or `HBD` and meet room minimum (`boost.minBoostUsd`).
 - Server rejects malformed memos or below-minimum transfers (no broadcast).
 
+## Boost goals, tiers, alerts, presets, top supporters
+
+The host sets these in Boost settings (studio rocket button); they are stored in the room metadata's `boost` block through `PATCH /rooms/:name/boost`:
+
+| Field | Meaning |
+|---|---|
+| `goal: { title, targetHbd }` | Goal bar ("50 HBD for a new mic"). `null` removes it. |
+| `tiers: boolean` | Amount tiers on (default) or off. Under 1 / 1 to 5 / 5 to 20 / 20+ HBD: colour from the theme tokens and 15 s / 30 s / 1 min / 2 min on screen. Off: 30 s for all. |
+| `alerts: { sound, tts, ttsMinHbd }` | Studio alerts: a synthesised chime (default on) and reading boosts aloud with `speechSynthesis` (default off, from 5 HBD). |
+| `presets: number[]` | Quick amounts in the viewer dialog (default 1, 5, 10, 25; at most 6). `[]` = defaults. |
+
+The server keeps this stream's tally in `boostStats` (count, totals, top supporters, when the goal was reached), counting boosts once they are on screen and paid. Amounts are in HBD; HIVE boosts count at the HBD value they were priced at when they arrived. Boosts to a collab guest count in the totals, not towards the host's goal. `GET /rooms/:name/boost/summary` (and `boostSummary` on `GET /rooms/:name`) returns the goal with progress, the totals and the top 5.
+
+Components: `<StreamBoostGoal>` (the bar; `<StreamVideo>` shows it by default), `<BoostTopSupporters>`, `<BoostAlerts>` (alerts for an OBS Browser Source / dock), `useRoomBoost()`. Viewer text is translatable through `labels` (`BoostLabels`, see `DEFAULT_BOOST_LABELS`) on `SendBoostDialog`, `StreamBoostGoal`, `BoostTopSupporters` and `StreamVideo` (`boostLabels`).
+
 ## License
 
 MIT
