@@ -438,7 +438,7 @@ host vanishes. Free hosts may publish a VOD of up to 30 minutes; the download co
 is Pro.
 
 **DVR** (Pro, `DVR_ENABLED`): a second egress writes 2 s HLS segments and keeps the
-last `DVR_BUFFER_SEC` (600) on disk.
+last `DVR_BUFFER_SEC` (150 by default) on disk.
 
 - **Clips**: any viewer can clip the last 30 s (`POST /rooms/:name/dvr/clip`).
   Signed-in clippers are credited and their clips kept `CLIP_KEEP_HOURS` (48).
@@ -555,7 +555,8 @@ value). Required ones have no default.
 | `BOOST_HIVE_USD_FALLBACK`, `BOOST_HIVE_USD_CACHE_MS` | `0.25`, `120000` | HIVE price fallback and cache. |
 | `BOOST_INGEST_KEY` | empty | Admin key for `POST /boosts/ingest`; empty = route off. |
 | `DVR_ENABLED` | `true` | DVR egress kill switch. |
-| `DVR_BUFFER_SEC` | `600` (60 to 3600) | DVR window: rewind range and clip source. |
+| `DVR_BUFFER_SEC` | `150` (60 to 3600) | DVR window: clip source, and the rewind range when rewind is on (600 for 10 minutes). |
+| `REWIND_ENABLED` | `false` | Rewind during a live stream (`GET /rooms/:name/dvr/rewind` answers `available: false, reason: "off"`). |
 | `CLIP_KEEP_HOURS`, `CLIPS_DIR_MAX_MB` | `48`, `4096` | How long clips stay, and the disk budget for them. |
 | `HIGHLIGHTS_ENABLED` | `true` | Chat and boost spike detection. |
 | `PODCAST_RECORDING_ENABLED` | `true` | "Record as podcast" in audio rooms. |
