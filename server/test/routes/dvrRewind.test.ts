@@ -24,6 +24,7 @@ const INDEX = ['#EXTM3U', '#EXT-X-TARGETDURATION:2', ...Array.from({ length: 6 }
 
 beforeEach(async () => {
   vi.resetModules();
+  vi.stubEnv('REWIND_ENABLED', 'true');
   lk = (await import('../../src/lib/livekit.js')).roomService;
   tokenFor = (await import('../../src/lib/dvrRewind.js')).rewindToken;
   const { dvrRewindRoutes } = await import('../../src/routes/dvrRewind.js');
@@ -43,6 +44,21 @@ afterEach(async () => { await app.close(); });
 const info = (headers: Record<string, string> = {}) => app.inject({ method: 'GET', url: `/rooms/${ROOM}/dvr/rewind`, headers });
 
 describe('GET /rooms/:name/dvr/rewind', () => {
+  it('is off unless REWIND_ENABLED (the default), and its HLS answers 404', async () => {
+    vi.resetModules();
+    vi.stubEnv('REWIND_ENABLED', 'false');
+    const { dvrRewindRoutes } = await import('../../src/routes/dvrRewind.js');
+    const off = Fastify();
+    await off.register(sensible);
+    await off.register(rateLimit, { global: false });
+    await off.register(dvrRewindRoutes);
+    const info = await off.inject({ method: 'GET', url: `/rooms/${ROOM}/dvr/rewind` });
+    expect(info.json()).toEqual({ available: false, reason: 'off' });
+    const pl = await off.inject({ method: 'GET', url: `/rooms/${ROOM}/dvr/hls/${tokenFor(ROOM)}/live.m3u8` });
+    expect(pl.statusCode).toBe(404);
+    await off.close();
+  });
+
   it('offers the tokenised playlist while the DVR runs, with the window and go-live time', async () => {
     const res = await info();
     expect(res.headers['cache-control']).toBe('no-store');

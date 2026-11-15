@@ -1,726 +1,1040 @@
-# Hive Hangouts — LLM Integration Reference
+# OpenPods (Hive Hangouts): reference for AI assistants
 
-This document is a compact, accurate reference for AI assistants and code generators
-integrating with the Hive Hangouts SDK. Read this before writing any integration code.
+One file with the whole integrator documentation, written from the code. It is
+docs/integrator-guide.md followed by docs/api-routes.md; rebuild it after editing them:
 
----
-
-## What is Hive Hangouts?
-
-Twitter Spaces-style live audio rooms for the Hive blockchain. Users authenticate with
-their Hive identity (no separate accounts). The product is sometimes called "OpenPods"
-on Hive frontends like snapie.io and 3speak.tv.
-
-Three deployable components:
-1. **LiveKit SFU** — self-hosted WebRTC server (audio/video routing, recording, streaming)
-2. **Fastify API** (`server/`) — auth gateway; verifies Hive signatures, issues LiveKit tokens
-3. **React SDK** (`packages/`) — embeddable npm library for React web apps
+    (head -n 9 docs/llms.txt; cat docs/integrator-guide.md; echo; cat docs/api-routes.md) > /tmp/llms && mv /tmp/llms docs/llms.txt
 
 ---
 
-## npm packages
+# OpenPods integrator guide
 
-| Package | Install | Use for |
-|---------|---------|---------|
-| `@snapie/hangouts-react` | `npm i @snapie/hangouts-react @livekit/components-react livekit-client` | React web apps — includes all components, hooks, and re-exports core |
-| `@snapie/hangouts-core` | `npm i @snapie/hangouts-core` | React Native, Vue/Svelte, server scripts |
+OpenPods (this repo, "hangouts") gives a Hive app live audio rooms and one-person
+live streams with a browser studio. This guide is written from the code. The HTTP
+routes are in [api-routes.md](api-routes.md); the LiveKit side is in
+[livekit-server-setup.md](livekit-server-setup.md).
 
-Import CSS: `import '@snapie/hangouts-react/src/styles/hangouts.css'`
+Contents: [Architecture](#architecture) · [Quick start](#quick-start-embed-openpods-in-your-hive-app) ·
+[Auth](#auth) · [Rooms, roles and identities](#rooms-roles-and-identities) ·
+[Room metadata](#room-metadata) · [Data channel](#data-channel-topics) ·
+[SDK](#sdk-packages) · [Theming](#theming) · [Studio](#the-studio) · [Watching a stream](#watching-a-stream) ·
+[HLS](#hls-delivery) · [Recording, VOD, DVR](#recording-vod-dvr-clips-and-rewind) ·
+[Podcast recording](#record-as-podcast) · [Templates and OBS](#templates-and-headless-obs-streams) ·
+[Pro and quotas](#pro-and-quotas) · [Boosts](#boosts) · [Events](#events-and-presence) ·
+[Server config](#server-configuration) · [Mongo collections](#mongo-collections)
 
----
+## Architecture
 
-## Minimal React integration
+```
+ Browser (your app + @snapie/hangouts-react)
+   |  HTTPS: auth, tokens, room actions             |  WebRTC: media + data channel
+   v                                                v
+ OpenPods API (server/, Fastify, :3002) ------> LiveKit SFU (:7880, UDP 50000-60000)
+   |  server SDK: rooms, metadata, sendData           ^            ^
+   |                                                  |            |
+   +--> LiveKit egress (recording, VOD, DVR, HLS, restream, podcast tracks)
+   +--> LiveKit ingress (WHIP: OBS, phone screen apps, headless streams)
+   +--> MongoDB (users/Pro, templates, chat backlog, polls, clips, ...)
+   +--> Hive API (signature checks, boost transfers)
+   +--> 3Speak services (embed upload for VODs, announce, checker stats)
+```
+
+| Part | What it does |
+|---|---|
+| **API server** (`server/`) | Verifies Hive signatures, issues session JWTs and LiveKit tokens, enforces host, mod, Pro and quota rules, writes room metadata, drives egress and ingress, watches Hive for boosts. Runs on one box; live state (polls, raids, recordings, caption slots, HLS sessions) is kept in memory per process. |
+| **LiveKit SFU** | Routes audio, video and data between participants. Room metadata is the shared live state every participant receives. |
+| **Egress** | Server-side recorders. Writes under `/tmp/livekit-recordings` (the only path mounted into the egress container): VOD MP4s, DVR HLS segments, the HLS delivery playlist, podcast speaker tracks. Also RTMP restream. |
+| **Ingress** | WHIP endpoint. The studio's OBS and phone screen sources, and headless OBS streams, publish through it. Media goes encoder to ingress over UDP; only signalling passes the API. |
+| **SDK** (`packages/`) | `@snapie/hangouts-core` (HTTP client, types, login helpers) and `@snapie/hangouts-react` (provider, rooms, studio, viewer, chat, boosts and more). |
+
+Two room modes:
+
+- **`conference`**: an audio room with a stage (host, speakers, listeners), hand
+  raising, optional video, recording, games, podcast recording.
+- **`standalone`**: a live stream. The host's browser studio composites everything
+  into one program track; viewers watch it (WebRTC or HLS) and chat. One collab
+  guest can join on air.
+
+## Quick start: embed OpenPods in your Hive app
+
+```bash
+npm install @snapie/hangouts-react @snapie/hangouts-core livekit-client @livekit/components-react
+```
+
+A complete page: sign in with Keychain (or any Aioha provider), list rooms, open
+one. Signed-out visitors can browse and listen as guests.
 
 ```tsx
-import { HangoutsProvider, RoomLobby, HangoutsRoom } from '@snapie/hangouts-react';
-import '@snapie/hangouts-react/src/styles/hangouts.css';
 import { useState } from 'react';
+import {
+  HangoutsProvider, RoomLobby, HangoutsRoom, useHangoutsAuth,
+} from '@snapie/hangouts-react';
+import '@snapie/hangouts-react/src/styles/hangouts.css';
 
-export function App() {
+const API = 'https://hangout-api.3speak.tv';     // your OpenPods API
+const LIVEKIT = 'wss://livekit.3speak.tv';       // your LiveKit URL
+
+function Rooms() {
+  const { isAuthenticated, username, login, logout } = useHangoutsAuth();
   const [room, setRoom] = useState<string | null>(null);
+
+  if (room) {
+    return (
+      <HangoutsRoom
+        roomName={room}
+        onLeave={() => setRoom(null)}
+        guestFallback                    // signed-out users listen as guests
+        video                            // camera and screen share for speakers
+        getShareUrl={(name) => `${location.origin}/?room=${name}`}
+      />
+    );
+  }
   return (
-    <HangoutsProvider apiBaseUrl="https://your-api.example.com">
-      {room
-        ? <HangoutsRoom roomName={room} onLeave={() => setRoom(null)} embedded />
-        : <RoomLobby onJoinRoom={setRoom} />
-      }
+    <>
+      {isAuthenticated
+        ? <button onClick={logout}>Sign out @{username}</button>
+        : <button onClick={() => login(prompt('Hive username') ?? '')}>Sign in with Keychain</button>}
+      <RoomLobby onJoinRoom={setRoom} allowGuestBrowse allowStandalone />
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <HangoutsProvider apiBaseUrl={API} livekitServerUrl={LIVEKIT}>
+      <Rooms />
     </HangoutsProvider>
   );
 }
 ```
 
----
+Notes:
 
-## HangoutsProvider props
+- `HangoutsRoom` picks the UI from the room: a conference room UI, the studio for
+  the host of a stream, or the stream viewer for everyone else.
+- With [Aioha](https://aioha.dev), pass `aioha={aiohaInstance}` to the provider:
+  `login()` and boost transfers then go through the user's chosen wallet. A
+  custodial login works the same way with an `AiohaLike` adapter (`signMessage`,
+  optional `transfer`).
+- If your app already has an OpenPods session, pass `sessionToken` and `username`
+  to the provider instead of calling `login()`.
+- `RoomLobby` has its own Keychain sign-in form when signed out and
+  `allowGuestBrowse` is not set.
+- To show only a stream player (no lobby), see [Watching a stream](#watching-a-stream).
 
-| Prop | Type | Required | Default | Notes |
-|------|------|----------|---------|-------|
-| `apiBaseUrl` | string | Yes | — | Base URL of the Fastify server (no trailing slash) |
-| `livekitServerUrl` | string | No | `wss://livekit.3speak.tv` | LiveKit WebSocket URL |
-| `sessionToken` | string | No | — | Pre-existing JWT; skips login flow |
-| `username` | string | No | — | Paired with `sessionToken` |
-| `imageServerApiKey` | string | No | — | Bearer token for `images.3speak.tv`; enables room background picker |
-| `aioha` | AiohaLike | No | — | Routes auth + boost transfers through any Aioha provider or custodial adapter |
+## Auth
 
----
+1. `POST /auth/challenge { username }` returns a nonce (5 minutes, single use).
+2. The user signs it with the posting key (`requestSignBuffer` in Keychain,
+   `signMessage(msg, 'posting')` in Aioha).
+3. `POST /auth/verify { username, challenge, signature }` returns `{ token }`, a
+   24 h HS256 JWT. A signature by an account the user granted posting authority to
+   (for example a custodial service account) is also accepted.
 
-## Authentication
+`loginWithKeychain(client, user)`, `loginWithAioha(client, aioha, user?)` and
+`loginWithSignFn(client, user, sign)` in `@snapie/hangouts-core` do all three steps
+and set the token on the client. `GET /auth/me` checks a stored token.
 
-### Option A — Hive Keychain (browser extension only)
-
-```ts
-import { loginWithKeychain } from '@snapie/hangouts-core';
-const session = await loginWithKeychain(apiClient, 'alice');
-// { token: string, username: string }
-```
-
-Or in React via `useHangoutsAuth()`:
-```ts
-const { login } = useHangoutsAuth();
-await login('alice');  // opens Keychain popup
-```
-
-### Option B — Aioha (recommended for production)
-
-Pass your Aioha instance to `<HangoutsProvider aioha={aioha}>`.
-`useHangoutsAuth().login()` will use `aioha.signMessage()` automatically.
-Boost transfers use `aioha.transfer()`.
-Supported providers: Keychain, HiveAuth, PeakVault, MetaMask Snap, Ledger.
-
-```ts
-import { loginWithAioha } from '@snapie/hangouts-core';
-// aioha must already have an active session (user logged in via Aioha's own flow)
-const session = await loginWithAioha(apiClient, aioha);
-```
-
-### Option C — Custodial (Google login / server-held keys)
-
-Implement the `AiohaLike` interface and pass it as `aioha`:
+A custodial login (keys held by your backend) is an `AiohaLike` adapter passed as
+`aioha` to the provider:
 
 ```ts
 import type { AiohaLike } from '@snapie/hangouts-core';
 
-const custodialAdapter: AiohaLike = {
+const custodial: AiohaLike = {
   getCurrentUser: () => username,
   isLoggedIn: () => true,
-
-  // Called during login — sign the server's challenge with the posting key
+  // Login: sign the challenge with the posting key on your backend.
   signMessage: async (message) => {
     const res = await fetch('/api/custodial/sign', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, message }),
     });
-    const { signature } = await res.json();
-    return { success: true, result: signature };
+    return { success: true, result: (await res.json()).signature };
   },
-
-  // Called when the user sends a boost — optional if app has no boosts
+  // Boosts (optional): send the transfer for the user.
   transfer: async (to, amount, currency, memo) => {
     const res = await fetch('/api/custodial/transfer', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ from: username, to, amount, currency, memo }),
     });
     return res.ok ? { success: true } : { success: false, error: await res.text() };
   },
 };
-
-// <HangoutsProvider aioha={custodialAdapter} ...>
+// <HangoutsProvider aioha={custodial} ...>
 ```
 
-### Option D — Custom sign function
+Suspended accounts (`banned: true` in `embed-users`) get 403 on every route with
+the ban check.
 
-```ts
-import { loginWithSignFn } from '@snapie/hangouts-core';
-const session = await loginWithSignFn(apiClient, 'alice', async (message) => {
-  return mySigningBackend.sign(message);  // return hex signature string
-});
-```
+## Rooms, roles and identities
 
-### Auth flow (all paths)
+- Room name: `<host>-<7 random chars>`. Rooms close 300 s after the last person leaves.
+- Visibility: `public` (listed, guests welcome), `hive-internal` (listed, Hive
+  accounts only: `/listen` and the chat backlog refuse anonymous callers),
+  `unlisted` (not in `/rooms` or `/streams`, guests with the link welcome).
+- Role is derived on the client: `host` if identity equals `meta.host`, `speaker`
+  if the participant can publish, else `listener`.
+- LiveKit tokens last 6 h (12 h for silent OBS observers).
 
-1. `POST /auth/challenge` → `{ challenge, expires }`
-2. Sign `challenge` with the user's Hive posting key
-3. `POST /auth/verify` → `{ token, username }` — this JWT goes on all subsequent requests as `Authorization: Bearer <token>`
+| Identity | Who |
+|---|---|
+| `<hive account>` | A signed-in user (host, speaker, viewer). |
+| `<account>~watch` | The host or the on-air guest on a second device: watch only, so the device that broadcasts is not kicked. The answer has `liveElsewhere: true`. |
+| `guest-<12 chars>` | Anonymous viewer from `/listen`. Can chat and raise a hand. Can be promoted, kicked, or IP-banned per room. At most `MAX_GUESTS_PER_ROOM` (50) on WebRTC per room. |
+| `obs-<8 chars>` | Silent observer for the OBS browser-source overlay (no data, hidden from counts). |
+| `obs-ingress-<room>` | The studio's WHIP source (OBS or phone screen). |
+| `obs-battle-<host>` | The hidden link viewer a studio opens into the other room during a battle. |
 
----
+Every `obs-*` identity is left out of viewer counts.
 
-## useHangoutsAuth() hook
+**Guests can chat.** `/listen` gives guests `canPublishData`, and the chat backlog
+accepts a guest's line when it carries the guest's room token. To make chat
+read-only for guests in your UI, pass `readOnly` (and `readOnlyNotice`) to `ChatPanel`.
+Polls, predictions, boosts and raids settings need a Hive account.
 
-```ts
-const {
-  username,           // string | null
-  isAuthenticated,    // boolean
-  canSignIn,          // true if aioha present OR Keychain installed
-  isAiohaAvailable,   // true when aioha prop was passed to HangoutsProvider
-  isKeychainAvailable,// true when window.hive_keychain exists
-  login,              // (username?: string) => Promise<void>
-  logout,             // () => void
-  isLoading,          // boolean
-  error,              // string | null
-} = useHangoutsAuth();
-```
+Moderation: the host can promote, demote, kick, ban guests and appoint moderators
+(`meta.mods`, Hive accounts only). Moderators can kick, ban guests and delete chat lines.
 
----
+## Room metadata
 
-## HangoutsRoom props
+LiveKit pushes `room.metadata` (one JSON object) to every participant on each
+change. The server writes it under a per-room lock (`mutateRoomMetadata`); clients
+never write it directly. Every participant can read all of it.
 
-```tsx
-<HangoutsRoom
-  roomName="alice-room-abc123"        // required
-  onLeave={() => {}}                  // called when user clicks Leave
-  onError={(err: Error) => {}}        // WebRTC error (show fallback UI)
-  embedded                            // removes min-height; fits in modals/panels
-  maxHeight="80vh"
-  video                               // enable camera + screen share (premium users)
-  guestFallback                       // unauthenticated viewers auto-join as listen-only
-  getShareUrl={(roomName, origin) =>  // build share URL; omit to hide the share button
-    `https://yourapp.com/rooms/${roomName}`
-  }
-  onAudioHandoff={(file) => {         // { blob, filename, duration (s), size (bytes) }
-    // upload to podcast/3speak/IPFS; omit to hide the audio Upload button
-  }}
-  onVideoHandoff={(file) => {         // same shape
-    // upload to video platform; omit to hide the video Upload button
-  }}
-/>
-```
+| Field | Type | Meaning |
+|---|---|---|
+| `title`, `description`, `host`, `createdAt`, `backgroundImage` | | Set at create. `host` changes on a host transfer. |
+| `visibility` | `public \| hive-internal \| unlisted` | Access tier. `allowGuests` mirrors it for older rooms. |
+| `mode` | `conference \| standalone` | Room kind. |
+| `language`, `origin` | string | BCP-47 tag; hostname of the site that created the room. |
+| `post` | `{ title, thumbnail, description, tags }` | Feed card of a stream. |
+| `liveAt` | ISO | First go-live, server clock. Anchor for chat, poll and clip timecodes. |
+| `broadcasting` | boolean | Actually on air (Start/Resume true, Pause false; studio heartbeat every 15 s). |
+| `willPublishVod`, `portrait` | boolean | A VOD is coming; the broadcast is 9:16. |
+| `collabGuest` | string | The one on-air guest of a stream. |
+| `mods` | string[] | Moderators. |
+| `boost` | `{ enabled, minBoostUsd, creatorPayoutAccount, goal, tiers, alerts, presets }` | Host's boost settings. |
+| `boostStats` | `{ count, totalHbd, goalHbd, supporters[], goalReachedAt, goalReachedFor }` | Tally, written only by the boost listener. |
+| `battle` | Battle object | The running battle, the same object in both rooms. |
+| `captions` | `{ lang }` | Captions are on (viewers show the CC button). |
+| `vertical` | `{ on, x, w, follow, track }` | The host's 9:16 crop. |
+| `recordLayout`, `focusedIdentity`, `suppressScreenAutoFocus`, `chatOpen` | | Conference view state, so the recorder shows what the host sees. |
+| `recordBg`, `streamBg` | string | Backgrounds for the egress templates. |
+| `headless`, `templateId`, `watermark`, `whipSession` | | OBS-driven stream (see Templates). |
+| `podcastLive` | | A podcast recording runs (`/streams` shows `podcast: true`). |
+| `eventId` | string | Room started from a scheduled event. |
 
----
+Participant metadata and attributes are not used. Display names come from the token
+`name`.
 
-## RoomLobby props
+## Data channel topics
 
-```tsx
-<RoomLobby
-  onJoinRoom={(roomName: string) => {}}
-  onRoomCreated={(room: Room, opts: { notifyOnHive: boolean }) => {}}
-  allowGuestBrowse   // show room list + join-as-guest to unauthenticated users
-/>
-```
+All messages are UTF-8 JSON, sent reliable unless noted. In React use
+`useDataChannel(topic, cb)` from `@livekit/components-react`, or the SDK hooks.
 
----
+| Topic | Sent by | Message |
+|---|---|---|
+| `chat` | any participant (`useChat`) | `{ type: 'chat', identity, name, text, timestamp }`. Line id = `${identity}-${timestamp}`. |
+| `chat` | server | `{ type: 'chat-delete', id }` (mod delete), `{ type: 'chat-purge', identity }` (guest ban), `{ type: 'system', id, identity, name, text, timestamp, system: { kind: 'raid', from, viewers } }` (raid arrives). |
+| `hand-raise` | any participant | `{ type: 'hand_raise', raised, identity, timestamp }` |
+| `boost` | server (boost listener) | `{ type: 'boost', id, room, sender, displayName?, message, amount, asset: 'HIVE'\|'HBD', usdAmount, feeAmount, payoutAmount, recipient, txId, blockNum, timestamp, belowMinimum? }` |
+| `poll` | server, about 1/s per room at most | `{ type: 'poll', poll: PollView }` |
+| `raid` | server | `{ type: 'raid-start'\|'raid-go'\|'raid-cancel', raid: { id, from, target: { roomName, host, title }, viewers, endsAt, endsInMs } }` |
+| `captions` | host studio | `{ t: 'cap', id, text, final, lang }`. Partials lossy (at most every 400 ms), finals reliable. Viewers drop lines not sent by `meta.host`. |
+| `game` | server | `game:started`, `game:state`, `game:broadcast`, `game:feedback`, `game:ended` (each with `serverTime`). Moves go over HTTP. |
+| `draw` | Fast Draw drawer, lossy | `{ type: 'draw_stroke', stroke }` or `{ type: 'draw_clear' }` |
+| `volume` | any participant | `{ type: 'volume', identity, volume, timestamp }` |
 
-## React hooks reference
+Battles, boost goals, captions state and the vertical crop live in room metadata,
+not on a topic.
+
+The server does not inspect data packets; LiveKit relays them to anyone with
+`canPublishData`. Treat a client-sent message as a claim. The only checked chat copy
+is the backlog (`POST /rooms/:name/chat` binds the identity to the session or room
+token). If you build your own listeners for server topics (`boost`, `poll`, `raid`),
+check that the packet has no participant sender (`participant` is undefined for
+server messages).
+
+## SDK packages
+
+| Package | Version | Use |
+|---|---|---|
+| `@snapie/hangouts-core` | 0.16.0 | No dependencies. `HangoutsApiClient`, `HangoutsApiError`, login helpers, types, track names. Use it without React or on a server. |
+| `@snapie/hangouts-react` | 0.27.0 | Peer deps: `react` 18 or 19, `livekit-client` 2, `@livekit/components-react` 2. Re-exports most of core. |
+
+Styles: `import '@snapie/hangouts-react/src/styles/hangouts.css'` (one file, it
+imports the rest). Classes use the `hh-` prefix, colours the `--hh-*` variables.
+Theme: `data-hh-theme="light|dark"` on an ancestor, or the provider's `theme` prop.
+
+### Core client
+
+`new HangoutsApiClient({ baseUrl, premiumBaseUrl? })`, then `setSessionToken(token)`.
+Errors throw `HangoutsApiError` with `status` and `body`. Methods cover auth, rooms
+(`listRooms`, `getRoom`, `createRoom`, `joinRoom`, `listenAsGuest`, `joinAsObserver`,
+`deleteRoom`, `transferHost`, `setRoomLayout`, `setRoomViewState`), moderation
+(`setPermissions`, `kickParticipant`, `banGuest`, `setModerator`), recording
+(`startRecording`, `stopRecording`, `getRecordingStatus`, `setRecordingLayout`,
+`fetchRecordingFile`, `uploadRecording`), DVR (`startDvr`, `stopDvr`, `clipDvr`,
+`dvrStatus`), restream (`startStream`, `stopStream`, `getStreamStatus`), streams
+(`updateStreamPost`, `setBroadcasting`, `startWhipIngress`, `stopWhipIngress`),
+boosts (`getBoostConfig`, `updateBoostConfig`), events and presence, games, and Pro
+(`getPremiumStatus`, `listPremiumUsers`, `startProTrial`). Newer routes (chat backlog,
+polls, raids, battles, captions, overlays, vertical, highlights, rewind, podcast) are
+called by the React SDK with `fetch`; use the routes directly from other clients.
+
+Track names (`tracks.ts`): `studio-program` (the composited video), `studio-mix`
+(the program audio), `studio-vertical` (optional 9:16 track), `host-monitor`
+(mix-minus for a guest or battle opponent).
+
+### Main React components
+
+| Component | Needs | Key props |
+|---|---|---|
+| `HangoutsProvider` | | `apiBaseUrl`*, `livekitServerUrl` (default `wss://livekit.3speak.tv`), `sessionToken`, `username`, `aioha`, `imageServerApiKey` (enables the image picker), `theme`, `premiumApiBaseUrl`, `pro` (VSC checkout config), `onRequestAuth` (lazy sign-in). |
+| `HangoutsRoom` | provider | `roomName`*, `onLeave`, `onEnded`, `onError`, `embedded`, `maxHeight`, `video`, `guestFallback`, `getShareUrl(room, origin)`, `notificationSounds` (true), `pushToTalk`, `obsBaseUrl` (`""` hides OBS), `onVideoHandoff` / `onAudioHandoff` (recording files to your uploader, conference rooms), `onGameEnd`, `onActiveGameChange`. Stream props passed to the studio: `onStreamStart(post)`, `onStreamVod(result)`, `renderPostExtras`, `canPublishVod`, `isUnlisted`, `watermarkLogoUrl`, `captions`, `phoneSourceLabels`, and `standaloneViewerEmbed` for the viewer. |
+| `RoomLobby` | provider | `onJoinRoom`*, `onRoomCreated(room, { notifyOnHive, announceType })` (you post the Hive announcement), `allowGuestBrowse`, `allowStandalone`, `createOnly`, `defaultMode`, `defaultCreateOpen`, `stepped`, `fetchRooms`, `renderAnnounceOptions`, `renderDescriptionEditor`, `renderStandaloneExtras`, `labels`, `stepLabels`, `locale`, `isPremium`, `upsellPerks`. |
+| `StandaloneStudio` | inside `LiveKitRoom` + `BoostStoreProvider` (HangoutsRoom does this) | `roomName`*, `title`*, `onEndRoom`*, `onClose`, `shareUrl`, `initialPost`, `onStreamStart`, `onStreamVod`, `canPublishVod`, `isUnlisted`, `watermarkLogoUrl`, `obsBaseUrl`, `captions`, `phoneSourceLabels`, `isPremium`. |
+| `StandaloneWatch` | provider | `roomName`*, `children`*, `connecting`, `audioMuted`, `onRaid(target)`, `liveLabels`. Joins by itself (signed in or guest) and provides the stream context to its children. |
+| `StreamVideo`, `StreamViewerCount`, `StreamQualityControl`, `StreamCaptions`, `StreamPollCard`, `StreamBoostGoal`, `StreamBattleBar`, `RaidBanner`, `CollabRequest`, `ChatPanel` | inside `StandaloneWatch` | Building blocks of a watch page. `StreamVideo`: `format: 'landscape'\|'vertical'\|'auto'`, `showLiveBadge`, `showBoostGoal`, `showBattle`. `ChatPanel`: `readOnly`, `readOnlyNotice`, `onMessageSent(text)`, `showPolls`. |
+| `StandaloneViewer` | inside `LiveKitRoom` | The ready-made full viewer HangoutsRoom uses: `roomName`, `title`, `hostIdentity`, `onLeave`, `isGuest`, `boostConfig`, `embed`. |
+| `StandaloneObsOverlay` | none | `serverUrl`, `token` (an `obs-` token), `hostIdentity`. A transparent browser source for OBS. |
+| `PodcastRecordControls` | inside a conference room | `roomName`, `onAudioHandoff(file)`. Shown by `RoomControls` for the host. |
+| Boosts | | `SendBoostDialog`, `BoostOverlay`, `BoostAlerts`, `BoostHistoryPanel`, `BoostSettingsPanel`, `BoostTopSupporters`. |
+| Pro | | `ProPlans`, `ProUpsellDialog`, `SubscriberTicker`. |
+| Conference parts | inside `LiveKitRoom` | `SpeakerStage`, `AudienceSection`, `RoomControls`, `ParticipantTile`, `HostControlsPanel`, `RoomHeader`, `GamePanel`. |
+
+### Main hooks
 
 | Hook | Returns |
-|------|---------|
-| `useHangoutsAuth()` | `{ login, logout, username, isAuthenticated, canSignIn, isAiohaAvailable, isLoading, error }` |
-| `useHangoutsRoom()` | `{ join, create, listen, leave, isGuest, roomMeta, transferHost, setLayout, setViewState }` |
-| `useLiveHost(fallback?)` | `{ host: string, isLocalHost: boolean }` — updates live when host transfers |
-| `useRoomList()` | `Room[]` — polls every 10s; server filters unlisted rooms |
-| `useEventList(opts?)` | `{ events, isLoading, error, refetch }` — polls upcoming/live events; see Events section |
-| `useUserPresence(username, opts?)` | `{ presence, isLoading, error, refetch }` — polls whether a user is currently live |
-| `useChat()` | `{ messages, sendMessage }` |
-| `useBoosts()` | `{ boosts: BoostEvent[] }` — subscribes to `boost` LiveKit data topic |
-| `useHandRaise()` | `{ raised, toggle, raisedParticipants }` |
-| `useHostControls()` | `{ promote, demote, kick, ban }` |
-| `useRecording()` | `{ start, stop, status, isRecording, fetchFile }` |
-| `useHiveAvatar(username)` | `string \| null` — Hive profile picture URL |
-
----
-
-## Server API endpoints
-
-All endpoints on the Fastify server. "Host" auth = Bearer JWT + must be the room host.
-
-### Auth
-| Method | Path | Auth | Body | Returns |
-|--------|------|------|------|---------|
-| POST | `/auth/challenge` | No | `{ username }` | `{ challenge, expires }` |
-| POST | `/auth/verify` | No | `{ username, challenge, signature }` | `{ token, username }` |
-
-### Rooms
-| Method | Path | Auth | Notes |
-|--------|------|------|-------|
-| GET | `/rooms` | No | Lists all non-unlisted rooms |
-| GET | `/rooms/:name` | No | Single room |
-| POST | `/rooms` | Bearer | Body: `{ title, description?, backgroundImage?, visibility?, language?, boost? }` |
-| POST | `/rooms/:name/join` | Bearer | Returns `JoinRoomResponse` |
-| POST | `/rooms/:name/listen` | No | Guest token. Rate-limited: 10/5min per IP. Rejected for `hive-internal` rooms. Body: `{ displayName? }` or `{ silent: true }` for OBS observer |
-| POST | `/rooms/:name/host` | Host | Body: `{ newHost }` — live host transfer |
-| PATCH | `/rooms/:name/layout` | Host | Body: `{ layout: 'speaker'\|'grid'\|'single' }` |
-| DELETE | `/rooms/:name` | Host | Ends the room |
-
-### Participants
-| Method | Path | Auth | Notes |
-|--------|------|------|-------|
-| PATCH | `/rooms/:name/participants/:id/permissions` | Host | Body: `{ canPublish: boolean }` — promote/demote |
-| DELETE | `/rooms/:name/participants/:id` | Host | Kick |
-| POST | `/rooms/:name/participants/:id/ban` | Host | Ban guest (IP-scoped, guest-* only) |
-
-### Recording
-| Method | Path | Auth | Notes |
-|--------|------|------|-------|
-| POST | `/rooms/:name/record/start` | Host | Body: `{ mode?: 'audio'\|'video', layout?: 'speaker'\|'grid'\|'single' }` |
-| POST | `/rooms/:name/record/stop` | Host | Returns `{ downloadToken }` |
-| GET | `/rooms/:name/record/file/:token` | Host | Streams the file; use `fetchRecordingFile()` SDK method |
-| GET | `/rooms/:name/record/status` | Host | `{ recording, egressId?, mode?, layout? }` |
-| PATCH | `/rooms/:name/record/layout` | Host | Switch layout mid-recording (video only) |
-
-### Streaming
-| Method | Path | Auth | Notes |
-|--------|------|------|-------|
-| POST | `/rooms/:name/stream/start` | Host | Body: `{ platform: 'youtube'\|'twitch', streamKey, backgroundImageUrl?, videoEnabled? }` |
-| POST | `/rooms/:name/stream/stop` | Host | |
-| GET | `/rooms/:name/stream/status` | Host | `{ streaming, egressId }` |
-
-### Boosts
-| Method | Path | Auth | Notes |
-|--------|------|------|-------|
-| GET | `/boosts/config` | No | `{ enabled, platformAccount, feePercent }` |
-| PATCH | `/rooms/:name/boost` | Host | Update room boost config |
-
-### Chat backlog, polls and predictions, raids
-Chat still travels over the LiveKit data channel; the sender also posts its copy so the server can keep the
-last `CHAT_BACKLOG_SIZE` (300) lines per room (memory ring, batched Mongo copy `chat-backlog`, TTL 1 day).
-Live updates reach clients on data topics: `poll` (`{ type: 'poll', poll }`), `raid` (`raid-start` / `raid-go` /
-`raid-cancel`), and on `chat`: `chat-delete { id }`, `chat-purge { identity }`, `system { system: { kind: 'raid', from, viewers } }`.
-
-| Method | Path | Auth | Notes |
-|--------|------|------|-------|
-| GET | `/rooms/:name/chat` | No (Bearer on Hive-only rooms) | `{ messages }` newest lines, oldest first; `?limit=` |
-| POST | `/rooms/:name/chat` | Bearer, or `livekitToken` in the body for a guest | Body: `{ text, timestamp, identity?, name? }` |
-| DELETE | `/rooms/:name/chat/:id` | Host or mod | Removes the line from the backlog and every client |
-| GET | `/rooms/:name/polls/active` | Optional | `{ poll, myVote?, myStake?, balance? }` |
-| GET | `/rooms/:name/polls` | No | Finished polls of a stream (for its VOD), `offset` = seconds into the stream |
-| POST | `/rooms/:name/polls` | Host | Body: `{ kind: 'poll'\|'prediction', question, options (2-4, prediction 2), durationSec }` |
-| POST | `/rooms/:name/polls/:id/vote` | Bearer | `{ option }`, one vote per Hive account |
-| POST | `/rooms/:name/polls/:id/stake` | Bearer | `{ option, amount }` channel points (not money), not the host |
-| POST | `/rooms/:name/polls/:id/end` \| `resolve` \| `cancel` | Host | `resolve` body `{ winner }`: winners split the pot by stake |
-| GET | `/points/:channel` | Bearer | `{ channel, balance }` (start `POINTS_START`, 1000) |
-| GET | `/rooms/:name/raid/targets` | Host | Public live streams that accept raids, `{ targets, cooldownUntil }` |
-| GET | `/rooms/:name/raid` | No | The raid counting down here, if any |
-| POST | `/rooms/:name/raid` | Host | `{ target }`: `RAID_COUNTDOWN_SEC` (10) countdown, one raid per `RAID_COOLDOWN_MIN` (10) per host |
-| DELETE | `/rooms/:name/raid` | Host | Call it off during the countdown |
-| GET / PUT | `/raids/settings` | Bearer | `{ acceptRaids }` incoming raids on or off |
-
-SDK: `ChatPanel` shows the backlog, the raid line and `<StreamPollCard>` (prop `liveLabels`); `StandaloneWatch`
-takes `onRaid(target)` + `liveLabels` and shows `<RaidBanner>`; the studio has a Live tab (`StudioLivePanel`).
-
-### Events
-All event endpoints that require auth use `Authorization: Bearer <token>`.
-
-| Method | Path | Auth | Notes |
-|--------|------|------|-------|
-| GET | `/events` | No | List events. Query: `?status=scheduled&host=alice&limit=20`. Default returns `scheduled` + `live`. |
-| GET | `/events/:id` | No | Single event by MongoDB ObjectId |
-| POST | `/events` | Bearer | Create. Body: `{ title, scheduledAt, description?, coverImage?, tags?, visibility? }`. `scheduledAt` must be future ISO datetime. Returns 201. |
-| PATCH | `/events/:id` | Bearer (host) | Update. Same optional fields as POST. Only allowed while `status === 'scheduled'`. |
-| DELETE | `/events/:id` | Bearer (host) | Cancel/end. `scheduled → cancelled`, `live → ended`. Idempotent if already terminal. Returns 204. |
-| POST | `/events/:id/attend` | Bearer | Mark attending. Idempotent. Returns `{ attendees, attendeeCount }`. |
-| DELETE | `/events/:id/attend` | Bearer | Unattend. Idempotent. Returns `{ attendees, attendeeCount }`. |
-| POST | `/events/:id/start` | Bearer (host) | Creates the LiveKit room, marks event `live`, returns `{ event, room, token, isPremium }`. |
-
-### Presence
-Public endpoints — no auth, CORS open. Suitable for embedding in any frontend.
-
-| Method | Path | Auth | Notes |
-|--------|------|------|-------|
-| GET | `/presence/:username` | No | `{ online: false }` or `{ online: true, roomName, roomTitle, role: 'host'\|'speaker'\|'listener' }` |
-| POST | `/presence/bulk` | No | Body: `{ usernames: string[] }` (max 50). Returns `Record<username, UserPresence>`. Rate-limited: 20/min. |
-
----
-
-## Events & Presence
-
-### Scheduling an event (host flow)
-
-```ts
-import { HangoutsApiClient } from '@snapie/hangouts-core';
-
-// Create
-const event = await apiClient.createEvent({
-  title: 'Weekly AMA',
-  scheduledAt: '2026-06-20T18:00:00Z',
-  description: 'Ask me anything about Hive',
-  visibility: 'public',
-  tags: ['ama', 'hive'],
-});
-
-// Start — creates the LiveKit room and returns a host token
-const { token, room } = await apiClient.startEvent(event.id);
-// join the room with `token` via the normal LiveKit flow
-```
-
-### RSVP / attendance (any Hive user)
-
-```ts
-await apiClient.attendEvent(event.id);   // mark attending
-await apiClient.unattendEvent(event.id); // remove
-```
-
-### Upcoming events widget (React, no auth needed)
-
-```tsx
-import { useEventList } from '@snapie/hangouts-react';
-
-function UpcomingHangouts() {
-  const { events, isLoading } = useEventList({ limit: 5 });
-  if (isLoading) return <p>Loading...</p>;
-  return (
-    <ul>
-      {events.map(e => (
-        <li key={e.id}>
-          <strong>{e.title}</strong> by {e.hostUsername}
-          — {new Date(e.scheduledAt).toLocaleString()}
-          — {e.attendeeCount} attending
-          {e.status === 'live' && <span> 🔴 LIVE</span>}
-        </li>
-      ))}
-    </ul>
-  );
-}
-```
-
-### Upcoming events without React (plain fetch, zero deps)
-
-```ts
-// Any frontend — no SDK, no auth required
-const events = await fetch('https://your-api.example.com/events?limit=5')
-  .then(r => r.json());
-// events[0] = { id, title, hostUsername, scheduledAt, attendeeCount, status, ... }
-```
-
-### User presence badge (React)
-
-```tsx
-import { useUserPresence } from '@snapie/hangouts-react';
-
-function LiveBadge({ username }: { username: string }) {
-  const { presence } = useUserPresence(username);
-  if (!presence?.online) return null;
-  return <span>🔴 Live in "{presence.roomTitle}" as {presence.role}</span>;
-}
-```
-
-### Bulk presence (plain fetch, for "who's live" feeds)
-
-```ts
-const result = await fetch('https://your-api.example.com/presence/bulk', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ usernames: ['alice', 'bob', 'carol'] }),
-}).then(r => r.json());
-// { alice: { online: true, roomName: '...', role: 'host' }, bob: { online: false }, ... }
-```
-
----
-
-## Key TypeScript types
-
-```ts
-type RoomVisibility = 'public' | 'hive-internal' | 'unlisted'
-// public    — listed, guests allowed
-// hive-internal — listed, Hive accounts only (no guest tokens)
-// unlisted  — hidden from lobby, link-only, guests allowed
-
-interface Room {
-  name: string; title: string; host: string
-  description?: string; backgroundImage?: string
-  numParticipants?: number; createdAt: string
-  origin?: string        // hostname that created the room ("3speak.tv", "snapie.io")
-  visibility?: RoomVisibility; language?: string; boost?: BoostConfig
-}
-
-interface BoostConfig {
-  enabled: boolean; minBoostUsd: number; creatorPayoutAccount?: string
-}
-
-interface JoinRoomResponse {
-  token: string; roomName: string; identity: string
-  isHost: boolean; isPremium?: boolean; isGuest?: boolean
-}
-
-interface AuthSession { token: string; username: string }
-
-interface RecordingFileResult {
-  blob: Blob; filename: string; duration: number; size: number
-}
-
-interface BoostEvent {
-  type: 'boost'; id: string; room: string; sender: string
-  displayName?: string; message: string
-  amount: string; asset: 'HIVE' | 'HBD'; usdAmount: number
-  feeAmount: string; payoutAmount: string; recipient: string
-  txId: string; blockNum: number; timestamp: number
-  belowMinimum?: boolean   // below host's minBoostUsd; overlay suppressed, shown in history
-}
-
-class HangoutsApiError extends Error {
-  status: number    // HTTP status code
-  body?: unknown    // raw server response
-}
-
-type EventStatus = 'scheduled' | 'live' | 'ended' | 'cancelled'
-type EventVisibility = 'public' | 'unlisted'
-
-interface HangoutsEvent {
-  id: string              // MongoDB ObjectId hex string
-  title: string
-  description?: string
-  hostUsername: string
-  scheduledAt: string     // ISO datetime
-  coverImage?: string     // URL
-  tags?: string[]
-  attendees: string[]     // Hive usernames
-  attendeeCount: number
-  status: EventStatus
-  roomName?: string       // set when host starts the event (status = 'live')
-  visibility: EventVisibility
-  createdAt: string
-  updatedAt: string
-}
-
-interface UserPresence {
-  online: boolean
-  roomName?: string
-  roomTitle?: string
-  role?: 'host' | 'speaker' | 'listener'
-}
-
-interface StartEventResponse {
-  event: HangoutsEvent
-  room: Room
-  token: string           // LiveKit token — pass to LiveKit's connect()
-  isPremium?: boolean
-}
-```
-
----
-
-## Identity prefixes
-
-| Prefix | Meaning |
-|--------|---------|
-| `alice` (plain username) | Authenticated Hive account |
-| `guest-{random}` | Unauthenticated guest — listen-only, cannot be promoted, can be IP-banned |
-| `obs-{random}` | OBS overlay observer — invisible in participant lists, no cap/ban logic |
-
----
-
-## Guest listener constraints
-
-- Rate-limited: **10 tokens / 5 minutes per IP**
-- Per-room guest cap enforced server-side (default 50)
-- Cannot chat, raise hand, or be promoted to speaker
-- Chat panel shows a "sign in to chat" prompt
-- `hive-internal` rooms reject guest tokens entirely
-- Guest token TTL: **2 hours**
-
----
-
-## Boost system
-
-Boosts are on-chain HIVE/HBD transfers to the platform account with a JSON memo.
-The server watches the Hive stream, validates transfers, splits the payout, and
-broadcasts a `BoostEvent` to all room participants via the `boost` LiveKit data topic.
-
-### Memo format
-
-```json
-{
-  "version": 1,
-  "room": "alice-room-abc123",
-  "message": "Great show!",
-  "sender": "bob",
-  "nonce": "1717000000000-abc123",
-  "displayName": "Bob"
-}
-```
-
-`version`, `room`, `message`, `sender`, `nonce` are required.
-
-### How the transfer happens
-
-1. Client calls `aioha.transfer(platformAccount, amount, currency, memo)` — or the built-in `SendBoostDialog` handles this automatically.
-2. Server detects the on-chain transfer, validates the memo, deduplicates by `nonce`.
-3. Server sends payout (minus platform fee) to `creatorPayoutAccount`.
-4. Server broadcasts `BoostEvent` to the room's LiveKit data channel.
-5. All participants receive it via `useBoosts()` and the overlay fires.
-
----
-
-## Room visibility and `origin`
-
-- `Room.origin` is set from the `Origin` header of the create request.
-- Use it in `getShareUrl` to build share links that return the recipient to the same app:
-
-```tsx
-getShareUrl={(roomName, origin) => {
-  if (origin === 'snapie.io') return `https://snapie.io/rooms/${roomName}`;
-  if (origin === '3speak.tv') return `https://3speak.tv/openpods/${roomName}`;
-  return `https://hangout.3speak.tv/room/${roomName}`;
-}}
-```
-
----
-
-## Recording handoff pattern
-
-The SDK never uploads for you. On stop, a 3-button dialog appears (Upload / Download / Dismiss).
-Upload calls the handoff callback you supply:
-
-```tsx
-onAudioHandoff={(file) => {
-  // file: { blob: Blob, filename: string, duration: number, size: number }
-  const form = new FormData();
-  form.append('file', file.blob, file.filename);
-  await fetch('https://audio.3speak.tv/upload', { method: 'POST', body: form });
-}}
-```
-
-Omit the callback to hide the Upload button for that mode.
-
----
+|---|---|
+| `useHangoutsAuth()` | `{ username, isAuthenticated, login(user?), logout(), isLoading, error, canSignIn }` |
+| `useHangoutsRoom()` | `{ livekitToken, roomName, roomMeta, isHost, isGuest, delivery, hlsUrl, create(...), join(room, { hlsCapable, delivery }), listen(room, name?, opts), leave(), endRoom(), transferHost(), setLayout() }` |
+| `useRoomList(fetch?)` | `{ rooms, isLoading, error, refresh }`, polls every 10 s |
+| `useChat()` | `{ messages, sendMessage(text) }`, merges the backlog on connect |
+| `useHandRaise()`, `useHostControls(room)` | hand raising; `promote`, `demote`, `kick`, `ban`, `setModerator`, `endRoom` |
+| `usePolls(room)`, `useRaid(room)` | live poll with `vote`, `stake`, host `create/end/resolve/cancel`; the raid counting down |
+| `useBoostStore()`, `useBoosts()`, `useRoomBoost()`, `useBoostAlerts()` | boost events; goal, tally and settings from metadata; chime and TTS |
+| `useRoomBattle()`, `useStudioBattle()` | battle state for viewers; invite/respond/end for the studio |
+| `useLiveCaptions()`, `useStudioCaptions()` | captions for viewers; the studio's caption session |
+| `useWhipIngress(room)` | `start({ transcode, source: 'obs'\|'phone' })`, `stop()`, `info` |
+| `useRecording(room)`, `useStreaming(room)` | conference recording; restream to YouTube/Twitch |
+| `usePremiumStatus(user?)`, `useProTrial()` | Pro status; the one-time trial |
+| `useEventList()`, `useUserPresence(user)` | events; is a user in a room now |
+| `useStreamContext()`, `useStreamLive()`, `useStreamFormats()` | inside `StandaloneWatch` |
+| `useChess`, `useFastDraw`, `useWordGuess` | games |
+
+Every hook that touches LiveKit must run under a `LiveKitRoom` (HangoutsRoom and
+StandaloneWatch provide one).
 
 ## Theming
 
-CSS custom properties. Set on a wrapper element:
+The SDK colours come from CSS variables. The theme follows `prefers-color-scheme`
+unless an ancestor has `data-hh-theme="light"` or `"dark"`, or the provider gets
+`theme`. The resolved theme is mirrored onto `document.body` so dialogs rendered in
+portals follow it.
 
 ```css
-[data-hh-theme="dark"] {
-  --hh-bg: #1a1a2e;
-  --hh-text: #e2e2e2;
-  --hh-primary: #6c63ff;
-  --hh-surface: #16213e;
-  --hh-border: #2a2a4a;
+/* your brand, for every OpenPods component inside .my-app */
+.my-app {
+  --hh-primary: #0066ff;
+  --hh-primary-hover: #0052cc;
+  --hh-bg: #f9f9f9;
 }
 ```
 
-Auto-detects system preference. Override with `data-hh-theme="dark"` or `data-hh-theme="light"`.
+| Variables | Use |
+|---|---|
+| `--hh-bg`, `--hh-bg-secondary`, `--hh-bg-hover`, `--hh-surface` | backgrounds |
+| `--hh-text`, `--hh-text-secondary`, `--hh-text-muted` | text |
+| `--hh-border`, `--hh-border-light`, `--hh-input-border`, `--hh-shadow` | lines and depth |
+| `--hh-primary`, `--hh-primary-hover`, `--hh-accent` | brand and highlights |
+| `--hh-btn-secondary-bg`, `--hh-btn-secondary-hover`, `--hh-btn-secondary-text` | secondary buttons |
+| `--hh-danger`, `--hh-success` | states |
+| `--hh-pro-gold`, `--hh-pro-gold-soft`, `--hh-pro-gold-strong` | Pro badges and upsells |
 
----
+Every class starts with `hh-`, so you can target any part (for example
+`.hh-chat`) without clashing with your own CSS.
+
+## The studio
+
+`StandaloneStudio` is the host's broadcast page for a `standalone` room. Everything
+is composited in the browser into one canvas and published as `studio-program`
+(video) and `studio-mix` (audio). Viewers, the VOD, the DVR and HLS all use that
+track, so whatever the host sees is what everyone gets.
+
+| Feature | How it works | Routes |
+|---|---|---|
+| Scenes | `cam`, `fullscreen` (one source), `overlay` (source plus a movable camera picture), `split` (side by side), `splitv` (stacked, used with a guest). The last setup is restored from browser storage. | |
+| Sources | Camera and mic, up to 4 screen shares, image, GIF and video files (100 MB), music files, extra audio inputs, all through a mixer with faders and meters. | |
+| OBS source (Pro) | A WHIP ingress joins as `obs-ingress-<room>`; the studio draws it as a source. | `POST /rooms/:name/ingress { source: 'obs' }` |
+| Phone or tablet screen (free) | The same ingress for a screen app such as Larix Screencaster: the dialog shows the WHIP URL and a QR code. | `POST /rooms/:name/ingress { source: 'phone' }` |
+| Quality | Low 640x360, medium 854x480, high 1280x720 (Pro). | |
+| Go live | Standby, live, paused. First live: `onStreamStart(post)`, `PATCH /live` (server stamps `liveAt`, applies the daily limit), VOD recording if chosen. `PATCH /broadcast` on every change and every 15 s. A reloaded studio resumes a stream that is still broadcasting. Caps: free 30 min, Pro 4 h. | `/post`, `/live`, `/broadcast` |
+| Collab guest | A viewer asks (`CollabRequest`, hand raise); the host approves one guest, who appears in `splitv` and hears `host-monitor`. | `PATCH .../permissions` |
+| Overlays | Lower third, ticker, countdown, fades, "be right back" slate with music. Drawn into the canvas. Up to 12 named templates saved per host. | `GET/PUT /studio/overlays` |
+| Vertical | `track` mode publishes a 9:16 `studio-vertical` track; `crop` mode only reports the crop so phone viewers crop themselves. Manual or following the camera or source. | `PATCH /rooms/:name/vertical` |
+| Stream health | Every 2 s: bitrate, fps, size, dropped frames, loss, RTT. "Auto" steps the quality down and up without republishing. Client only. | |
+| Live captions | Off unless the server has `CAPTIONS_ENABLED=true`. You supply the speech-to-text as `captions={{ source, languages }}`, where `source(track, { lang, onText, onStatus })` returns `{ stop() }`. Text goes out on `captions`; cues come back in `onStreamVod` for subtitles. | `/captions/*` |
+| Polls and predictions | Host runs them from the Live tab; viewers vote in `StreamPollCard`. | `/rooms/:name/polls*` |
+| Raids | Host picks a live stream; viewers get a countdown and `onRaid(target)` moves them. | `/rooms/:name/raid*` |
+| Battles | Invite another live studio for 3, 5 or 10 minutes; boosts decide. Each studio links into the other room and draws both halves. Not for OBS streams or with a guest on air. | `/battles/*` |
+| Boosts | Cards, goal bar, tiers (0, 1, 5, 20 HBD shown 15, 30, 60, 120 s), sound and TTS alerts, preset amounts, changeable mid-stream. | `PATCH /rooms/:name/boost` |
+| Restream, OBS output | Restream to YouTube or Twitch (Pro). "OBS output" makes a browser-source URL for `StandaloneObsOverlay`. | `/stream/*`, `/listen { silent }` |
+| DVR, clips, rewind | Pro: started automatically while live when the host allows clips. | `/dvr/*` |
+| Free watermark | Non-Pro streams carry a watermark drawn into the canvas (`watermarkLogoUrl`). | |
+
+## Watching a stream
+
+```tsx
+import {
+  HangoutsProvider, StandaloneWatch, StreamVideo, StreamViewerCount, ChatPanel,
+} from '@snapie/hangouts-react';
+
+<HangoutsProvider apiBaseUrl={API} livekitServerUrl={LIVEKIT} sessionToken={token} username={user}>
+  <StandaloneWatch roomName="badadib-k3x9q2a" onRaid={(t) => navigate(`/live/${t.roomName}`)}>
+    <StreamVideo format="auto" />
+    <StreamViewerCount />
+    <ChatPanel readOnly={!user} readOnlyNotice="Sign in to chat" />
+  </StandaloneWatch>
+</HangoutsProvider>
+```
+
+`StandaloneWatch` joins (signed in) or listens (guest), always says `hlsCapable`,
+moves to HLS when the server says so, and upgrades a guest connection once a session
+arrives. For discovery use `GET /streams`; for one stream `GET /rooms/:name`.
+
+## HLS delivery
+
+For big audiences the server moves viewers from WebRTC to HLS.
+
+- `HLS_VIEWER_THRESHOLD` (default `50`): the first 50 WebRTC viewers of a stream stay
+  on WebRTC, the next ones get HLS. `0` = everyone on HLS. Empty = HLS off (then
+  the guest cap refuses extra anonymous viewers with 409).
+- An HLS viewer still joins the LiveKit room (chat, boosts, polls, raids, viewer
+  count) but with `canSubscribe: false`, so it costs the SFU almost nothing. The join
+  answer has `delivery: 'hls'` and `hlsUrl`.
+- `HLS_WEAK_FALLBACK` (default on): a WebRTC viewer whose connection stays poor for
+  15 s may rejoin with `delivery: 'hls'` (the answer has `hlsFallback: true`).
+- One HLS egress per stream (2 s segments, one rendition at `HLS_VIDEO_BITRATE`),
+  started by the first HLS viewer, stopped 5 minutes after the last one.
+- `HLS_PUBLIC_BASE` puts a CDN in front (origin = this API's `/rooms/:name/hls/*`).
+  Playlists are cached 1 s, segments a day.
+- The host and the on-air guest always use WebRTC. Only standalone streams use HLS.
+
+## Recording, VOD, DVR, clips and rewind
+
+**Conference recording** (Pro): audio (64 kbps) or video with the speaker, grid or
+single layout, rendered by the egress template at `EGRESS_TEMPLATE_URL`. On stop
+the host gets a download token; the SDK hands the file to your `onAudioHandoff` /
+`onVideoHandoff` so you choose where to publish it.
+
+**Stream VOD**: the studio starts a recording of `studio-program` + `studio-mix`
+when the host chose "publish". On stop the server uploads the MP4 itself to the
+3Speak embed service as `{ owner: host, permlink: roomName }`, so the stream's
+watch link turns into the VOD once encoding is done. Poll
+`GET /rooms/:name/record/publish-status`. A crash watchdog publishes too when the
+host vanishes. Free hosts may publish a VOD of up to 30 minutes; the download copy
+is Pro.
+
+**DVR** (Pro, `DVR_ENABLED`): a second egress writes 2 s HLS segments and keeps the
+last `DVR_BUFFER_SEC` (150 by default) on disk.
+
+- **Clips**: any viewer can clip the last 30 s (`POST /rooms/:name/dvr/clip`).
+  Signed-in clippers are credited and their clips kept `CLIP_KEEP_HOURS` (48).
+- **Highlights**: chat and boost spikes in 20 s buckets become moments
+  (`HIGHLIGHTS_ENABLED`); while DVR runs each moment cuts an automatic clip. The
+  host sees them in `GET /rooms/:name/highlights`. `POST /clips/:id/vertical` makes
+  a 9:16 copy with the host's crop, ready for a Short.
+- **Rewind**: `GET /rooms/:name/dvr/rewind` gives viewers an HLS playlist of the
+  DVR window to seek back in while the stream is live.
+
+**Chat after the stream**: the backlog route answers only while the room exists.
+Replay against the VOD uses `meta.liveAt` as the time anchor, the lines your app
+saved (for example through `ChatPanel onMessageSent`), `GET /rooms/:name/polls`
+(each poll has `offset`) and the caption cues.
+
+## Record as podcast
+
+In a conference room the host (Pro) can record the show as a podcast episode
+(`PodcastRecordControls`, `PODCAST_RECORDING_ENABLED`). The server runs one audio
+track egress per speaker (no browser render), adds chapters when speakers join and
+when the host adds a marker, and on stop mixes one MP3. The answer has the mix, a
+file per speaker with its start offset (for an audio editor) and the chapters, all
+behind one-day links. While it records, `/streams` shows `podcast: true` so a
+podcast feed can announce a live item.
+
+## Templates and headless OBS streams
+
+A Pro user can go live from OBS alone, with no browser open:
+
+1. Create a template (`POST /templates`): title, description, thumbnail, tags,
+   language, visibility, boost settings, `recording: { publishVod, allowClips }`,
+   `announce: { enabled, community, declineRewards, rewardPowerup, beneficiaries }`.
+2. Get the streaming secret (`GET /stream-secret`).
+3. In OBS (30.2+): Service **WHIP**, Server `${PUBLIC_WHIP_BASE}/<owner>/<slug>`
+   (the template's `whipUrl`), Bearer Token = the secret.
+
+When OBS connects, the server creates the room (`headless: true`), connects the
+ingress as the host with the same track names the studio uses, stamps go-live,
+starts VOD and DVR as the template says, posts the Hive announcement through
+`ANNOUNCE_API_URL`, enforces the time cap and tears it all down when OBS stops.
+The LiveKit stream key never leaves the server: OBS talks to `/whip/s/<token>`.
+`GET /templates/:id/status` shows the state; `GET /overlay/:key` lets an OBS chat
+dock find the live room. A restart re-adopts streams whose ingress still publishes.
+
+## Pro and quotas
+
+Pro = `premium: true` on the account's row in `embed-users` (set by the 3Speak
+checker from a subscription, by the trial, or by hand). The SDK reads it from
+`GET /premium/:username`.
+
+| | Free | Pro |
+|---|---|---|
+| Streams per rolling 24 h | 1 (counts once it goes live, once per room; `STREAM_LIMIT_EXEMPT` skips it) | unlimited |
+| Stream length | 30 min | 4 h |
+| Stream VOD | yes, up to 30 min, no download | yes, with download |
+| Studio quality | up to 854x480 | up to 1280x720 |
+| OBS source and OBS templates | no (403 `pro_required`) | yes |
+| Phone screen source | yes | yes |
+| Conference recording, podcast recording | no | yes |
+| DVR, clips, highlights, rewind | no | yes |
+| Restream to YouTube/Twitch | no (402) | yes |
+| Watermark | yes | no |
+
+The one-time trial (`POST /premium/start-testing`) gives Pro for `PRO_TESTING_HOURS`
+(24) and is on unless `PRO_TESTING_ENABLED=false`. Over the daily limit, routes
+answer 429 `{ error: 'daily_stream_limit', message, retryAt }`.
+
+## Boosts
+
+A boost is a HIVE or HBD transfer to `BOOST_PLATFORM_ACCOUNT` with the memo
+`{"version":1,"room":"<room>","message":"<text>","sender":"<account>","nonce":"<6-128 chars>","displayName":"...","recipient":"<on-air guest>"}`.
+`SendBoostDialog` builds it and signs through Keychain or `aioha.transfer`.
+
+The server polls Hive, then for each transfer: parses the memo, checks the room
+and its boost settings, prices HIVE in USD (CoinGecko, `BOOST_HIVE_USD_*`), pays the
+host's `creatorPayoutAccount` (or the on-air guest the memo names) minus
+`BOOST_PLATFORM_FEE_PERCENT`, publishes a `boost` message and updates
+`meta.boostStats`. Transfers it cannot place (unknown room, boosts off, bad memo)
+are refunded to the sender. Boosts under `minBoostUsd` are paid but flagged
+`belowMinimum` (no overlay). Nothing runs unless `BOOSTS_ENABLED=true`.
+
+## Events and presence
+
+Scheduled events (`hangouts-events`) have a title, a time in the future, a cover,
+tags, visibility (`public` or `unlisted`) and attendees. `POST /events/:id/start`
+opens a conference room for the event and returns a host token. Events whose room
+has gone away are shown as ended. Presence (`GET /presence/:username`,
+`POST /presence/bulk`) says whether an account is in a room right now and in which
+role.
+
+## Server configuration
+
+All keys are read in `server/src/config.ts` (zod; the server exits on an invalid
+value). Required ones have no default.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `LIVEKIT_HOST` | required | LiveKit HTTP URL for the server SDK (e.g. `http://127.0.0.1:7880`). |
+| `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | required | LiveKit key pair (same pair in egress and ingress). |
+| `SESSION_SECRET` | required, 32+ chars | Signs session JWTs, rewind tokens and, if `STREAM_KEY_SECRET` is empty, streaming secrets. |
+| `PORT` | `3002` | HTTP port. |
+| `HIVE_API_NODE` | `https://api.hive.blog` | Hive RPC for signatures and boosts. |
+| `MONGODB_URI` | empty | Mongo. Without it the stores that can fall back keep state in memory; templates, overlays and Pro answer 503 or "not Pro". |
+| `AUDIO_API_URL`, `AUDIO_API_KEY` | `https://audio.3speak.tv`, empty | Legacy audio upload route. |
+| `EMBED_UPLOAD_URL`, `EMBED_API_URL`, `EMBED_API_KEY` | `https://embed.3speak.tv/uploads`, `/api`, empty | Where stream VODs are uploaded (TUS) and registered. |
+| `VIDEO_UPLOAD_URL`, `VIDEO_UPLOAD_TOKEN` | `https://video.3speak.tv`, empty | Declared, not used by any route today. |
+| `STUDIO_FRONTEND_URL` | `https://3speak.tv` | Frontend base used in VOD and headless stream links. |
+| `CHECKER_URL`, `STREAM_STATS_SECRET` | `https://checker.3speak.tv`, empty | Live stream stats to the 3Speak checker. Empty secret = off. |
+| `EGRESS_TEMPLATE_URL` | `https://hangout.3speak.tv/egress-template` | Egress page for conference recordings. |
+| `EGRESS_STANDALONE_TEMPLATE_URL` | `https://3speak.tv/egress-stream` | Egress page for stream recordings, DVR and HLS when the track path is not used. |
+| `BOOSTS_ENABLED` | `false` | Boost listener and payouts. |
+| `BOOST_PLATFORM_ACCOUNT`, `BOOST_PLATFORM_ACTIVE_KEY` | empty | Receiving account and its active key (payouts, refunds). Server-only secret. |
+| `BOOST_PLATFORM_FEE_PERCENT` | `5` | Platform fee. |
+| `BOOST_HIVE_USD_FALLBACK`, `BOOST_HIVE_USD_CACHE_MS` | `0.25`, `120000` | HIVE price fallback and cache. |
+| `BOOST_INGEST_KEY` | empty | Admin key for `POST /boosts/ingest`; empty = route off. |
+| `DVR_ENABLED` | `true` | DVR egress kill switch. |
+| `DVR_BUFFER_SEC` | `150` (60 to 3600) | DVR window: clip source, and the rewind range when rewind is on (600 for 10 minutes). |
+| `REWIND_ENABLED` | `false` | Rewind during a live stream (`GET /rooms/:name/dvr/rewind` answers `available: false, reason: "off"`). |
+| `CLIP_KEEP_HOURS`, `CLIPS_DIR_MAX_MB` | `48`, `4096` | How long clips stay, and the disk budget for them. |
+| `HIGHLIGHTS_ENABLED` | `true` | Chat and boost spike detection. |
+| `PODCAST_RECORDING_ENABLED` | `true` | "Record as podcast" in audio rooms. |
+| `INGRESS_WHIP_URL` | `https://livekit.okinoko.io/w` | Public WHIP base handed to the studio's OBS and phone sources (`<url>/<streamKey>`). |
+| `PUBLIC_WHIP_BASE` | `https://hangouts.okinoko.io/whip` | Public base of this API's WHIP proxy for headless OBS streams. |
+| `INGRESS_WHIP_INTERNAL_URL` | `http://127.0.0.1:8086/w` | The ingress WHIP handler on loopback. |
+| `ANNOUNCE_API_URL`, `OPENPODS_ANNOUNCE_SECRET` | `http://127.0.0.1:4021`, empty | Posts the Hive announcement of a headless stream. |
+| `STREAM_KEY_SECRET` | empty (derived from `SESSION_SECRET`) | Hashes and encrypts the per-user streaming secrets. Changing it invalidates them. |
+| `PRO_TESTING_ENABLED`, `PRO_TESTING_HOURS` | `true`, `24` | The free Pro trial. |
+| `STREAM_LIMIT_EXEMPT` | empty | Comma list of accounts without the daily stream limit. |
+| `HLS_VIEWER_THRESHOLD` | `50` | WebRTC viewers per stream before HLS. `0` = all HLS, empty = HLS off. |
+| `HLS_PUBLIC_BASE` | empty | CDN base for HLS; empty = this API. |
+| `HLS_WEAK_FALLBACK` | `true` | Poorly connected WebRTC viewers may ask for HLS. |
+| `HLS_VIDEO_BITRATE` | `2000` kbps | HLS rendition bitrate. |
+| `CAPTIONS_ENABLED` | `false` | Live caption slots. |
+| `CAPTIONS_MAX_STREAMS`, `CAPTIONS_SLOT_TTL_SEC` | `3`, `90` | Caption slots at once; slot lifetime without renewal. |
+
+Read straight from the environment elsewhere (not in `config.ts`):
+
+| Key | Default | Where |
+|---|---|---|
+| `MAX_GUESTS_PER_ROOM` | `50` | WebRTC guest cap per room (`routes/rooms.ts`). |
+| `CHAT_BACKLOG_SIZE` | `300` | Lines kept per room (`lib/chatBacklog.ts`). |
+| `POINTS_START` | `1000` | Starting channel points (`lib/polls.ts`). |
+| `RAID_COUNTDOWN_SEC`, `RAID_COOLDOWN_MIN` | `10`, `10` | Raid countdown and per-host cooldown (`lib/raids.ts`). |
+
+## Mongo collections
+
+All in the database named by `MONGODB_URI`. The server creates its indexes on first use.
+
+| Collection | Holds | TTL |
+|---|---|---|
+| `embed-users` | Pro and ban flags (shared with 3Speak, written by the checker and the trial). | none |
+| `stream-golive` | One row per stream that went live (daily limit). | 2 days |
+| `stream-templates` | OBS stream templates (unique owner + slug). | none |
+| `stream-secrets` | Per-user streaming secret, hashed and encrypted. | none |
+| `studio-overlays` | A host's overlay templates. | 400 days after the last save |
+| `chat-backlog` | Recent chat lines per room (batched writes). | 1 day |
+| `stream-polls` | Finished polls and predictions. | 1 year |
+| `stream-points` | Channel points per viewer per host. | 1 year after the last change |
+| `raid-settings` | "Accept raids" opt-out per host. | none |
+| `stream-highlights` | Highlight moments per room. | 30 days |
+| `stream-clips` | Kept clips (file on disk). | `CLIP_KEEP_HOURS` |
+| `hangouts-events` | Scheduled events. | none |
+| `word-collections` | Word lists for the word guess game (seeded at start). | none |
+
+In memory only (lost on restart): active recordings, DVR and HLS sessions, polls in
+progress, raid countdowns and cooldowns, caption slots, the boost ledger, guest IP
+bans, podcast sessions. A sweep every 10 minutes drops the entries of rooms that
+are gone.
+
+# OpenPods API routes
+
+Every HTTP route of the API server (`server/`, Fastify). The full table at the end
+is generated from the route registrations by `server/scripts/list-routes.ts`, so it
+cannot miss a route. The sections above it explain who may call each route and
+what it answers.
+
+## Conventions
+
+- **Base URL**: wherever you run the server (production: `https://hangout-api.3speak.tv`
+  for 3Speak). Default port `3002`.
+- **Session**: `Authorization: Bearer <session JWT>` from `POST /auth/verify`.
+  The JWT is HS256, issuer `hive-hangouts`, subject = Hive username, valid 24 h.
+  "Session" below means `requireAuth`; "+ban" means `checkBan` also runs (a
+  suspended account gets 403).
+- **Host**: the route also checks that the caller is the room's `host` in the room
+  metadata. "Host or mod" also accepts a moderator from `meta.mods`.
+- **Optional session**: the route works without a token, but reads one if it is sent.
+- **Rate limits** are per client IP (`@fastify/rate-limit`, not global). The server
+  trusts `X-Forwarded-For` only from `127.0.0.1` (nginx on the same box).
+- **Errors** are JSON `{ statusCode, error, message }` (from `@fastify/sensible`).
+  Some routes add a machine code: `error` (templates, overlays, quotas), `code`
+  (battles) or `reason` (captions, rewind). WHIP routes answer plain text, because
+  OBS shows the body as is.
+- **Pro** means `premium: true` on the user's row in the `embed-users` collection.
+
+To print the current list yourself:
+
+```bash
+cd server
+npx tsx scripts/list-routes.ts            # Markdown table
+npx tsx scripts/list-routes.ts --json     # JSON
+npx tsx scripts/list-routes.ts --check ../docs/api-routes.md   # CI: fails when this file is stale
+npx tsx scripts/list-routes.ts --write ../docs/api-routes.md   # refresh the table below
+```
+
+The script builds the app with dummy settings: it reads no `.env`, opens no
+database or LiveKit connection and listens on no port.
+
+## Auth
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `POST /auth/challenge` | none, 10/min | `{ username }` | `{ challenge, expires }`. The nonce looks like `hivehangouts:<user>:<ms>:<random>` and is valid 5 minutes, once. |
+| `POST /auth/verify` | none, 15/min | `{ username, challenge, signature }` | `{ token, username }`. The signature must come from a posting key of the account, or from an account it granted posting authority to (`posting.account_auths`, e.g. a custodial service account). 400 bad or used challenge, 401 bad signature. |
+| `GET /auth/me` | session | | `{ username }`. Use it to check a stored token before acting on it. |
+
+## Rooms and streams
+
+A room is a LiveKit room. `mode: 'conference'` is an audio room with a stage
+(host, speakers, listeners). `mode: 'standalone'` is a one-person live stream
+driven by the studio (or by OBS, see Templates). Room names are `<host>-<7 chars>`.
+Rooms close 300 s after the last participant leaves.
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `GET /rooms` | none | | Array of rooms for the lobby, without `unlisted` ones and without `obs-*` connections in `numParticipants`. Fields: `name, title, host, description, backgroundImage, numParticipants, maxParticipants, createdAt, origin, visibility, language, boost, mode, post, liveAt, willPublishVod, collabGuest, broadcasting, portrait` (and `podcast: true` while a podcast recording runs). Cached 3 s. |
+| `GET /streams` | none | | Standalone streams for discovery cards: `name, title, host, description, thumbnail, tags, visibility, mode, createdAt, live, viewers`. Live first. `no-store`. |
+| `GET /health` | none | | `{ ok, uptime, sessions: { total, conference, standalone, live }, viewers }`, counts only. 503 when LiveKit is down. |
+| `GET /rooms/:name` | none | | One room: the `/rooms` fields plus `broadcasting`, `headless`, `watermark` and `boostSummary`. 404 when gone. |
+| `POST /rooms` | session+ban, 12/5 min | `{ title*, description, backgroundImage, visibility, language, mode, tags, boost: { enabled, minBoostUsd, creatorPayoutAccount } }` | 201 `{ room, token, isPremium }`. The caller is the host and gets a publish token. A free host creating a `standalone` room who already went live in the last 24 h gets 429 `{ error: 'daily_stream_limit', message, retryAt }`. |
+| `POST /rooms/:name/join` | session+ban | `{ delivery?: 'webrtc'\|'hls', hlsCapable? }` | `{ token, roomName, identity, isHost, isPremium, delivery, hlsUrl?, hlsFallback?, liveElsewhere? }`. The host and the approved collab guest get publish rights. A host already connected from another device gets the identity `<user>~watch` and `liveElsewhere: true`. |
+| `POST /rooms/:name/listen` | optional session, 60/5 min | `{ displayName?, silent?, delivery?, hlsCapable? }` | `{ token, roomName, identity, isHost: false, isGuest, isPremium: false, delivery, hlsUrl?, hlsFallback? }`. Without a session the identity is `guest-<12 chars>`; with a valid session it is the Hive account. `silent: true` gives a read-only `obs-*` identity (OBS browser source). 403 for `hive-internal` rooms and banned guest IPs. 409 when the WebRTC guest cap (`MAX_GUESTS_PER_ROOM`, default 50) is full and HLS is not possible. Token TTL 6 h (12 h for `silent`). |
+| `PATCH /rooms/:name/layout` | session+ban, host | `{ layout?, focusedIdentity?, suppressScreenAutoFocus?, chatOpen? }` | `{ layout, focusedIdentity, suppressScreenAutoFocus, chatOpen }`. Stored in metadata (`recordLayout` and the view fields) so the recorder shows what the host sees. |
+| `PATCH /rooms/:name/boost` | session, host | `{ enabled?, minBoostUsd?, creatorPayoutAccount?, goal?: { title, targetHbd } \| null, tiers?, alerts?: { sound, tts, ttsMinHbd }, presets?: number[] }` | `{ boost }` (the merged `meta.boost`). |
+| `GET /rooms/:name/boost/summary` | none | | `boostSummary`: goal progress, totals and top supporters. |
+| `PATCH /rooms/:name/post` | session, host | `{ title?, thumbnail?, description?, tags? }` | `{ post }`, the feed post details of a stream (merged into `meta.post`). |
+| `PATCH /rooms/:name/live` | session, host | `{ willPublishVod?, portrait? }` | `{ liveAt, willPublishVod, portrait }`. Stamps the go-live time once (server clock) and counts the stream for the free daily limit. 409 for OBS-driven rooms. A free host over the limit gets 429 and the room is closed. |
+| `PATCH /rooms/:name/broadcast` | session, host | `{ broadcasting* }` | `{ broadcasting }`. Start/Resume set true, Pause sets false; this is what puts a stream in the live feeds. 409 for OBS-driven rooms. |
+| `POST /rooms/:name/ingress` | session, host | `{ transcode?: boolean (default true), source?: 'obs'\|'phone' }` | `{ ingressId, whipUrl, streamKey, participantIdentity }`. Creates (or reuses) a LiveKit WHIP ingress that joins the room as `obs-ingress-<room>`; the studio uses it as a source. `source: 'obs'` is Pro (403 `{ error: 'pro_required' }`); `'phone'` (a phone or tablet screen app such as Larix Screencaster) is free. `transcode` re-encodes to VP8 so every browser can decode it. |
+| `DELETE /rooms/:name/ingress` | session, host | | `{ ok: true }` |
+| `PATCH /rooms/:name/vertical` | session, host, 40/min | `{ on, x, w, follow: 'manual'\|'camera'\|'source', track }` | `{ vertical }`. The 9:16 phone crop (fractions of the frame width) kept in `meta.vertical`. |
+| `POST /rooms/:name/host` | session+ban, host | `{ newHost* }` | `{ host }`. Conference rooms only (403 for streams); the new host must be in the room. |
+| `DELETE /rooms/:name` | session+ban, host | | 204. Ends the room (and, for an OBS stream, its ingress, recordings and WHIP session). |
+
+## Participants and moderation
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `PATCH /rooms/:name/participants/:identity/permissions` | session+ban, host | `{ canPublish* }` | `{ identity, canPublish }`. Promote to speaker or demote. In a stream this is the collab guest (one at a time, 409 if another is still there); the approval is kept in `meta.collabGuest` so a reconnect keeps it. |
+| `DELETE /rooms/:name/participants/:identity` | session+ban, host or mod | | 204, kicks the participant. |
+| `POST /rooms/:name/participants/:identity/ban` | session+ban, host or mod | | 204. Guests only (`guest-*`): bans their IP for this room and removes their chat lines. Hive accounts are banned platform-wide in `embed-users`. |
+| `PATCH /rooms/:name/mods/:username` | session+ban, host | `{ isMod* }` | `{ mods }`, stored in `meta.mods`. Only Hive accounts can be mods. |
+
+## Chat backlog
+
+Chat itself travels on the LiveKit data channel (topic `chat`). These routes keep
+the last lines so a viewer who joins late (or watches over HLS) sees them, and so
+the VOD can replay them.
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `GET /rooms/:name/chat?limit=` | optional session, 60/min | | `{ messages }`, newest backlog (default size 300, `CHAT_BACKLOG_SIZE`). Lines of since-suspended accounts are dropped. 403 for `hive-internal` rooms without a session. |
+| `POST /rooms/:name/chat` | session OR LiveKit room token, 30/20 s | `{ text*, timestamp?, identity?, name?, livekitToken? }` | 201 (new) or 200 (duplicate) `{ ok: true }`. Guests can chat: they prove their identity with the room token they got from `/listen` (`livekitToken`). |
+| `DELETE /rooms/:name/chat/:id` | session, host or mod, 60/min | | 204, and a `{ type: 'chat-delete', id }` message on the `chat` topic. |
+
+## Polls, predictions and points
+
+One poll or prediction runs per room at a time. A poll has 2 to 4 options and one
+vote per Hive account. A prediction has 2 outcomes; viewers stake channel points
+(not money, start balance `POINTS_START` = 1000 per channel) and winners split the
+pot. Every change is broadcast on the `poll` data topic, at most about once a second.
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `GET /rooms/:name/polls/active` | optional session, 60/min | | `{ poll \| null, myVote?, myStake?, balance? }` |
+| `GET /rooms/:name/polls` | none, 30/min | | `{ polls }`, finished polls of the stream (kept a year, for the VOD). |
+| `GET /points/:channel` | session, 30/min | | `{ channel, balance }` |
+| `POST /rooms/:name/polls` | session+ban, host, 20/5 min | `{ kind?: 'poll'\|'prediction', question*, options*, durationSec* }` | 201 `{ poll }`. Polls run 15 to 600 s, predictions up to 1800 s. |
+| `POST /rooms/:name/polls/:id/vote` | session+ban, 20/min | `{ option* }` | `{ poll, myVote }` |
+| `POST /rooms/:name/polls/:id/stake` | session+ban, 20/min | `{ option*, amount* }` | `{ poll, myStake, balance }` |
+| `POST /rooms/:name/polls/:id/end` | session+ban, host, 30/min | | `{ poll }` |
+| `POST /rooms/:name/polls/:id/resolve` | session+ban, host, 30/min | `{ winner*: 0\|1 }` | `{ poll }` (prediction only). |
+| `POST /rooms/:name/polls/:id/cancel` | session+ban, host, 30/min | | `{ poll }` |
+
+`poll` is a `PollView`: `{ id, room, host, kind, question, options: [{ label, votes, points? }], total, pot?, status: 'open'|'locked'|'closed'|'resolved'|'cancelled', createdAt, endsAt, endedAt?, offset, winner? }`.
+
+## Raids
+
+A host sends their viewers to another live stream after a countdown
+(`RAID_COUNTDOWN_SEC`, default 10). Limits: one raid per host per
+`RAID_COOLDOWN_MIN` (default 10), one incoming raid per stream per 2 minutes.
+Unlisted and Hive-only streams are not targets.
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `GET /rooms/:name/raid/targets` | session, host, 20/min | | `{ targets, cooldownUntil }` |
+| `GET /rooms/:name/raid` | none, 60/min | | `{ raid \| null }` |
+| `POST /rooms/:name/raid` | session+ban, host, 20/10 min | `{ target* }` (room name) | 201 `{ raid }` with `{ id, from, target, viewers, endsAt, endsInMs }`. 403 when the target does not take raids. |
+| `DELETE /rooms/:name/raid` | session, host, 20/min | | 204, sends `raid-cancel`. |
+| `GET /raids/settings` | session, 30/min | | `{ acceptRaids }` |
+| `PUT /raids/settings` | session+ban, 20/min | `{ acceptRaids* }` | `{ acceptRaids }` |
+
+## Battles
+
+Two browser-studio streams split the screen for 180, 300 or 600 s; the boosts each
+side gets in that window decide the winner. Each side keeps its own boosts. The same
+`battle` object is written into the metadata of both rooms. OBS streams cannot battle.
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `GET /battles/candidates` | session, 60/min | | `{ streams: [{ room, host, title, thumbnail }], durations }` |
+| `GET /battles/:room` | none | | `{ battle }` |
+| `POST /battles/:room/invite` | session+ban, 10/min | `{ opponent*, durationSec* }` | 201 `{ battle }`. The invite waits 60 s. |
+| `POST /battles/:room/respond` | session+ban, 20/min | `{ accept* }` | `{ battle }` |
+| `POST /battles/:room/end` | session, 20/min | `{ reason?: 'ended'\|'dropped' }` | `{ battle }`. `dropped` only after the other host has been gone 30 s. |
+| `POST /battles/:room/settle` | session, 20/min | | `{ battle }`, decides the winner once the settle time has passed. |
+| `POST /battles/:room/link` | session, 20/min | | `{ token, room, host, identity }`: a hidden, subscribe-only token (`obs-battle-*`) for the other room, so the studio can draw the opponent. |
+
+Errors carry `{ code, message }`.
+
+## Live captions
+
+Off unless `CAPTIONS_ENABLED=true`. The host's browser sends its own mic to the
+speech server and publishes the text on the `captions` data topic; this server only
+hands out slots (at most `CAPTIONS_MAX_STREAMS` at once).
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `GET /captions/status` | none | | `{ enabled, max, active, available }` |
+| `POST /rooms/:name/captions/start` | session+ban, host, 12/min | `{ lang? }` (default `en-us`) | `{ ok, lang, renewInSec: 30, expiresInSec, enabled, max, active }`. Call again every 30 s to renew. 503 `reason: 'disabled'`, 429 `reason: 'full'`, 409 `reason` held by another session. Sets `meta.captions = { lang }`. |
+| `POST /rooms/:name/captions/stop` | session+ban, 12/min | | `{ ok: true }` |
+
+## Recording, VOD and podcast
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `POST /rooms/:name/record/start` | session+ban, host | `{ mode?: 'audio'\|'video', layout?, publish?, download? }` | `{ egressId, status: 'recording', mode, layout, filepath }`. Recording is Pro, with one exception: a free host may record a standalone stream with `publish: true` (capped at 30 min, no download). A standalone stream records the host's program track straight to MP4. 409 when already recording. |
+| `PATCH /rooms/:name/record/layout` | session+ban, host | `{ layout* }` | `{ egressId, layout }`, video recordings only. |
+| `POST /rooms/:name/record/stop` | session+ban, host | | `{ egressId, status: 'publishing'\|'stopped', mode, layout, duration, publishStatusUrl?, downloadUrl? }`. With `publish`, the server uploads the file itself as the VOD of the announcement post (embed row `{ owner: host, permlink: roomName }`). |
+| `GET /rooms/:name/record/publish-status` | none | | `{ status: 'uploading'\|'processing'\|'published'\|'failed', progress, updatedAt, failed }` |
+| `GET /rooms/:name/record/file/:token` | token in path | | The recorded file (MP4 for video, OGG/MP3 for audio). The token is the capability, valid 1 h after stop. |
+| `GET /rooms/:name/record/status` | session+ban | | `{ recording, egressId?, mode?, layout? }` |
+| `POST /rooms/:name/record/upload` | session+ban, host | `{ filePath*, duration?, title?, tags? }` | `{ success, permlink, cid, playUrl }`. Legacy: uploads an audio recording to `AUDIO_API_URL`. New integrations use the SDK's `onAudioHandoff`. |
+| `PATCH /rooms/:name/record/:audioPerm/metadata` | session+ban | `{ title?, description?, tags?, post_permlink? }` | Updates that audio entry on `AUDIO_API_URL`. |
+| `POST /rooms/:name/podcast/start` | session+ban, host, Pro, 10/min | | `{ recording: true, startedAt, speakers }`. Audio (conference) rooms only. One track egress per speaker. Off with `PODCAST_RECORDING_ENABLED=false` (503). |
+| `POST /rooms/:name/podcast/marker` | session, host, 30/min | `{ title* }` | `{ ok, at }`: a chapter mark (seconds into the recording). |
+| `POST /rooms/:name/podcast/stop` | session, host, 10/min | | An episode: `{ token, room, title, status, durationSec, createdAt, mixUrl, tracks: [{ identity, offsetSec, url }], chapters }`. One MP3 mix plus a file per speaker. |
+| `GET /rooms/:name/podcast/status` | session | | `{ recording, startedAt?, speakers?, chapters? }` |
+| `GET /podcast/recordings` | session | | `{ recordings }`, the caller's episodes of the last day. |
+| `GET /podcast/files/:token/:file` | token in path, 60/min | | The mix or a speaker file. Kept one day. |
+
+## Restream to YouTube or Twitch
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `POST /rooms/:name/stream/start` | session+ban, host, Pro | `{ platform*: 'youtube'\|'twitch', streamKey*, backgroundImageUrl?, videoEnabled? }` | `{ egressId, status: 'streaming', platform }`. 402 for non-Pro, 409 already streaming. |
+| `POST /rooms/:name/stream/stop` | session+ban, host | | `{ egressId, status }` |
+| `GET /rooms/:name/stream/status` | session+ban | | `{ streaming, egressId }` |
+
+## DVR, clips, highlights and rewind
+
+The DVR is a second egress (2 s HLS segments) that keeps the last `DVR_BUFFER_SEC`
+(default 600) on disk while a Pro host is live. Off with `DVR_ENABLED=false`.
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `POST /rooms/:name/dvr/start` | session+ban, host, Pro | | `{ status: 'recording', egressId }`. Idempotent. 402 for non-Pro, 503 when disabled. |
+| `POST /rooms/:name/dvr/stop` | session+ban, host | | `{ status: 'stopped' }` |
+| `GET /rooms/:name/dvr/status` | none | | `{ recording }`: show the Clip button only when true. |
+| `POST /rooms/:name/dvr/clip` | optional session, 6/min | | `{ path: '/dvr/clips/<file>.mp4', clip? }`. Any viewer can clip the last 30 s. A signed-in clipper is credited and the clip is kept (`clip`). |
+| `GET /dvr/clips/:file` | none | | The MP4. Kept `CLIP_KEEP_HOURS` (48), at most `CLIPS_DIR_MAX_MB` on disk. |
+| `GET /rooms/:name/highlights` | session, 60/min | | `{ room, host, isHost, liveAt, moments, clips }`. The host sees the chat and boost spikes (`moments`) and every kept clip; others see their own clips. While DVR runs, each moment cuts an automatic clip (`source: 'auto'`). |
+| `GET /clips/mine` | session, 60/min | | `{ clips }` |
+| `POST /clips/:id/vertical` | session (host or clipper), 6/min | | `{ clip }` with `vertical.path`: a 9:16 copy cut with the host's phone crop, for a Short. 400 when the stream had no crop. |
+| `DELETE /clips/:id` | session (host or clipper), 30/min | | `{ deleted: true }` |
+| `GET /rooms/:name/dvr/rewind` | optional session, 30/min | | `{ available, playlist?, windowSec?, liveAt? }`. `playlist` is an HLS URL viewers can seek in. 401 `login_required` for Hive-only rooms. |
+| `GET /rooms/:name/dvr/hls/:token/:file` | token in path, 600/min | | `live.m3u8` or a `.ts` segment of the rewind playlist. The token is an hourly HMAC. |
+
+A clip is `{ id, room, host, clipper, source: 'viewer'|'host'|'auto', path, offsetSec, durationSec, reasons, vertical: { available, path }, createdAt, expiresAt }`.
+
+## HLS for large audiences
+
+| Route | Auth | Answer |
+|---|---|---|
+| `GET /rooms/:name/hls/:file` | none, no limit | `live.m3u8` (cache 1 s) or a `.ts` segment (cache a day, immutable). 404 `starting` until the first playlist exists. |
+
+`/join` and `/listen` decide the delivery. See the integrator guide, "HLS delivery".
+
+## Boosts
+
+Boosts are HIVE or HBD transfers to `BOOST_PLATFORM_ACCOUNT` with a JSON memo. The
+server watches Hive (`startBoostListener`), validates, pays the host (or the collab
+guest) minus `BOOST_PLATFORM_FEE_PERCENT`, refunds what it cannot place, and sends a
+`boost` data message to the room.
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `GET /boosts/config` | none | | `{ enabled, platformAccount, feePercent }` |
+| `GET /boosts/ledger?room=` | none | | Ledger entries kept in memory: `{ id, txId, opIndex, room, sender, message, displayName?, amount, asset, usdAmount?, payoutRecipient?, feeAmount?, payoutAmount?, rejectReason?, ... }` |
+| `POST /boosts/ingest` | `x-admin-key: BOOST_INGEST_KEY` | `{ txId, opIndex, blockNum, timestamp, to, amount, memo }` | 202 `{ accepted: true }`. Manual reconciliation only; disabled (403) when the key is empty, 503 when boosts are off. |
+
+## Templates, OBS (headless streams) and the streaming secret
+
+A template is a saved "go live" setup (at most 20 per user). OBS streams to
+`${PUBLIC_WHIP_BASE}/<owner>/<slug>` with the user's streaming secret as Bearer
+Token; the server then creates the room, joins the ingress as the host, starts
+VOD/DVR, posts the Hive announcement and ends it all when OBS stops. OBS is Pro.
+Errors carry `error`: `invalid_input` 400, `not_found` 404, `name_taken` 409,
+`live` 409, `limit_reached` 409, `storage_unavailable` 503.
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `GET /templates` | session+ban | | `{ templates, whipBase, chatOverlayKey }` |
+| `POST /templates` | session+ban, 30/5 min | template fields | 201 `{ template }` |
+| `PATCH /templates/:id` | session+ban, 60/5 min | any template fields (nested objects merge) | `{ template }`. A rename while live is 409 `live`. |
+| `DELETE /templates/:id` | session+ban | | `{ ok: true }` |
+| `GET /templates/:id/status` | session+ban | | `{ state, room, startedAt, capSeconds, ingress, announced, lastEnd? }` (`state: 'idle'` when not live). |
+| `GET /stream-secret` | session+ban, 30/5 min | | `{ secret }` (created on first call). |
+| `POST /stream-secret/reset` | session+ban, 10/5 min | | `{ secret }`. Running streams keep going. |
+| `GET /overlay/:key` | key in path, 120/min | | `{ live, room }`, for the OBS chat overlay (browser dock). |
+| `POST /whip/:owner/:slug` | `Authorization: Bearer <streaming secret>`, 10/min | SDP offer (`application/sdp`) | 201 SDP answer, `Location: /whip/s/<token>`. |
+| `PATCH /whip/s/:token` | token in path, 120/min | trickle ICE | proxied to the ingress |
+| `DELETE /whip/s/:token` | token in path, 30/min | | 200, ends the stream |
+
+Template fields: `name*, title*, description, thumbnail (http(s) URL), tags (max 10), language, visibility, boost: { enabled, minBoostUsd, creatorPayoutAccount }, recording: { publishVod, allowClips }, announce: { enabled, community, communityTitle, declineRewards, rewardPowerup, beneficiaries }`. The answer adds `id, owner, slug, whipUrl, createdAt, updatedAt, lastLiveAt`.
+
+## Studio overlays
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `GET /studio/overlays` | session | | `{ templates }` |
+| `PUT /studio/overlays` | session+ban, 30/5 min, 64 KB | `{ templates* }` (at most 12) | `{ templates }` (cleaned). Each is `{ id, name, config: { lowerThird: { name, title }, ticker: { text, speed }, countdown: { label, minutes }, brb: { message, music, volume }, fade } }`. |
+
+## Pro (premium)
+
+| Route | Auth | Answer |
+|---|---|---|
+| `GET /premium/:username` | none | `{ premium, premium_source, premium_expires_at, testing_started, testing_available, testing_hours }`. Cached 60 s. |
+| `GET /premium?limit=` | none | `{ count, subscribers: [{ username, premium_source, premium_expires_at }] }` |
+| `POST /premium/start-testing` | session+ban, 5/min | `{ ok: true, expiresAt, hours }`. The one-time free trial (`PRO_TESTING_HOURS`, 24). 409 already used or already Pro, 403 when trials are off. |
+
+## Events and presence
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `GET /events?status=&host=&limit=` | none | | Array of events. Ended events only when `status=ended`; `live` events whose room is gone flip to `ended`. |
+| `GET /events/:id` | none | | One event. |
+| `POST /events` | session | `{ title*, scheduledAt* (future ISO), description, coverImage, tags, visibility: 'public'\|'unlisted' }` | 201 event |
+| `PATCH /events/:id` | session, event host | same fields | event (scheduled events only) |
+| `DELETE /events/:id` | session, event host | | 204 (cancels, or ends a live one) |
+| `POST /events/:id/attend` / `DELETE /events/:id/attend` | session | | `{ attendees, attendeeCount }` |
+| `POST /events/:id/start` | session, event host | | `{ event, room, token, isPremium }`: creates a conference room with `meta.eventId` and returns a host token. |
+| `GET /presence/:username` | none | | `{ online: false }` or `{ online: true, roomName, roomTitle, role: 'host'\|'speaker'\|'listener' }` |
+| `POST /presence/bulk` | none, 20/min | `{ usernames* }` (1 to 50) | `{ [username]: presence }` |
+
+An event is `{ id, title, description, hostUsername, scheduledAt, coverImage, tags, attendees, attendeeCount, status: 'scheduled'|'live'|'ended'|'cancelled', roomName, visibility, createdAt, updatedAt }`.
 
 ## Games
 
-Three built-in game plugins run inside Hangouts rooms: **Chess**, **Fast Draw** (pictionary-style drawing + guessing), and **Word Guess** (hangman-style). Games are host-only to start; all speakers play automatically; audience members spectate.
+Built-in plugins: chess, fast draw, word guess. Game state travels on the `game` data topic.
 
-When a game starts, `<HangoutsRoom>` automatically shifts layout — the board moves to the center and speakers shrink to a compact avatar strip. No extra props needed for layout management.
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `GET /games` | none | | the registered game plugins |
+| `GET /game-collections` | none | | word collections (for word guess) |
+| `GET /rooms/:name/game` | session+ban | | `{ gameId, participants, startedAt, state, boardState, isSpectator, serverTime }` |
+| `POST /rooms/:name/game/start` | session+ban, host | `{ gameId*, config? }` | 201 `{ gameId, participants, startedAt }` |
+| `POST /rooms/:name/game/action` | session+ban, player | `{ action* }` | `{ ended }` |
+| `DELETE /rooms/:name/game` | session+ban, host | | 204 |
 
-### onGameEnd prop
+## All routes (generated)
 
-Add `onGameEnd` to `<HangoutsRoom>` to receive a structured snapshot when any game ends (win, resign, or host abort). Use it to post results to Hive, create a snap, etc.
+`preHandler` lists the Fastify hooks: `requireAuth` = session token,
+`checkBan` = suspended accounts refused. Host, mod, Pro and token checks happen
+inside the handlers and are described above.
 
-```tsx
-import type { GameResultPayload, ChessGameResult, FastDrawGameResult } from '@snapie/hangouts-react';
+<!-- routes:start (generated by server/scripts/list-routes.ts, do not edit by hand) -->
+117 routes.
 
-<HangoutsRoom
-  roomName={roomName}
-  onGameEnd={(result) => {
-    // result.gameId  → 'chess' | 'fast-draw' | 'word-guess'
-    // result.players → ['alice', 'bob']   (Hive usernames; not spectators)
-    // result.startedAt / endedAt → Unix ms
-    // result.duration → seconds
-    // result.result  → game-specific state — cast based on gameId
-  }}
-/>
-```
-
-### GameResultPayload shape
-
-```typescript
-interface GameResultPayload {
-  gameId: string;       // 'chess' | 'fast-draw' | 'word-guess'
-  players: string[];    // Hive usernames of players (not spectators)
-  startedAt: number;    // Unix ms
-  endedAt: number;      // Unix ms
-  duration: number;     // seconds
-  result: unknown;      // cast based on gameId — see below
-}
-```
-
-**Chess** (`result as ChessGameResult`):
-```typescript
-{
-  fen: string;           // final board position in FEN notation
-  players: { w: string; b: string };   // white/black Hive usernames
-  status: 'checkmate' | 'resigned' | 'draw' | 'stalemate';
-  winner: string | null; // Hive username, or null for draw
-  moveHistory: string[]; // SAN notation, e.g. ['e4', 'e5', 'Nf3', ...]
-  turn: 'w' | 'b' | null;
-}
-```
-
-**Fast Draw** (`result as FastDrawGameResult`):
-```typescript
-{
-  phase: 'game_over';
-  winners: string[];                  // Hive usernames of winners
-  scores: Record<string, number>;     // all player scores
-  roundNumber: number;
-  drawer: string;                     // last drawer
-  revealedWord: string | null;        // last word
-}
-```
-
-### Post results to Hive blockchain
-
-```tsx
-import type { ChessGameResult } from '@snapie/hangouts-react';
-
-<HangoutsRoom
-  onGameEnd={async (result) => {
-    if (result.gameId === 'chess') {
-      const chess = result.result as ChessGameResult;
-      // broadcast via Hive Keychain, Aioha, etc.
-      await aioha.broadcastCustomJson(
-        'active',
-        'hangouts_chess_result',
-        {
-          app: 'snapie/1.0',
-          room: roomName,
-          players: result.players,
-          winner: chess.winner,
-          status: chess.status,
-          pgn: chess.moveHistory.join(' '),
-          duration: result.duration,
-        }
-      );
-    }
-  }}
-/>
-```
-
-### Direct hook access
-
-For custom in-room game UI, use hooks inside a component mounted within `<HangoutsRoom>`:
-
-```typescript
-import { useChess, useFastDraw, useWordGuess } from '@snapie/hangouts-react';
-
-const { fen, status, winner, moveHistory, makeMove, resign } = useChess({ roomName });
-const { phase, scores, winners, submitGuess, isDrawer } = useFastDraw({ roomName });
-```
-
-Hooks hydrate from the server on mount — late joiners and spectators automatically get the current game state.
-
-### Server game API
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | /games | Public | List available game plugins |
-| GET | /rooms/:name/game | Required | Active game state for calling participant |
-| POST | /rooms/:name/game/start | Required (host) | Start a game (`body: { gameId, config? }`) |
-| POST | /rooms/:name/game/action | Required | Submit a game action (`body: { action }`) |
-| DELETE | /rooms/:name/game | Required (host) | End the active game |
-
----
-
-## Common gotchas
-
-1. **`livekitServerUrl` must be `wss://`** — not `https://`.
-2. **`apiBaseUrl` must be `https://`** — not `wss://`.
-3. **`aioha` user must already be logged in** before calling `loginWithAioha`. Drive Aioha's own login UI first.
-4. **Guest identity = `guest-{random}`** — the `identity` field in `JoinRoomResponse` tells you the actual stamped identity.
-5. **New speakers start mic/camera OFF** — don't assume they're live immediately after promotion.
-6. **`getShareUrl` receives `origin`** (the hostname string, e.g. `"3speak.tv"`), not a full URL.
-7. **Boosts below `minBoostUsd` are NOT rejected** — they arrive with `belowMinimum: true`. Overlay is suppressed; they appear in history with a badge.
-8. **`unlisted` rooms are filtered from `GET /rooms`** — you must know the name to link to one.
-9. **`hive-internal` rooms reject `/listen` requests** — check `room.visibility` before showing a guest join button.
-10. **`HangoutsApiError.status === 429`** on the guest token endpoint means IP rate-limited — show a wait message.
-11. **`GET /events` is public and CORS-open** — call it with a plain `fetch()` from any frontend; no SDK or session needed.
-12. **`POST /events/:id/start` creates the LiveKit room** — do not call `POST /rooms` separately; `startEvent()` handles both and links the room to the event.
-13. **`event.roomName` is null until started** — check `event.status === 'live'` before linking to a room.
-14. **Presence queries LiveKit in real time** — it reflects who is currently connected, not who is scheduled. Use `event.status === 'live'` for scheduled-event state, and `/presence` for actual connection state.
-15. **`/presence/bulk` max 50 usernames per call** — batch larger lists client-side.
+| Method | Path | preHandler | Rate limit | Query | Body (`*` = required) |
+|---|---|---|---|---|---|
+| POST | `/auth/challenge` | none | 10 / 1 minute |  | username*: string |
+| GET | `/auth/me` | requireAuth | none |  |  |
+| POST | `/auth/verify` | none | 15 / 1 minute |  | username*: string, challenge*: string, signature*: string |
+| GET | `/battles/:room` | none | none |  |  |
+| POST | `/battles/:room/end` | requireAuth | 20 / 1 minute |  | reason: ended\|dropped |
+| POST | `/battles/:room/invite` | requireAuth, checkBan | 10 / 1 minute |  | opponent*: string, durationSec*: number |
+| POST | `/battles/:room/link` | requireAuth | 20 / 1 minute |  |  |
+| POST | `/battles/:room/respond` | requireAuth, checkBan | 20 / 1 minute |  | accept*: boolean |
+| POST | `/battles/:room/settle` | requireAuth | 20 / 1 minute |  |  |
+| GET | `/battles/candidates` | requireAuth | 60 / 1 minute |  |  |
+| GET | `/boosts/config` | none | none |  |  |
+| POST | `/boosts/ingest` | none | none |  | txId*: string, opIndex*: number, blockNum*: number, timestamp*: number, to*: string, amount*: string, memo*: string |
+| GET | `/boosts/ledger` | none | none | room: string |  |
+| GET | `/captions/status` | none | none |  |  |
+| DELETE | `/clips/:id` | requireAuth | 30 / 1 minute |  |  |
+| POST | `/clips/:id/vertical` | requireAuth | 6 / 1 minute |  |  |
+| GET | `/clips/mine` | requireAuth | 60 / 1 minute |  |  |
+| GET | `/dvr/clips/:file` | none | none |  |  |
+| GET | `/events` | none | none | status: scheduled\|live\|ended\|cancelled, host: string, limit: integer |  |
+| POST | `/events` | requireAuth | none |  | title*: string, description: string, scheduledAt*: string, coverImage: string, tags: string[], visibility: public\|unlisted |
+| DELETE | `/events/:id` | requireAuth | none |  |  |
+| GET | `/events/:id` | none | none |  |  |
+| PATCH | `/events/:id` | requireAuth | none |  | title: string, description: string, scheduledAt: string, coverImage: string, tags: string[], visibility: public\|unlisted |
+| DELETE | `/events/:id/attend` | requireAuth | none |  |  |
+| POST | `/events/:id/attend` | requireAuth | none |  |  |
+| POST | `/events/:id/start` | requireAuth | none |  |  |
+| GET | `/game-collections` | none | none |  |  |
+| GET | `/games` | none | none |  |  |
+| GET | `/health` | none | none |  |  |
+| GET | `/overlay/:key` | none | 120 / 1 minute |  |  |
+| GET | `/podcast/files/:token/:file` | none | 60 / 1 minute |  |  |
+| GET | `/podcast/recordings` | requireAuth | none |  |  |
+| GET | `/points/:channel` | requireAuth | 30 / 1 minute |  |  |
+| GET | `/premium` | none | none |  |  |
+| GET | `/premium/:username` | none | none |  |  |
+| POST | `/premium/start-testing` | requireAuth, checkBan | 5 / 1 minute |  |  |
+| GET | `/presence/:username` | none | none |  |  |
+| POST | `/presence/bulk` | none | 20 / 1 minute |  | usernames*: string[] |
+| GET | `/raids/settings` | requireAuth | 30 / 1 minute |  |  |
+| PUT | `/raids/settings` | requireAuth, checkBan | 20 / 1 minute |  | acceptRaids*: boolean |
+| GET | `/rooms` | none | none |  |  |
+| POST | `/rooms` | requireAuth, checkBan | 12 / 5 minutes |  | title*: string, description: string, backgroundImage: string, visibility: public\|hive-internal\|unlisted, language: string, mode: conference\|standalone, tags: string[], boost: object |
+| DELETE | `/rooms/:name` | requireAuth, checkBan | none |  |  |
+| GET | `/rooms/:name` | none | none |  |  |
+| PATCH | `/rooms/:name/boost` | requireAuth | none |  | enabled: boolean, minBoostUsd: number, creatorPayoutAccount: string, goal: object\|null, tiers: boolean, alerts: object, presets: number[] |
+| GET | `/rooms/:name/boost/summary` | none | none |  |  |
+| PATCH | `/rooms/:name/broadcast` | requireAuth | none |  | broadcasting*: boolean |
+| POST | `/rooms/:name/captions/start` | requireAuth, checkBan | 12 / 1 minute |  | lang: string |
+| POST | `/rooms/:name/captions/stop` | requireAuth, checkBan | 12 / 1 minute |  |  |
+| GET | `/rooms/:name/chat` | none | 60 / 1 minute | limit: integer |  |
+| POST | `/rooms/:name/chat` | none | 30 / 20 seconds |  | text*: string, timestamp: number, identity: string, name: string, livekitToken: string |
+| DELETE | `/rooms/:name/chat/:id` | none | 60 / 1 minute |  |  |
+| POST | `/rooms/:name/dvr/clip` | none | 6 / 1 minute |  |  |
+| GET | `/rooms/:name/dvr/hls/:token/:file` | none | 600 / 1 minute |  |  |
+| GET | `/rooms/:name/dvr/rewind` | none | 30 / 1 minute |  |  |
+| POST | `/rooms/:name/dvr/start` | requireAuth, checkBan | none |  |  |
+| GET | `/rooms/:name/dvr/status` | none | none |  |  |
+| POST | `/rooms/:name/dvr/stop` | requireAuth, checkBan | none |  |  |
+| DELETE | `/rooms/:name/game` | requireAuth, checkBan | none |  |  |
+| GET | `/rooms/:name/game` | requireAuth, checkBan | none |  |  |
+| POST | `/rooms/:name/game/action` | requireAuth, checkBan | none |  | action* |
+| POST | `/rooms/:name/game/start` | requireAuth, checkBan | none |  | gameId*: string, config |
+| GET | `/rooms/:name/highlights` | requireAuth | 60 / 1 minute |  |  |
+| GET | `/rooms/:name/hls/:file` | none | none |  |  |
+| POST | `/rooms/:name/host` | requireAuth, checkBan | none |  | newHost*: string |
+| DELETE | `/rooms/:name/ingress` | requireAuth | none |  |  |
+| POST | `/rooms/:name/ingress` | requireAuth | none |  | transcode: boolean, source: obs\|phone |
+| POST | `/rooms/:name/join` | requireAuth, checkBan | none |  | delivery: webrtc\|hls, hlsCapable: boolean |
+| PATCH | `/rooms/:name/layout` | requireAuth, checkBan | none |  | layout: speaker\|grid\|single, focusedIdentity: string\|null, suppressScreenAutoFocus: boolean, chatOpen: boolean |
+| POST | `/rooms/:name/listen` | none | 60 / 5 minutes |  | displayName: string, silent: boolean, delivery: webrtc\|hls, hlsCapable: boolean |
+| PATCH | `/rooms/:name/live` | requireAuth | none |  | willPublishVod: boolean, portrait: boolean |
+| PATCH | `/rooms/:name/mods/:username` | requireAuth, checkBan | none |  | isMod*: boolean |
+| DELETE | `/rooms/:name/participants/:identity` | requireAuth, checkBan | none |  |  |
+| POST | `/rooms/:name/participants/:identity/ban` | requireAuth, checkBan | none |  |  |
+| PATCH | `/rooms/:name/participants/:identity/permissions` | requireAuth, checkBan | none |  | canPublish*: boolean |
+| POST | `/rooms/:name/podcast/marker` | requireAuth | 30 / 1 minute |  | title*: string |
+| POST | `/rooms/:name/podcast/start` | requireAuth, checkBan | 10 / 1 minute |  |  |
+| GET | `/rooms/:name/podcast/status` | requireAuth | none |  |  |
+| POST | `/rooms/:name/podcast/stop` | requireAuth | 10 / 1 minute |  |  |
+| GET | `/rooms/:name/polls` | none | 30 / 1 minute |  |  |
+| POST | `/rooms/:name/polls` | requireAuth, checkBan | 20 / 5 minutes |  | kind: poll\|prediction, question*: string, options*: string[], durationSec*: integer |
+| POST | `/rooms/:name/polls/:id/cancel` | requireAuth, checkBan | 30 / 1 minute |  |  |
+| POST | `/rooms/:name/polls/:id/end` | requireAuth, checkBan | 30 / 1 minute |  |  |
+| POST | `/rooms/:name/polls/:id/resolve` | requireAuth, checkBan | 30 / 1 minute |  | winner*: integer |
+| POST | `/rooms/:name/polls/:id/stake` | requireAuth, checkBan | 20 / 1 minute |  | option*: integer, amount*: integer |
+| POST | `/rooms/:name/polls/:id/vote` | requireAuth, checkBan | 20 / 1 minute |  | option*: integer |
+| GET | `/rooms/:name/polls/active` | none | 60 / 1 minute |  |  |
+| PATCH | `/rooms/:name/post` | requireAuth | none |  | title: string, thumbnail: string, description: string, tags: string[] |
+| DELETE | `/rooms/:name/raid` | requireAuth | 20 / 1 minute |  |  |
+| GET | `/rooms/:name/raid` | none | 60 / 1 minute |  |  |
+| POST | `/rooms/:name/raid` | requireAuth, checkBan | 20 / 10 minutes |  | target*: string |
+| GET | `/rooms/:name/raid/targets` | requireAuth | 20 / 1 minute |  |  |
+| PATCH | `/rooms/:name/record/:audioPerm/metadata` | requireAuth, checkBan | none |  | title: string, description: string, tags: string[], post_permlink: string |
+| GET | `/rooms/:name/record/file/:token` | none | none |  |  |
+| PATCH | `/rooms/:name/record/layout` | requireAuth, checkBan | none |  | layout*: speaker\|grid\|single |
+| GET | `/rooms/:name/record/publish-status` | none | none |  |  |
+| POST | `/rooms/:name/record/start` | requireAuth, checkBan | none |  | mode: audio\|video, layout: speaker\|grid\|single, publish: boolean, download: boolean |
+| GET | `/rooms/:name/record/status` | requireAuth, checkBan | none |  |  |
+| POST | `/rooms/:name/record/stop` | requireAuth, checkBan | none |  |  |
+| POST | `/rooms/:name/record/upload` | requireAuth, checkBan | none |  | filePath*: string, duration: number, title: string, tags: string[] |
+| POST | `/rooms/:name/stream/start` | requireAuth, checkBan | none |  | platform*: youtube\|twitch, streamKey*: string, backgroundImageUrl: string, videoEnabled: boolean |
+| GET | `/rooms/:name/stream/status` | requireAuth, checkBan | none |  |  |
+| POST | `/rooms/:name/stream/stop` | requireAuth, checkBan | none |  |  |
+| PATCH | `/rooms/:name/vertical` | requireAuth | 40 / 1 minute |  | on: boolean, x: number, w: number, follow: string, track: boolean |
+| GET | `/stream-secret` | requireAuth, checkBan | 30 / 5 minutes |  |  |
+| POST | `/stream-secret/reset` | requireAuth, checkBan | 10 / 5 minutes |  |  |
+| GET | `/streams` | none | none |  |  |
+| GET | `/studio/overlays` | requireAuth | none |  |  |
+| PUT | `/studio/overlays` | requireAuth, checkBan | 30 / 5 minutes |  | templates*: any[] |
+| GET | `/templates` | requireAuth, checkBan | none |  |  |
+| POST | `/templates` | requireAuth, checkBan | 30 / 5 minutes |  |  |
+| DELETE | `/templates/:id` | requireAuth, checkBan | none |  |  |
+| PATCH | `/templates/:id` | requireAuth, checkBan | 60 / 5 minutes |  |  |
+| GET | `/templates/:id/status` | requireAuth, checkBan | none |  |  |
+| POST | `/whip/:owner/:slug` | none | 10 / 1 minute |  |  |
+| DELETE | `/whip/s/:token` | none | 30 / 1 minute |  |  |
+| PATCH | `/whip/s/:token` | none | 120 / 1 minute |  |  |
+<!-- routes:end -->

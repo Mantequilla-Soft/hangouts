@@ -3,6 +3,7 @@ import { createReadStream } from 'node:fs';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { dvrDirOf, DVR_BUFFER_SECONDS, DVR_SEGMENT_SEC } from './dvr.js';
+import { config } from '../config.js';
 import { readRoomFacts, optionalUser } from '../lib/roomInfo.js';
 import { rewindToken, checkRewindToken, buildRewindPlaylist, SEGMENT_RE } from '../lib/dvrRewind.js';
 
@@ -42,6 +43,7 @@ export const dvrRewindRoutes: FastifyPluginAsync = async (fastify) => {
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
     reply.header('Cache-Control', 'no-store');
+    if (!config.REWIND_ENABLED) return reply.send({ available: false, reason: 'off' });
     if (!dvrDirOf(name)) return reply.send({ available: false });
     const facts = await readRoomFacts(name);
     if (!facts) return reply.send({ available: false });
@@ -70,6 +72,7 @@ export const dvrRewindRoutes: FastifyPluginAsync = async (fastify) => {
     schema: hlsParams,
   }, async (request, reply) => {
     const { name, token, file } = request.params as { name: string; token: string; file: string };
+    if (!config.REWIND_ENABLED) return reply.notFound('Rewind is off');
     if (!checkRewindToken(name, token)) return reply.forbidden('Rewind link expired, reload the stream');
     const dir = dvrDirOf(name);
     if (!dir) return reply.notFound('This stream has no rewind right now');
