@@ -74,13 +74,17 @@ export class VerticalOutput {
     display: HTMLCanvasElement, live: boolean, now: number, fadeKey: string, fadeOn: boolean,
     extras: (ctx: CanvasRenderingContext2D, w: number, h: number) => void,
     finish: (ctx: CanvasRenderingContext2D, w: number, h: number) => void,
+    /** Draws the live picture instead of the crop (a battle stacks both halves). */
+    picture?: (ctx: CanvasRenderingContext2D, w: number, h: number) => void,
   ): void {
     const c = this.canvas;
     if (!c || !this.publishing) return;
     const ctx = c.getContext('2d');
     if (!ctx) return;
     this.fade.track(fadeKey, c, now, fadeOn);
-    if (live) {
+    if (live && picture) {
+      picture(ctx, c.width, c.height);
+    } else if (live) {
       const r = cropRect(display.width, display.height, this.center);
       ctx.drawImage(display, r.sx, r.sy, r.sw, r.sh, 0, 0, c.width, c.height);
     }

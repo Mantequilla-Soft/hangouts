@@ -131,7 +131,7 @@ export async function startDvrSession(
     const parts = await roomService.listParticipants(name);
     const host = parts.find((pt) => pt.identity === meta.host);
     // The landscape program, never the vertical phone crop (lib/programTrack).
-    const videoInfo = pickProgramVideoTrack(host?.tracks);
+    const videoInfo = pickProgramVideoTrack(host?.tracks, { portrait });
     videoTrackId = videoInfo?.sid ?? '';
     vw = videoInfo?.width ?? 0;
     vh = videoInfo?.height ?? 0;

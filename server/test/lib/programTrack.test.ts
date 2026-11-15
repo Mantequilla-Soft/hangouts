@@ -19,6 +19,17 @@ describe('pickProgramVideoTrack', () => {
     expect(pickProgramVideoTrack([v('SCR', { source: TrackSource.SCREEN_SHARE }), v('ING', { source: TrackSource.UNKNOWN })])?.sid).toBe('ING');
     expect(pickProgramVideoTrack([v('SCR', { source: TrackSource.SCREEN_SHARE })])).toBeUndefined();
   });
+  it('with a known stream shape, prefers the camera of that shape (unnamed tracks)', () => {
+    const tall = v('TALL', { width: 720, height: 1280 });
+    const wide = v('WIDE', { width: 1280, height: 720 });
+    expect(pickProgramVideoTrack([tall, wide], { portrait: false })?.sid).toBe('WIDE');
+    expect(pickProgramVideoTrack([wide, tall], { portrait: true })?.sid).toBe('TALL');
+    expect(pickProgramVideoTrack([tall, wide])?.sid).toBe('TALL');
+    // The name still wins over the shape.
+    expect(pickProgramVideoTrack([wide, { ...tall, name: STUDIO_PROGRAM_TRACK }], { portrait: false })?.sid).toBe('TALL');
+    // No size reported yet counts as a match.
+    expect(pickProgramVideoTrack([v('NOSIZE'), wide], { portrait: true })?.sid).toBe('NOSIZE');
+  });
   it('handles no tracks', () => {
     expect(pickProgramVideoTrack(undefined)).toBeUndefined();
     expect(pickProgramVideoTrack([])).toBeUndefined();

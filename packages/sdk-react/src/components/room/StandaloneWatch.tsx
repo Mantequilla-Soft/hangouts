@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { RoomAudio } from './RoomAudio.js';
-import { LiveKitRoom,  StartAudio, useParticipants, useTracks, VideoTrack, useRoomInfo, useConnectionState } from '@livekit/components-react';
-import { ConnectionState, Track, VideoQuality, type RemoteTrackPublication } from 'livekit-client';
+import { HlsStreamVideo } from './HlsStreamVideo.js';
+import { LiveKitRoom,  StartAudio, useParticipants, useTracks, VideoTrack, useRoomInfo, useConnectionState, useRoomContext } from '@livekit/components-react';
+import { ConnectionQuality, ConnectionState, ParticipantEvent, Track, VideoQuality, type RemoteTrackPublication } from 'livekit-client';
 import type { BoostConfig } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
@@ -9,6 +10,8 @@ import { BoostStoreProvider } from '../../hooks/useBoosts.js';
 import { StreamBoostGoal } from './StreamBoostGoal.js';
 import type { BoostLabels } from '../../lib/boostLabels.js';
 import { STUDIO_VERTICAL_TRACK, prefersVertical, readVerticalMeta, type VerticalMeta } from '../../lib/verticalCrop.js';
+import { StreamBattleBar } from './StreamBattleBar.js';
+import type { BattleLabels } from '../../lib/battle.js';
 
 /**
  * Composable watch-side of a standalone stream. Unlike <StandaloneViewer>
@@ -33,6 +36,14 @@ interface StreamCtxValue {
   portrait?: boolean;
   /** The host's phone crop (H19), from the live room metadata, or null. */
   vertical?: VerticalMeta | null;
+  /** 'hls' = this viewer plays the stream from `hlsUrl`; the room connection
+   *  carries chat and presence only (see the server's HLS_VIEWER_THRESHOLD). */
+  delivery?: 'webrtc' | 'hls';
+  hlsUrl?: string | null;
+  /** The page asked for the stream's sound to be off (ads). */
+  audioMuted?: boolean;
+  /** HLS could not start: rejoin and let the server pick again. */
+  onHlsUnavailable?: () => void;
 }
 const StreamContext = createContext<StreamCtxValue>({ hostIdentity: null, isGuest: true, roomName: '' });
 export const useStreamContext = () => useContext(StreamContext);
@@ -67,14 +78,16 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
     if (joinedForRef.current === roomName && !upgradeToAuthed) return;
     joinedForRef.current = roomName;
     (async () => {
+      // <StreamVideo> can play HLS, so this page may be moved there.
+      const opts = { hlsCapable: true };
       try {
-        if (isAuthenticated) await room.join(roomName);
-        else await room.listen(roomName);
+        if (isAuthenticated) await room.join(roomName, opts);
+        else await room.listen(roomName, undefined, opts);
       } catch {
         if (isAuthenticated) upgradeFailedRef.current = roomName;
         // Authed join failed (not a participant / token issue) — fall back
         // to an anonymous guest listen so watching still works.
-        try { await room.listen(roomName); } catch { /* room gone */ }
+        try { await room.listen(roomName, undefined, opts); } catch { /* room gone */ }
       }
     })();
     // livekitToken / isGuest explicitly: the upgrade has to be re-checked when a
@@ -82,12 +95,31 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
     // is the same object.
   }, [roomName, isAuthenticated, room, room.livekitToken, room.isGuest]);
 
+  // Join again with a delivery wish (or none: the server decides). Used to
+  // move a viewer whose WebRTC connection stays poor to HLS, and to leave an
+  // HLS playlist that never came up.
+  const roomRef = useRef(room);
+  roomRef.current = room;
+  const rejoin = useCallback(async (delivery?: 'hls') => {
+    const r = roomRef.current;
+    const opts = { hlsCapable: true, ...(delivery ? { delivery } : {}) };
+    try {
+      if (isAuthenticated && !r.isGuest) await r.join(roomName, opts);
+      else await r.listen(roomName, undefined, opts);
+    } catch { /* keep the current connection */ }
+  }, [isAuthenticated, roomName]);
+  const onWeak = useCallback(() => { void rejoin('hls'); }, [rejoin]);
+  const onHlsUnavailable = useCallback(() => { void rejoin(); }, [rejoin]);
+
   if (!room.livekitToken) {
     return <>{connecting ?? <div className="hh-stream-connecting">Connecting to the stream…</div>}</>;
   }
 
+  const hls = room.delivery === 'hls' && !!room.hlsUrl;
   return (
     <LiveKitRoom
+      // A new delivery is a new connection with other rights: start clean.
+      key={room.delivery}
       token={room.livekitToken}
       serverUrl={room.livekitServerUrl}
       connect={true}
@@ -95,9 +127,19 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
       video={false}
       options={{ adaptiveStream: true, dynacast: true }}
     >
-      <StreamContextBridge roomName={roomName} isGuest={room.isGuest} joinMeta={room.roomMeta}>
-        <RoomAudio programOnly muted={audioMuted} />
-        <StartAudio label="Click to enable audio" className="hh-start-audio" />
+      <StreamContextBridge
+        roomName={roomName}
+        isGuest={room.isGuest}
+        joinMeta={room.roomMeta}
+        delivery={hls ? 'hls' : 'webrtc'}
+        hlsUrl={room.hlsUrl}
+        audioMuted={audioMuted}
+        onHlsUnavailable={onHlsUnavailable}
+      >
+        {/* HLS viewers get their sound from the HLS player. */}
+        {!hls && <RoomAudio programOnly muted={audioMuted} />}
+        {!hls && <StartAudio label="Click to enable audio" className="hh-start-audio" />}
+        {!hls && room.hlsFallback && <WeakConnectionWatcher onWeak={onWeak} />}
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
           {children}
         </BoostStoreProvider>
@@ -113,10 +155,14 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
  * stays hidden and they can't ask to join the stage until they refresh. Falls
  * back to the join-time meta until the first metadata sync lands.
  */
-function StreamContextBridge({ roomName, isGuest, joinMeta, children }: {
+function StreamContextBridge({ roomName, isGuest, joinMeta, delivery, hlsUrl, audioMuted, onHlsUnavailable, children }: {
   roomName: string;
   isGuest: boolean;
   joinMeta: unknown;
+  delivery?: 'webrtc' | 'hls';
+  hlsUrl?: string | null;
+  audioMuted?: boolean;
+  onHlsUnavailable?: () => void;
   children: ReactNode;
 }) {
   const roomInfo = useRoomInfo();
@@ -135,10 +181,48 @@ function StreamContextBridge({ roomName, isGuest, joinMeta, children }: {
       boostConfig: meta.boost,
       portrait: meta.portrait,
       vertical,
+      delivery,
+      hlsUrl,
+      audioMuted,
+      onHlsUnavailable,
     }}>
       {children}
     </StreamContext.Provider>
   );
+}
+
+/** How long the viewer's own connection must stay Poor or Lost before it
+ *  asks for HLS. Long enough to ride out a short dip. */
+export const WEAK_CONNECTION_MS = 15_000;
+
+/**
+ * Moves a WebRTC viewer to HLS when their connection stays poor: HLS buffers
+ * where WebRTC drops packets, so a weak mobile link gets a steady picture a
+ * few seconds behind instead of a frozen or broken one. Fires once per mount.
+ */
+function WeakConnectionWatcher({ onWeak }: { onWeak: () => void }) {
+  const lkRoom = useRoomContext();
+  useEffect(() => {
+    const lp = lkRoom.localParticipant;
+    let since: number | null = null;
+    let fired = false;
+    const note = (q: ConnectionQuality) => {
+      if (q === ConnectionQuality.Poor || q === ConnectionQuality.Lost) since ??= Date.now();
+      else since = null;
+    };
+    note(lp.connectionQuality);
+    lp.on(ParticipantEvent.ConnectionQualityChanged, note);
+    const timer = setInterval(() => {
+      if (fired || since === null || Date.now() - since < WEAK_CONNECTION_MS) return;
+      fired = true;
+      onWeak();
+    }, 1000);
+    return () => {
+      lp.off(ParticipantEvent.ConnectionQualityChanged, note);
+      clearInterval(timer);
+    };
+  }, [lkRoom, onWeak]);
+  return null;
 }
 
 /** Resolve the streamer's program track (the composited Camera source). */
@@ -172,8 +256,9 @@ function useVerticalTrack() {
  */
 export function useStreamFormats(): { hasVertical: boolean; crop: VerticalMeta | null } {
   const track = useVerticalTrack();
-  const { vertical } = useStreamContext();
-  return { hasVertical: !!track, crop: vertical ?? null };
+  const { vertical, delivery } = useStreamContext();
+  // An HLS viewer gets the landscape program only: they crop it themselves.
+  return { hasVertical: !!track && delivery !== 'hls', crop: vertical ?? null };
 }
 
 /** A phone held upright, following resizes and rotation. */
@@ -214,6 +299,11 @@ export interface StreamVideoProps {
    *  'vertical': the studio's 9:16 phone video when it sends one, else the
    *  program. 'auto': vertical on a phone held upright. */
   format?: 'landscape' | 'vertical' | 'auto';
+  /** The live battle meter and countdown over the top of the video, while
+   *  this stream is in a battle. Default true. */
+  showBattle?: boolean;
+  /** Translated text for the battle meter (see BattleLabels). */
+  battleLabels?: Partial<BattleLabels>;
 }
 /** How long after connecting an absent host still counts as "not here yet"
  *  rather than offline. The participant list arrives a moment after the room
@@ -241,21 +331,28 @@ function useConnectionSettled(): boolean {
   return settled;
 }
 
-export function StreamVideo({ showLiveBadge = true, showBoostGoal = true, boostLabels, format = 'landscape' }: StreamVideoProps) {
+export function StreamVideo({ showLiveBadge = true, showBoostGoal = true, boostLabels, showBattle = true, battleLabels, format = 'landscape' }: StreamVideoProps) {
   const program = useProgramTrack();
   const verticalTrack = useVerticalTrack();
   const autoVertical = usePrefersVertical(format === 'auto');
   const wantVertical = format === 'vertical' || (format === 'auto' && autoVertical);
   // Only the picture on screen is attached, so with adaptive streaming the
-  // other one is paused on the server and costs this viewer nothing.
+  // other one is paused on the server and costs this viewer nothing. HLS
+  // carries the landscape program only (an integrator crops it itself, see
+  // useStreamFormats).
   const showingVertical = wantVertical && !!verticalTrack;
   const track = showingVertical ? verticalTrack : program;
   const live = useStreamLive();
   const settled = useConnectionSettled();
+  const { delivery, hlsUrl, audioMuted, onHlsUnavailable } = useStreamContext();
   const placeholder = live ? 'Stream is starting…' : (settled ? 'The streamer is offline' : 'Connecting…');
   return (
-    <div className={`hh-stream-video${showingVertical ? ' hh-stream-video--vertical' : ''}`}>
-      {track ? (
+    <div className={`hh-stream-video${showingVertical && delivery !== 'hls' ? ' hh-stream-video--vertical' : ''}`}>
+      {delivery === 'hls' && hlsUrl ? (
+        live
+          ? <HlsStreamVideo url={hlsUrl} muted={audioMuted} onUnavailable={onHlsUnavailable} />
+          : <div className="hh-stream-video__placeholder">{placeholder}</div>
+      ) : track ? (
         <VideoTrack key={showingVertical ? 'vertical' : 'program'} trackRef={track} className="hh-stream-video__el" />
       ) : (
         <div className="hh-stream-video__placeholder">{placeholder}</div>
@@ -264,6 +361,7 @@ export function StreamVideo({ showLiveBadge = true, showBoostGoal = true, boostL
         <span className={`hh-stream-badge${live ? '' : ' hh-stream-badge--off'}`}>{live ? '● LIVE' : '○ OFFLINE'}</span>
       )}
       {showBoostGoal && live && <StreamBoostGoal variant="overlay" labels={boostLabels} />}
+      {showBattle && live && <StreamBattleBar variant="overlay" labels={battleLabels} />}
       {/* No <BoostOverlay/> here on purpose. The studio now composites boosts
           into the program canvas, so they're already in the picture — and in
           the recording, and in any player. Rendering the DOM overlay on top of
@@ -286,6 +384,7 @@ export function StreamViewerCount({ render }: StreamViewerCountProps) {
 type ViewerQuality = 'auto' | 'high' | 'medium' | 'low' | 'audio';
 export function StreamQualityControl() {
   const track = useProgramTrack();
+  const { delivery } = useStreamContext();
   const [quality, setQuality] = useState<ViewerQuality>('auto');
   useEffect(() => {
     const pub = track?.publication as RemoteTrackPublication | undefined;
@@ -297,6 +396,8 @@ export function StreamQualityControl() {
     else if (quality === 'low') pub.setVideoQuality(VideoQuality.LOW);
     else pub.setVideoQuality(VideoQuality.HIGH);
   }, [quality, track]);
+  // HLS has one rendition and no LiveKit track to steer.
+  if (delivery === 'hls') return null;
   return (
     <label className="hh-stream-quality" title="Playback quality">
       <select value={quality} onChange={(e) => setQuality(e.target.value as ViewerQuality)} aria-label="Playback quality">
