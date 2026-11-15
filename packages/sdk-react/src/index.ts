@@ -106,6 +106,23 @@ export {
   useStreamContext, useStreamLive,
 } from './components/room/StandaloneWatch.js';
 
+// Live captions (H11): host opt-in speech-to-text over the data channel, viewer overlay, on-device translation.
+export { useStudioCaptions, type StudioCaptions, type StudioCaptionsOptions } from './hooks/useStudioCaptions.js';
+export { useLiveCaptions, type LiveCaptionsState } from './hooks/useLiveCaptions.js';
+export { LiveCaptionsToggle, DEFAULT_STUDIO_CAPTION_LABELS, type StudioCaptionLabels } from './components/room/LiveCaptionsToggle.js';
+export { StreamCaptions, DEFAULT_STREAM_CAPTION_LABELS, type StreamCaptionsProps, type StreamCaptionLabels } from './components/room/StreamCaptions.js';
+export {
+  CAPTIONS_TOPIC,
+  tidyCaption,
+  baseLang as captionBaseLang,
+  type CaptionSource,
+  type CaptionLanguage,
+  type CaptionCue,
+  type CaptionMessage,
+} from './lib/liveCaptions.js';
+export { translationMode as captionTranslationMode, languageName as captionLanguageName, type TranslateMode } from './lib/captionTranslate.js';
+export type { StudioCaptionStatus } from './lib/captionPublisher.js';
+
 // Hooks — Chat
 export { useChat, type ChatMessage } from './hooks/useChat.js';
 

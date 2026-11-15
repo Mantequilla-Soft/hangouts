@@ -19,6 +19,7 @@ import { GuestNameModal } from '../lobby/GuestNameModal.js';
 import { BoostOverlay } from './BoostOverlay.js';
 import { BoostStoreProvider } from '../../hooks/useBoosts.js';
 import { StandaloneStudio, type StreamVodResult } from './StandaloneStudio.js';
+import type { StudioCaptionsOptions } from '../../hooks/useStudioCaptions.js';
 import { StandaloneViewer } from './StandaloneViewer.js';
 
 /** Prevents the screen from sleeping while the user is in a room.
@@ -231,9 +232,11 @@ export interface HangoutsRoomProps {
   /** Unlisted streams are never announced — forwarded to the studio so it can
    *  hide the post editor. */
   isUnlisted?: boolean;
+  /** Standalone host (studio) only: offer live captions (see StandaloneStudio). */
+  captions?: StudioCaptionsOptions;
 }
 
-export function HangoutsRoom({ roomName, onLeave, onEnded, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl = 'https://hangout.3speak.tv', pushToTalk = false, onGameEnd, onActiveGameChange, standaloneViewerEmbed = false, watermarkLogoUrl, onStreamStart, renderPostExtras, onStreamVod, canPublishVod = true, isUnlisted = false }: HangoutsRoomProps) {
+export function HangoutsRoom({ roomName, onLeave, onEnded, onError, embedded = false, maxHeight, onVideoHandoff, onAudioHandoff, video = false, guestFallback = false, getShareUrl, notificationSounds = true, obsBaseUrl = 'https://hangout.3speak.tv', pushToTalk = false, onGameEnd, onActiveGameChange, standaloneViewerEmbed = false, watermarkLogoUrl, onStreamStart, renderPostExtras, onStreamVod, canPublishVod = true, isUnlisted = false, captions }: HangoutsRoomProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated, apiClient } = useHangoutsContext();
   // Default chat closed on mobile — the stage needs the space more than the sidebar does.
@@ -462,6 +465,7 @@ export function HangoutsRoom({ roomName, onLeave, onEnded, onError, embedded = f
                   onStreamVod={onStreamVod}
                   canPublishVod={canPublishVod}
                   isUnlisted={isUnlisted}
+                  captions={captions}
                 />
               ) : (
                 <StandaloneViewer
