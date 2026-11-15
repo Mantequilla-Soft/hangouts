@@ -332,3 +332,23 @@ describe('sweeping HLS sessions', () => {
     expect(prefixes[0]).not.toBe(prefixes[1]);
   });
 });
+
+describe('HLS_VIEWER_THRESHOLD default', () => {
+  const loadConfig = async (value: string | undefined) => {
+    vi.resetModules();
+    if (value === undefined) delete process.env.HLS_VIEWER_THRESHOLD;
+    else process.env.HLS_VIEWER_THRESHOLD = value;
+    return (await import('../../src/config.js')).config;
+  };
+  afterAll(() => { process.env.HLS_VIEWER_THRESHOLD = HLS_ENV.HLS_VIEWER_THRESHOLD; });
+
+  it('is 50 when the variable is not set, so HLS works without any setup', async () => {
+    expect((await loadConfig(undefined)).HLS_VIEWER_THRESHOLD).toBe(50);
+  });
+
+  it('is off when set empty, and 0 means every viewer on HLS', async () => {
+    expect((await loadConfig('')).HLS_VIEWER_THRESHOLD).toBeNull();
+    expect((await loadConfig(' ')).HLS_VIEWER_THRESHOLD).toBeNull();
+    expect((await loadConfig('0')).HLS_VIEWER_THRESHOLD).toBe(0);
+  });
+});
