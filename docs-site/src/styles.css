@@ -110,6 +110,7 @@ body {
 }
 
 .docs__h1 {
+  overflow-wrap: anywhere;
   font-size: 2rem;
   font-weight: 700;
   margin-bottom: 1rem;
@@ -226,3 +227,12 @@ a:hover {
     padding: 1.5rem;
   }
 }
+
+/* Markdown pages (src/Markdown.tsx) */
+.docs__table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  margin-bottom: 16px;
+}
+.docs__table-wrap .docs__table { margin-bottom: 0; }
+.docs__content a { color: inherit; text-decoration: underline; }

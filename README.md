@@ -1,187 +1,130 @@
-# Hive Hangouts
+# OpenPods (Hive Hangouts)
 
-Twitter Spaces-style live audio rooms for the [Hive](https://hive.io) blockchain.
+Live audio rooms and live video streams for [Hive](https://hive.io) apps. Users sign
+in with their Hive account (Hive Keychain or any [Aioha](https://aioha.dev)
+provider, or a custodial adapter). 3Speak runs it as OpenPods on 3speak.tv.
 
-## What is this?
+## What you get
 
-Live audio rooms where anyone with a Hive account can host or join conversations. Authentication uses Hive Keychain or any [Aioha](https://aioha.dev)-compatible provider (HiveAuth, PeakVault, Ledger, MetaMask Snap) — no new accounts, no passwords. A custodial path (e.g. Google-login-backed accounts) is also supported via a thin `AiohaLike` adapter. Your Hive identity is your hangout identity.
+- **Audio rooms** (`conference`): host, speakers and listeners on a stage, hand
+  raising, promote and demote, moderators, optional camera and screen share, games
+  (chess, fast draw, word guess), recording, and "record as podcast" with one track
+  per speaker and chapters.
+- **Live streams** (`standalone`): a browser studio with scenes, camera, screens,
+  media files, an audio mixer, overlays (lower third, ticker, countdown, "be right
+  back"), an OBS source (Pro) and a phone or tablet screen source (free), a 9:16
+  vertical output, stream health with automatic quality, live captions, one collab
+  guest, polls and predictions, raids, and battles between two streams.
+- **Going live from OBS alone**: stream templates and a WHIP endpoint, no browser needed (Pro).
+- **Viewers**: WebRTC for small audiences, HLS for big ones (from viewer 51 by
+  default), chat with a backlog for late joiners, anonymous guests who can chat,
+  boosts, rewind and 30 s clips while a Pro host has DVR on.
+- **Boosts**: HIVE/HBD transfers with a message shown on stream, paid out at once,
+  with goals, tiers, sound and TTS alerts.
+- **Recording and VOD**: the server records the stream and publishes it as the VOD
+  itself; DVR, highlight clips and Shorts-ready vertical clips.
+- **Pro and quotas**: free hosts get one 30-minute stream a day; Pro lifts the
+  limits and unlocks OBS, recording, DVR and restreaming to YouTube or Twitch.
+- **Events and presence**: scheduled events with RSVPs, and "is this user live now".
 
 ## Architecture
 
 ```
-React frontend  ──────────────── LiveKit SFU (self-hosted)
-    │           WebRTC audio          │
-    │           + signaling           │
-    │                                 │
-    └──── Fastify API ───────────────┘
-          (auth + tokens)        server SDK calls
-
-Hive Blockchain ← signature verification
-images.3speak.tv ← background image uploads (direct from browser)
+Browser (your app + @snapie/hangouts-react)
+   |  HTTPS                          |  WebRTC media + data channel
+   v                                 v
+OpenPods API (server/, Fastify) --> LiveKit SFU
+   |--> LiveKit egress   (recording, VOD, DVR, HLS, restream, podcast tracks)
+   |--> LiveKit ingress  (WHIP: OBS, phone screen apps, headless streams)
+   |--> MongoDB          (Pro flags, templates, chat backlog, polls, clips, events)
+   `--> Hive API         (signatures, boost transfers)
 ```
 
-Three components:
+The API verifies Hive signatures, hands out LiveKit tokens, enforces host, Pro and
+quota rules, keeps the live state in the LiveKit room metadata and drives egress and
+ingress. Details: [docs/integrator-guide.md](docs/integrator-guide.md).
 
-- **LiveKit SFU** — open-source WebRTC server handling real-time audio routing, room state, and participant management. Self-hosted on a VPS.
-- **Fastify API** (`server/`) — thin auth gateway. Verifies Hive signatures, issues LiveKit tokens, enforces host-only permissions.
-- **React SDK** (`packages/`) — embeddable component library published to npm. Frontends drop in `<HangoutsProvider>` and get a full rooms UI.
-
-## Features
-
-- **Hive Keychain / HiveAuth login** — challenge-response auth using your posting key
-- **Guest listener mode** — anonymous viewers can drop into a public room as listen-only `guest-*` participants (no Hive account required) via `POST /rooms/:name/listen`. Guests can't chat, raise hands, or be promoted. Per-IP rate-limited; per-room cap.
-- **Room visibility tiers** — `public` (listed, guests OK), `hive-internal` (listed, Hive-only — guest tokens rejected), or `unlisted` (link-only, hidden from `/rooms`). Stored on the room metadata; the host picks at creation time.
-- **Create & join rooms** — host starts a room, others join via lobby or direct link
-- **Share button** — built-in copy/Web-Share button in the room header. The integrator supplies a `getShareUrl(roomName, origin)` builder so shared links land back on the surface that created the room (`Room.origin` is captured server-side from the create request's `Origin` header).
-- **Background image** — host sets a room background image at creation time; persists across sessions via localStorage
-- **Audio** — real-time voice via LiveKit (WebRTC)
-- **Video** — optional camera + screen share for premium users
-- **Hand raising** — listeners request to speak via data channel
-- **Speaker management** — host promotes/demotes participants. Newly-promoted speakers start with mic and camera **off** so they can compose themselves before the room hears them.
-- **Live host transfer** — host can hand the role to any speaker; UI updates everywhere via room metadata (`useLiveHost` hook), no reconnection required.
-- **Moderation** — host can mute, kick, or end the room
-- **Recording** — start audio or video; on stop the host gets a 3-button dialog (Upload · Download · Dismiss). Upload is callback-driven: the SDK hands the integrator the raw blob and the integrator chooses where to publish (3Speak Studio, podcast uploader, IPFS, etc.). The Upload button is hidden when no callback is wired for that mode.
-- **Live streaming** — stream to YouTube or Twitch directly from the room
-- **WHIP ingress** — external encoders (OBS 30.2+, ffmpeg, hardware encoders) can publish directly into a room as a low-latency WebRTC participant, via `POST /rooms/:name/ingress/whip`. Not yet wrapped in the SDK — a power-user/broadcast-software path, separate from the in-app camera publish flow.
-- **Boost messages (superchat)** — validated HIVE/HBD transfer memos trigger highlighted room + OBS overlay messages with immediate payout split.
-- **Hive avatars** — profile pictures pulled from on-chain metadata
-
-## Project Structure
-
-```
-hangouts/
-  server/           Fastify API (Hive auth + LiveKit tokens)
-  packages/
-    sdk-core/       @snapie/hangouts-core — API client + TypeScript types
-    sdk-react/      @snapie/hangouts-react — React components + hooks
-  demo/             Reference integration (Vite + React)
-  docs/             LiveKit deployment guide + frontend integration guides
-  examples/         Reference deploy configs (nginx, docker-compose) — see examples/README.md
-  test/             Manual/ad-hoc test scripts (not the vitest suite — that's in server/test/)
-```
-
-## SDK Usage
+## Quick start
 
 ```bash
-npm install @snapie/hangouts-core @snapie/hangouts-react
+npm install @snapie/hangouts-react @snapie/hangouts-core livekit-client @livekit/components-react
 ```
 
 ```tsx
-import { HangoutsProvider, RoomLobby, HangoutsRoom } from '@snapie/hangouts-react';
+import { useState } from 'react';
+import { HangoutsProvider, RoomLobby, HangoutsRoom, useHangoutsAuth } from '@snapie/hangouts-react';
 import '@snapie/hangouts-react/src/styles/hangouts.css';
 
-<HangoutsProvider
-  apiBaseUrl="https://your-api.example.com"
-  livekitServerUrl="wss://your-livekit.example.com"
-  imageServerApiKey={process.env.VITE_IMAGE_SERVER_API_KEY}  // optional — enables background image picker
-  sessionToken={token}   // from Hive Keychain auth flow
-  username={username}
->
-  <RoomLobby onJoinRoom={(name) => setRoom(name)} />
-</HangoutsProvider>
+function Rooms() {
+  const { isAuthenticated, login } = useHangoutsAuth();
+  const [room, setRoom] = useState<string | null>(null);
+  if (room) return <HangoutsRoom roomName={room} onLeave={() => setRoom(null)} guestFallback video />;
+  return (
+    <>
+      {!isAuthenticated && <button onClick={() => login(prompt('Hive username') ?? '')}>Sign in</button>}
+      <RoomLobby onJoinRoom={setRoom} allowGuestBrowse allowStandalone />
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <HangoutsProvider apiBaseUrl="https://hangout-api.3speak.tv" livekitServerUrl="wss://livekit.3speak.tv">
+      <Rooms />
+    </HangoutsProvider>
+  );
+}
 ```
 
-### `HangoutsProvider` props
+More (Aioha, custodial login, a stream-only watch page, the studio props):
+[docs/integrator-guide.md](docs/integrator-guide.md#quick-start-embed-openpods-in-your-hive-app).
 
-| Prop | Required | Description |
-|------|----------|-------------|
-| `apiBaseUrl` | Yes | URL of your Fastify server |
-| `livekitServerUrl` | No | LiveKit websocket URL (default: `wss://livekit.3speak.tv`) |
-| `sessionToken` | No | JWT from the auth flow |
-| `username` | No | Authenticated Hive username |
-| `imageServerApiKey` | No | Bearer token for `images.3speak.tv` — enables the background image picker in Create Room |
-| `aioha` | No | Aioha instance (or any `AiohaLike` adapter). When provided, login and boost transfers are routed through it instead of direct Keychain calls. Supports all Aioha providers (Keychain, HiveAuth, PeakVault, Ledger) and custodial adapters. |
+## Documentation
 
-## Server API
+| Doc | For |
+|---|---|
+| [docs/integrator-guide.md](docs/integrator-guide.md) | Architecture, auth, identities, room metadata, data channel topics, SDK components and hooks, the studio, HLS, recording, DVR, podcast, templates, Pro and quotas, boosts, events, every config key, Mongo collections. |
+| [docs/api-routes.md](docs/api-routes.md) | Every HTTP route with auth, rate limit, body and answer. The full table is generated from the code. |
+| [docs/livekit-server-setup.md](docs/livekit-server-setup.md) | Running LiveKit, egress and ingress on a VPS. |
+| [docs/llms.txt](docs/llms.txt) | The two guides above in one file, for AI assistants. |
+| [docs-site/](docs-site/) | The browsable docs site (`npm run dev` / `npm run build`). |
+| [packages/sdk-core/README.md](packages/sdk-core/README.md), [packages/sdk-react/README.md](packages/sdk-react/README.md) | npm package readmes. |
 
-| Endpoint | Auth | Purpose |
-|----------|------|---------|
-| `POST /auth/challenge` | No | Get a nonce to sign with Hive Keychain |
-| `POST /auth/verify` | No | Verify signature → session JWT |
-| `GET /rooms` | No | List active rooms (filters out `unlisted`) |
-| `GET /rooms/:name` | No | Get a single room |
-| `POST /rooms` | Yes | Create a room (caller becomes host). Body accepts `visibility`, optional `language`, and optional `boost` config (`enabled`, `minBoostUsd`, `creatorPayoutAccount`). |
-| `POST /rooms/:name/join` | Yes | Join a room as listener |
-| `POST /rooms/:name/listen` | No | Issue a listen-only `guest-*` token. Rate-limited per IP (10 / 5 min). Rejected for `hive-internal` rooms. |
-| `POST /rooms/:name/host` | Host | Transfer host to another speaker (updates room metadata; everyone's UI flips live) |
-| `PATCH /rooms/:name/layout` | Host | Set the live + recording layout (speaker / grid / single) |
-| `PATCH /rooms/:name/view-state` | Host | Push the host's transient view (focused identity, chat-open, etc.) into metadata for WYSIWYG recording |
-| `DELETE /rooms/:name` | Host | End the room |
-| `PATCH /rooms/:name/participants/:id/permissions` | Host | Promote/demote speaker (rejects `guest-*` identities) |
-| `DELETE /rooms/:name/participants/:id` | Host | Kick participant |
-| `POST /rooms/:name/record/start` | Host | Start recording (audio or video) |
-| `POST /rooms/:name/record/stop` | Host | Stop recording. Returns a `downloadToken` for both audio and video. |
-| `GET /rooms/:name/record/file/:token` | Host | Stream the recorded file back to the host's browser. Content-Type is inferred from the file extension. |
-| `GET /rooms/:name/record/status` | Host | Recording status |
-| `POST /rooms/:name/record/upload` | Host | Legacy: upload audio recording to 3speak/IPFS. New integrations should use the `onAudioHandoff` callback instead. |
-| `POST /rooms/:name/stream/start` | Host | Start streaming to YouTube/Twitch |
-| `POST /rooms/:name/stream/stop` | Host | Stop streaming |
-| `GET /rooms/:name/stream/status` | Host | Stream status |
-| `POST /rooms/:name/ingress/whip` | Host | Create a WHIP ingress. Returns `{ ingressId, url, streamKey }` for an external encoder (OBS, ffmpeg) to publish into the room. |
-| `DELETE /rooms/:name/ingress` | Host | Stop the active WHIP ingress |
-| `GET /rooms/:name/ingress/status` | Host | WHIP ingress status |
-| `POST /boosts/ingest` | No (dev spike) | Manual boost ingest endpoint for validated transfer payloads (feature-flagged). |
-| `GET /boosts/ledger` | No | List current boost ledger entries (optional `?room=` filter). |
+## Project structure
 
-## Setup
+```
+server/           Fastify API (TypeScript). Tests: npx vitest run
+  src/routes/     one file per area (rooms, chat, polls, raids, battles, dvr, ...)
+  src/lib/        logic and stores
+  scripts/        list-routes.ts (route table), load-collections.ts (word lists)
+packages/
+  sdk-core/       @snapie/hangouts-core: API client, login helpers, types
+  sdk-react/      @snapie/hangouts-react: provider, rooms, studio, viewer, chat, boosts
+demo/             reference integration (Vite + React)
+docs/             guides; docs-site/ is the docs site
+examples/         nginx and LiveKit docker-compose examples
+```
 
-### Prerequisites
+## Run it
 
-- Node.js 20+
-- A running LiveKit server (see `docs/livekit-server-setup.md`)
-
-### Server
+You need Node.js 20+, a LiveKit server with egress and ingress
+([setup](docs/livekit-server-setup.md)) and, for most features, MongoDB.
 
 ```bash
 cd server
-cp .env.example .env
-# Edit .env with your LiveKit credentials and session secret
+cp .env.example .env      # fill in LiveKit keys, SESSION_SECRET (32+ chars), MONGODB_URI
 npm install
-npm run dev
+npm run dev               # http://localhost:3002
 ```
 
-### Demo app
+All server settings: [Server configuration](docs/integrator-guide.md#server-configuration).
+Demo app: `cd demo && cp .env.example .env && npm install && npm run dev`
+(`VITE_API_URL`, `VITE_LIVEKIT_URL`, optional `VITE_IMAGE_SERVER_API_KEY`).
 
-```bash
-cd demo
-cp .env.example .env
-# Set VITE_API_URL, VITE_LIVEKIT_URL, and VITE_IMAGE_SERVER_API_KEY
-npm install
-npm run dev
-```
+## Tech stack
 
-### Environment variables (demo)
-
-| Variable | Description |
-|----------|-------------|
-| `VITE_API_URL` | Your Fastify server URL |
-| `VITE_LIVEKIT_URL` | LiveKit websocket URL |
-| `VITE_IMAGE_SERVER_API_KEY` | Bearer token for `images.3speak.tv` background uploads |
-
-### Environment variables (server - Boost)
-
-| Variable | Description |
-|----------|-------------|
-| `BOOSTS_ENABLED` | Enable boost listener + endpoints (`true` / `false`) |
-| `BOOST_PLATFORM_ACCOUNT` | Receiving wallet account for inbound boost transfers |
-| `BOOST_PLATFORM_ACTIVE_KEY` | Active key for payout transfers (server-only secret) |
-| `BOOST_PLATFORM_FEE_PERCENT` | Platform fee percent (default `5`) |
-| `BOOST_HIVE_USD_FALLBACK` | Fallback HIVE/USD rate if CoinGecko is unavailable |
-| `BOOST_HIVE_USD_CACHE_MS` | Cache TTL (ms) for CoinGecko HIVE/USD fetches |
-
-## Docs
-
-- [`docs/livekit-server-setup.md`](docs/livekit-server-setup.md) — deploying the LiveKit SFU (+ egress, ingress) on a VPS
-- [`docs/tiktok-live-frontend-guide.md`](docs/tiktok-live-frontend-guide.md) — for the frontend team building 3speak's TikTok-style live streaming: what already exists in the SDK, what's missing, and where WHIP ingress fits (power-user path, not the default one)
-
-## Tech Stack
-
-- **Runtime**: Node.js + TypeScript
-- **Server**: Fastify 5
-- **Auth**: @hiveio/dhive (signature verification) + jose (session JWTs)
-- **Real-time audio**: LiveKit (self-hosted SFU)
-- **Client**: React + @livekit/components-react
-- **Image hosting**: images.3speak.tv
+Node.js and TypeScript, Fastify 5, LiveKit (SFU, egress, ingress), MongoDB,
+`@hiveio/dhive` and `jose` for auth, React with `@livekit/components-react`.
 
 ## License
 

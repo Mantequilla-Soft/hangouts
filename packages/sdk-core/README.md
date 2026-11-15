@@ -1,6 +1,6 @@
 # @snapie/hangouts-core
 
-Framework-agnostic core SDK for [Hive Hangouts](https://hangout.3speak.tv) — Twitter Spaces-style audio rooms for the Hive blockchain.
+Framework-agnostic core SDK for [Hive Hangouts](https://hangout.3speak.tv), Twitter Spaces-style audio rooms for the Hive blockchain.
 
 ## Install
 
@@ -10,10 +10,10 @@ npm install @snapie/hangouts-core
 
 ## What's included
 
-- **`HangoutsApiClient`** — typed HTTP client for all Hangouts API endpoints
-- **Auth helpers** — `loginWithKeychain`, `loginWithAioha`, `loginWithSignFn`
-- **`AiohaLike` interface** — plug in any signing/transfer backend (Aioha, custodial, etc.)
-- **TypeScript types** — all request/response shapes exported from the package root
+- **`HangoutsApiClient`**: typed HTTP client for all Hangouts API endpoints
+- **Auth helpers**: `loginWithKeychain`, `loginWithAioha`, `loginWithSignFn`
+- **`AiohaLike` interface**: plug in any signing/transfer backend (Aioha, custodial, etc.)
+- **TypeScript types**: all request/response shapes exported from the package root
 
 ## When to use this package
 
@@ -21,7 +21,7 @@ npm install @snapie/hangouts-core
 - **Non-React** web apps (Vue, Svelte, vanilla JS)
 - **Server-side** scripts that need to interact with the Hangouts API
 
-For React web apps, use [`@snapie/hangouts-react`](https://www.npmjs.com/package/@snapie/hangouts-react) instead — it includes this package plus React hooks and UI components.
+For React web apps, use [`@snapie/hangouts-react`](https://www.npmjs.com/package/@snapie/hangouts-react) instead, it includes this package plus React hooks and UI components.
 
 ---
 
@@ -81,7 +81,7 @@ const session = await loginWithAioha(client, aioha, 'alice');
 
 ### Custom sign function
 
-For any other signing flow — HiveSigner redirect, server-held keys, test mocks:
+For any other signing flow, HiveSigner redirect, server-held keys, test mocks:
 
 ```ts
 import { loginWithSignFn } from '@snapie/hangouts-core';
@@ -129,7 +129,7 @@ const custodialAdapter: AiohaLike = {
 // Standalone: await loginWithAioha(client, custodialAdapter, username);
 ```
 
-The `transfer` method is only called when a user sends a boost — you can omit it if your app doesn't use boosts.
+The `transfer` method is only called when a user sends a boost, you can omit it if your app doesn't use boosts.
 
 ---
 
@@ -149,7 +149,7 @@ interface AiohaLike {
   /** True when the user has an active session (optional). */
   isLoggedIn?(): boolean;
 
-  /** Broadcast a Hive transfer (optional — only needed for boosts). */
+  /** Broadcast a Hive transfer (optional, only needed for boosts). */
   transfer?(
     to: string,
     amount: number,
@@ -186,8 +186,8 @@ Common status codes:
 | 401 | Missing or expired session token |
 | 403 | Action requires host privileges, or guest identity rejected |
 | 404 | Room not found |
-| 409 | Room name conflict on create |
-| 429 | Rate limit hit (guest token endpoint: 10 / 5 min per IP) |
+| 409 | Conflict (already recording or streaming, the guest cap is full, another collab guest is on air) |
+| 429 | Rate limit hit (guest token endpoint: 60 / 5 min per IP), or a free account's daily stream limit (`error: 'daily_stream_limit'`, `retryAt`) |
 
 ---
 
@@ -228,7 +228,7 @@ interface JoinRoomResponse {
   identity: string
   isHost: boolean
   isPremium?: boolean
-  isGuest?: boolean        // true for guest-* identities — listen-only
+  isGuest?: boolean        // true for guest-* identities (they can chat and raise a hand)
 }
 
 // Participants
@@ -332,21 +332,21 @@ interface WordGuessLeaderboardEntry {
 ```
 
 Three formatter helpers turn a result into ready-to-post text (e.g. for a
-Hive snap recapping the game — posting itself is up to the integrator, this
+Hive snap recapping the game, posting itself is up to the integrator, this
 package only formats):
 
 ```ts
 buildLichessAnalysisUrl(moveHistory: string[]): string
-// → "https://lichess.org/analysis/pgn/e4_e5_Nf3_..." — opens the full game
+// → "https://lichess.org/analysis/pgn/e4_e5_Nf3_...", opens the full game
 //   in Lichess's analysis board, no API call or auth required.
 
 formatWordGuessRecap(result: WordGuessGameResult): string
 // → a ranked leaderboard + full word reveal, e.g.:
-//   "🏁 Animals Word Guess Race!\n🥇 alice — 8.2s\n🥈 bob — 14.5s (3 tries)\n...\n🔍 Reveal: alice=GIRAFFE, ..."
+//   "🏁 Animals Word Guess Race!\n🥇 alice, 8.2s\n🥈 bob, 14.5s (3 tries)\n...\n🔍 Reveal: alice=GIRAFFE, ..."
 
 formatFastDrawRecap(result: FastDrawGameResult): string
 // → final scoreboard + winner(s), e.g.:
-//   "🎨 Animals Fast Draw — 9 rounds!\n🏆 alice wins with 5 points!\n🥈 bob — 3\n🥉 carol — 2"
+//   "🎨 Animals Fast Draw, 9 rounds!\n🏆 alice wins with 5 points!\n🥈 bob, 3\n🥉 carol, 2"
 ```
 
 ---
@@ -419,3 +419,8 @@ Full documentation: [hangout.3speak.tv/docs](https://hangout.3speak.tv/docs)
 ## License
 
 MIT
+
+
+## Full reference
+
+Every server route with auth, rate limit, body and answer: [docs/api-routes.md](https://github.com/Mantequilla-Soft/hangouts/blob/main/docs/api-routes.md). Routes added after this client (chat backlog, polls, raids, battles, captions, overlays, highlights, rewind, podcast) are called with plain `fetch`.

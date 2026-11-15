@@ -1,6 +1,6 @@
 # @snapie/hangouts-react
 
-React SDK for [Hive Hangouts](https://hangout.3speak.tv) — Twitter Spaces-style audio rooms for the Hive blockchain. Drop-in components for audio rooms with chat, hand raising, speaker management, recording, and Hive Keychain authentication.
+React SDK for [Hive Hangouts](https://hangout.3speak.tv), Twitter Spaces-style audio rooms for the Hive blockchain. Drop-in components for audio rooms with chat, hand raising, speaker management, recording, and Hive Keychain authentication.
 
 ## Install
 
@@ -31,7 +31,7 @@ function App() {
 
 ### With Aioha (recommended for production apps)
 
-Pass your Aioha instance to `<HangoutsProvider>` and login/boost transfers are routed through it automatically — no Keychain extension required:
+Pass your Aioha instance to `<HangoutsProvider>` and login/boost transfers are routed through it automatically, no Keychain extension required:
 
 ```tsx
 import { useAioha } from '@aioha/react-ui';
@@ -46,7 +46,7 @@ function App() {
 }
 ```
 
-When `aioha` is present, `useHangoutsAuth().login()` calls `aioha.signMessage()` and boosts call `aioha.transfer()` — covering Keychain, HiveAuth, PeakVault, Ledger, and any other registered provider.
+When `aioha` is present, `useHangoutsAuth().login()` calls `aioha.signMessage()` and boosts call `aioha.transfer()`, covering Keychain, HiveAuth, PeakVault, Ledger, and any other registered provider.
 
 ### With a custodial adapter (Google login / managed keys)
 
@@ -78,24 +78,24 @@ const custodialAdapter: AiohaLike = {
 <HangoutsProvider apiBaseUrl="..." aioha={custodialAdapter}>
 ```
 
-The custodial backend signs the challenge with the account's active/posting key and broadcasts transfers — the SDK only needs the interface above.
+The custodial backend signs the challenge with the account's active/posting key and broadcasts transfers, the SDK only needs the interface above.
 
 ## Features
 
-- **Hive Keychain login** — challenge-response auth with posting key
-- **Guest listener mode** — `<HangoutsRoom guestFallback>` lets unauthenticated viewers drop in as listen-only `guest-*` participants. Chat, mic, camera, hand-raise are all hidden for them.
-- **Room visibility** — Create-room dialog dropdown for `public` / `hive-internal` / `unlisted`. Server filters `unlisted` from the lobby and rejects guests for `hive-internal`.
-- **Audio rooms** — real-time voice via LiveKit WebRTC
-- **Chat** — text messaging via data channels (read-only with sign-in prompt for guests)
-- **Boost messages** — paid highlighted messages delivered via the `boost` LiveKit data topic and rendered in-room + OBS overlays.
-- **Hand raising** — listeners request to speak
-- **Speaker management** — host promotes/demotes participants. Promoted speakers start with mic and camera **off**.
-- **Live host transfer** — `useLiveHost` derives host status reactively from room metadata, so transferring host flips every consumer's UI without reconnecting.
-- **Recording** — audio or video; on stop, integrator-driven 3-button dialog (Upload · Download · Dismiss). Upload hands the raw blob to a callback you supply — the SDK doesn't ship a default publish destination.
-- **Share button** — built-in copy/Web-Share button in the room header, gated on a `getShareUrl(roomName, origin)` callback so links land back on the surface that created the room.
-- **Theming** — light/dark via CSS custom properties (`--hh-*`)
-- **Embedded mode** — fits in modals and panels
-- **Error boundary** — catches WebRTC crashes gracefully
+- **Hive Keychain login**: challenge-response auth with posting key
+- **Guest listener mode**: `<HangoutsRoom guestFallback>` lets signed-out viewers join as `guest-*` participants. Guests can chat and raise a hand; the host can promote, kick or ban them. Pass `readOnly` to `ChatPanel` if your app wants sign-in to chat.
+- **Room visibility**: Create-room dialog dropdown for `public` / `hive-internal` / `unlisted`. Server filters `unlisted` from the lobby and rejects guests for `hive-internal`.
+- **Audio rooms**: real-time voice via LiveKit WebRTC
+- **Chat**: text messaging over the data channel, with a server backlog for late joiners (guests can chat too)
+- **Boost messages**: paid highlighted messages delivered via the `boost` LiveKit data topic and rendered in-room + OBS overlays.
+- **Hand raising**: listeners request to speak
+- **Speaker management**: host promotes/demotes participants. Promoted speakers start with mic and camera **off**.
+- **Live host transfer**: the host is read from room metadata, so a transfer flips every client's UI without reconnecting.
+- **Recording**: audio or video; on stop, integrator-driven 3-button dialog (Upload · Download · Dismiss). Upload hands the raw blob to a callback you supply, the SDK doesn't ship a default publish destination.
+- **Share button**: built-in copy/Web-Share button in the room header, gated on a `getShareUrl(roomName, origin)` callback so links land back on the surface that created the room.
+- **Theming**: light/dark via CSS custom properties (`--hh-*`)
+- **Embedded mode**: fits in modals and panels
+- **Error boundary**: catches WebRTC crashes gracefully
 
 ## Components
 
@@ -117,11 +117,10 @@ The custodial backend signs the challenge with the account's active/posting key 
 | `useHangoutsAuth()` | Login/logout, auth state |
 | `useRoomList()` | Active rooms (polls every 10s) |
 | `useHangoutsRoom()` | Join (`join`), create (`create` accepts visibility), guest-listen (`listen`), leave; exposes `isGuest`, `roomMeta`, `transferHost`, `setLayout`, `setViewState` |
-| `useLiveHost(fallback?)` | Reactively derives the current host identity from room metadata + whether the local participant is the host. Use inside any LiveKit-context child to keep host UI in sync after a transfer. |
 | `useChat()` | Send/receive chat messages |
 | `useBoosts()` | Receive boost/superchat events from topic `boost` |
 | `useHandRaise()` | Hand raise state and actions |
-| `useHostControls()` | Promote, demote, kick |
+| `useHostControls(roomName)` | Promote, demote, kick, ban a guest, set a moderator, end the room |
 | `useRecording()` | Record, stop, fetch blob, download |
 | `useHiveAvatar()` | Hive profile picture URL |
 
@@ -131,9 +130,9 @@ The custodial backend signs the challenge with the account's active/posting key 
 |------|----------|-------------|
 | `apiBaseUrl` | Yes | Base URL of your Fastify server |
 | `livekitServerUrl` | No | LiveKit WebSocket URL (default: `wss://livekit.3speak.tv`) |
-| `sessionToken` | No | Pre-existing session JWT — skips the login flow if you already have one |
+| `sessionToken` | No | Pre-existing session JWT, skips the login flow if you already have one |
 | `username` | No | Authenticated Hive username (paired with `sessionToken`) |
-| `imageServerApiKey` | No | Bearer token for `images.3speak.tv` — enables the background image picker |
+| `imageServerApiKey` | No | Bearer token for `images.3speak.tv`, enables the background image picker |
 | `aioha` | No | Aioha instance **or** any `AiohaLike` adapter. Routes login and boost transfers through it. Supports Keychain, HiveAuth, PeakVault, Ledger, custodial adapters, etc. Falls back to direct Keychain when omitted. |
 
 `useHangoutsAuth()` returns `{ canSignIn, isAiohaAvailable, isKeychainAvailable, login, logout, isAuthenticated, username, isLoading, error }`.
@@ -153,14 +152,14 @@ The custodial backend signs the challenge with the account's active/posting key 
                                        // each user can flip it themselves after that (persisted per-device)
   onGameEnd={(result) => {
     // Fires once when a game ends. Cast result based on result.gameId
-    // ('chess' | 'fast-draw' | 'word-guess') — see the game-result types
+    // ('chess' | 'fast-draw' | 'word-guess'), see the game-result types
     // exported from @snapie/hangouts-core.
   }}
   onActiveGameChange={(gameId) => {
     // gameId is set when a game starts (or is already running when you
     // join), null once it ends. Use this to gate your own "confirm before
     // leaving" prompt on a close/leave button rendered outside this
-    // component — accidentally leaving mid-game is worse than one extra tap.
+    // component, accidentally leaving mid-game is worse than one extra tap.
   }}
   getShareUrl={(roomName, origin) => {
     // Build a URL that drops the recipient back into your surface.
@@ -248,3 +247,8 @@ Components: `<StreamBoostGoal>` (the bar; `<StreamVideo>` shows it by default), 
 ## License
 
 MIT
+
+
+## Full reference
+
+Every component, hook, data channel topic and server route, written from the code: [docs/integrator-guide.md](https://github.com/Mantequilla-Soft/hangouts/blob/main/docs/integrator-guide.md) and [docs/api-routes.md](https://github.com/Mantequilla-Soft/hangouts/blob/main/docs/api-routes.md). This README covers the basics only.
