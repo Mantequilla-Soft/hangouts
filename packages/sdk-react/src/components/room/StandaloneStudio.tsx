@@ -19,7 +19,7 @@ import { MOBILE_QUERY, useIsMobile } from '../../hooks/useIsMobile.js';
 import { useChat } from '../../hooks/useChat.js';
 import { MobileSheet } from './MobileSheet.js';
 import {
-  IconAspect, IconAudio, IconBoost, IconChat, IconCheck, IconFlipCamera, IconGuest,
+  IconAspect, IconAudio, IconBattle, IconBoost, IconChat, IconCheck, IconFlipCamera, IconGuest,
   IconMirror, IconBroadcast, IconPause, IconPlay, IconPost, IconShare, IconStop, IconZoomIn, IconZoomOut,
 } from './StudioIcons.js';
 import { BoostOverlay } from './BoostOverlay.js';
@@ -31,6 +31,10 @@ import { playBoostChime } from '../../lib/boostChime.js';
 import { StreamBoostGoal } from './StreamBoostGoal.js';
 import { BoostHistoryPanel } from './BoostHistoryPanel.js';
 import { BoostSettingsPanel } from './BoostSettingsPanel.js';
+import { BattlePanel, BattleInviteCard } from './BattlePanel.js';
+import { StreamBattleBar } from './StreamBattleBar.js';
+import { useStudioBattle } from '../../hooks/useBattle.js';
+import { battleTiles, drawBattleLayer } from '../../lib/battleLayout.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
 import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
 import { useDvr } from '../../hooks/useDvr.js';
@@ -126,6 +130,9 @@ const PRIORITY_OPTIONS: { value: RTCDegradationPreference; label: string; desc: 
  *  GUEST_SOURCE_ID (defined inside the component) but is needed up here by the
  *  audio-graph helpers. */
 const GUEST_SOURCE_KEY = 'guest';
+/** Audio-mixer key for the other host in a live battle. Like the guest, kept
+ *  out of the mix-minus monitor, which is what the other studio plays. */
+const BATTLE_SOURCE_KEY = 'battle';
 /** Name of the published mix-minus track the on-air guest listens to. */
 const HOST_MONITOR_TRACK = 'host-monitor';
 /** How long to keep a DISCONNECTED collab guest's slot + grant before giving up
@@ -1396,7 +1403,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
    *  else feeds the mix-minus monitor bus (which itself feeds the full mix), so
    *  the monitor the guest hears carries every source but their own. */
   const busFor = useCallback((key: string): GainNode | null =>
-    (key === GUEST_SOURCE_KEY ? preMasterRef.current : preMasterMonitorRef.current), []);
+    (key === GUEST_SOURCE_KEY || key === BATTLE_SOURCE_KEY ? preMasterRef.current : preMasterMonitorRef.current), []);
 
   /** Connect a track's gain node to its bus, through its limiter when Auto is
    *  on. Call this INSTEAD OF gainNode.connect(preMaster). */
@@ -2337,8 +2344,11 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // covered too.
   const pendingGuestRef = useRef(false);
   const [accepting, setAccepting] = useState(false);
+  // A battle takes the whole screen (and the mix-minus): no guest during one.
+  const battleOnAirRef = useRef(false);
   const acceptGuest = useCallback(async (identity: string) => {
     if (pendingGuestRef.current || guestIdentityRef.current) return;
+    if (battleOnAirRef.current) { setCollabError('Not during a battle'); return; }
     pendingGuestRef.current = true;
     setAccepting(true);
     setCollabError('');
@@ -2612,6 +2622,51 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     // their own bounced-back voice). Serialized against unpublish.
     publishMonitor();
   }, [remoteTracks, participants, ensureAudioGraph, demote, localParticipant, publishMonitor, unpublishMonitor]);
+
+  // --- live battle (H16) -------------------------------------------------
+  // The state, actions and the cross-room link live in useStudioBattle; the
+  // picture is one layer (lib/battleLayout) drawn in place of the scene. Here:
+  // the other host's audio into the mix (kept out of our monitor), and our
+  // monitor published so THEY can mix us without hearing themselves.
+  const battleGet = useCallback(async (path: string) => {
+    const token = apiClient.getSessionToken?.();
+    const res = await fetch(`${apiBaseUrl.replace(/\/$/, '')}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }, [apiBaseUrl, apiClient]);
+  const battleApi = useMemo(() => ({ post: authedPost, get: battleGet }), [authedPost, battleGet]);
+  const battle = useStudioBattle(roomName, localParticipant?.identity || setupUser || '', livekitServerUrl, battleApi);
+  battleOnAirRef.current = battle.onAir;
+  const [battleOpen, setBattleOpen] = useState(false);
+  const battleDrawRef = useRef<{ video: HTMLVideoElement | null; waiting: string } | null>(null);
+  battleDrawRef.current = battle.onAir
+    ? { video: battle.link.video, waiting: `Connecting to @${battle.them?.host ?? ''}…` }
+    : null;
+
+  useEffect(() => {
+    const track = battle.link.audio;
+    if (!track) return undefined;
+    const ctx = ensureAudioGraph();
+    const gain = ctx.createGain();
+    gain.gain.value = 1;
+    connectAudioTrack(BATTLE_SOURCE_KEY, gain);
+    const src = ctx.createMediaStreamSource(new MediaStream([track]));
+    src.connect(gain);
+    return () => {
+      try { src.disconnect(); gain.disconnect(); } catch { /* already gone */ }
+      const lim = limiterMapRef.current.get(BATTLE_SOURCE_KEY);
+      if (lim) { try { lim.disconnect(); } catch { /* already gone */ } limiterMapRef.current.delete(BATTLE_SOURCE_KEY); }
+    };
+  }, [battle.link.audio, ensureAudioGraph, connectAudioTrack]);
+
+  useEffect(() => {
+    if (!battle.onAir) return undefined;
+    ensureAudioGraph();
+    publishMonitor();
+    return () => { if (!guestIdentityRef.current) unpublishMonitor(); };
+  }, [battle.onAir, ensureAudioGraph, publishMonitor, unpublishMonitor]);
 
   const openObsSetup = useCallback(async () => {
     setExternalKind('obs');
@@ -3237,7 +3292,23 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       const CH = ctx.canvas.height;
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, CW, CH);
-      switch (p.scene) {
+      const battleDraw = battleDrawRef.current;
+      if (battleDraw) {
+        // Live battle: our camera (or the selected source when the camera is
+        // off) in our half, the other host cut out of their program in theirs.
+        drawBattleLayer(ctx, {
+          W: CW,
+          H: CH,
+          drawSelf: (r) => {
+            if (ready(cam)) withCamMirror(r.x, r.w, () => drawCover(ctx, cam, r.x, r.y, r.w, r.h));
+            else if (p.source) drawSourceInto(p.source, r.x, r.y, r.w, r.h, now);
+            else drawPlaceholder(ctx, 'Camera is off', '', r.x, r.y, r.w, r.h);
+          },
+          opponent: battleDraw.video,
+          selfName: p.hostName ?? '',
+          waitingText: battleDraw.waiting,
+        });
+      } else switch (p.scene) {
         case 'cam':
           if (!ready(cam) && camFreezeRef.current) {
             // Mid-swap: hold the last frame instead of flashing "Camera is off".
@@ -3364,8 +3435,11 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         // Boosts ride on the PROGRAM only. The host already has the DOM
         // overlay as their monitor, and drawing here keeps them clear of the
         // stacked-scene strip swap above.
-        const cardW = Math.min(pw * 0.62, pw - 24);
-        let cardY = Math.round(ph * 0.04);
+        // In a battle, inside our own half: the other studio cuts that half
+        // out of our program, so our boosts show on their stream too.
+        const cardBox = battleDrawRef.current ? battleTiles(pw, ph).self : { x: 0, y: 0, w: pw, h: ph };
+        const cardW = Math.min(cardBox.w * 0.62, cardBox.w - 24);
+        let cardY = cardBox.y + Math.round(cardBox.h * 0.04);
         // WALL CLOCK, not `now`. `now` here is performance.now() — ms since page
         // load — while a boost's timestamp is a Unix epoch. Subtracting them
         // gives a huge negative number that is always under the window, so the
@@ -3378,7 +3452,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         for (const b of live) {
           const level = tiersOn ? boostTier(b.usdAmount).level : null;
           const accent = level === null ? '' : tierColorsRef.current[level] ?? '';
-          cardY += drawBoostCard(pctx, b, Math.round((pw - cardW) / 2), cardY, cardW, { level, accent }) + 10;
+          cardY += drawBoostCard(pctx, b, Math.round(cardBox.x + (cardBox.w - cardW) / 2), cardY, cardW, { level, accent }) + 10;
         }
       } else {
         drawSlate(pctx, pw, ph, titleRef.current, now, state === 'standby' ? 'soon' : 'brb');
@@ -3680,7 +3754,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     return { disabled: false };
   };
 
-  const showPipOverlay = scene === 'overlay' && camOn;
+  // The battle layer replaces the scene, so its drag handles go too.
+  const showPipOverlay = scene === 'overlay' && camOn && !battle.onAir;
   const stateBadge = streamState === 'live'
     ? { cls: '', symbol: '●', word: 'LIVE', tip: 'Live to viewers' }
     : streamState === 'paused'
@@ -4195,7 +4270,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       )}
       {/* Only the side-by-side split is resizable — the stacked collab view is
           locked to equal halves. */}
-      {scene === 'split' && (
+      {scene === 'split' && !battle.onAir && (
         <div
           className="hh-studio__split-handle"
           style={{ left: `${splitRatio * 100}%` }}
@@ -4207,6 +4282,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       {/* The host's goal bar, on the monitor only: viewers get the SDK's own
           bar over the player, so it is not burned into the stream. */}
       <StreamBoostGoal variant="overlay" className="hh-studio__boost-goal" />
+      <StreamBattleBar variant="overlay" all host={localParticipant?.identity} className="hh-studio__battle-bar" />
+      <BattleInviteCard battle={battle} className="hh-studio__battle-invite" />
     </div>
   </div>
   );
@@ -4312,6 +4389,16 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             </>
           )}
           {!isMobile && shareUrl && <button className="hh-btn hh-btn--secondary hh-btn--small hh-studio__share-btn" onClick={copyShareUrl}>{copied ? <><span className="hh-studio__icon" aria-hidden="true">✓</span>Copied</> : <><span className="hh-studio__icon" aria-hidden="true">🔗</span>Share</>}</button>}
+          {!isMobile && (
+            <button
+              className={`hh-btn hh-btn--small hh-studio__battle-btn ${battleOpen || battle.onAir ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+              onClick={() => setBattleOpen((v) => !v)}
+              title="Live battle"
+              aria-label="Live battle"
+            >
+              <span className="hh-studio__icon" aria-hidden="true">⚔️</span>
+            </button>
+          )}
           {!isMobile && <button className={`hh-btn hh-btn--small hh-studio__boost-history-btn ${boostHistoryOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`} onClick={() => setBoostHistoryOpen((v) => !v)} title="Boost history" aria-label="Boost history"><span className="hh-studio__icon" aria-hidden="true">💰</span></button>}
           {!isMobile && (
             <button
@@ -4515,6 +4602,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 <span className="hh-studio__rbtn-label">Share</span>
               </button>
             )}
+            <button
+              className={`hh-studio__rbtn${battleOpen ? ' hh-studio__rbtn--on' : ''}${battle.onAir ? ' hh-studio__rbtn--live' : ''}`}
+              onClick={() => setBattleOpen((v) => !v)}
+              title="Live battle"
+            >
+              <IconBattle />
+              <span className="hh-studio__rbtn-label">Battle</span>
+            </button>
             {isPremium && (
               <button
                 className={`hh-studio__rbtn${restreamOpen ? ' hh-studio__rbtn--on' : ''}${restream.isStreaming ? ' hh-studio__rbtn--live' : ''}`}
@@ -5226,6 +5321,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       )}
 
       {boostHistoryOpen && <BoostHistoryPanel onClose={() => setBoostHistoryOpen(false)} />}
+      {battleOpen && (
+        <BattlePanel
+          battle={battle}
+          streamLive={streamState === 'live'}
+          hasGuest={!!guestIdentity}
+          onClose={() => setBattleOpen(false)}
+        />
+      )}
       {boostSettingsOpen && (
         <BoostSettingsPanel
           roomName={roomName}
