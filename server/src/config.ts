@@ -74,6 +74,14 @@ const envSchema = z.object({
   // still apply. Empty = nobody is exempt.
   STREAM_LIMIT_EXEMPT: z.string().default('')
     .transform((v) => new Set(v.split(',').map((s) => s.trim().replace(/^@/, '').toLowerCase()).filter(Boolean))),
+  // Live captions (H11): the host's browser streams its own mic to the speech
+  // server and sends the text over the data channel; this server only hands out
+  // caption slots, at most CAPTIONS_MAX_STREAMS at once, so the speech box never
+  // carries more continuous recognitions from streams than that. A slot lapses
+  // CAPTIONS_SLOT_TTL_SEC after the studio's last renewal (it renews every 30 s).
+  CAPTIONS_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  CAPTIONS_MAX_STREAMS: z.coerce.number().int().min(0).max(100).default(3),
+  CAPTIONS_SLOT_TTL_SEC: z.coerce.number().int().min(30).max(3600).default(90),
   PORT: z.coerce.number().default(3002),
 });
 
