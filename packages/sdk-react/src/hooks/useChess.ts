@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Chess } from 'chess.js';
 import { useDataChannel, useLocalParticipant } from '@livekit/components-react';
 import { useHangoutsContext } from '../context/HangoutsContext.js';
+import { readGamePacket, type DataSender } from '../lib/dataTrust.js';
 
 export interface UseChessOptions {
   roomName: string;
@@ -169,10 +170,12 @@ export function useChess({ roomName }: UseChessOptions): UseChessResult {
     void hydrate();
   }, [hydrate]);
 
-  const onMessage = useCallback((msg: { payload: Uint8Array }) => {
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
+    // Game messages come from the server only (moves go over HTTP): a packet
+    // a participant published on 'game' is dropped (lib/dataTrust.ts).
+    const parsed = readGamePacket<{ [key: string]: unknown }>(msg.payload, msg.from);
+    if (!parsed) return;
     try {
-      const text = new TextDecoder().decode(msg.payload);
-      const parsed = JSON.parse(text) as { type: string; [key: string]: unknown };
 
       if (parsed.type === 'game:started' && (parsed.gameId as string) === 'chess') {
         const broadcast = parsed.broadcast as ChessStartBroadcast | null;

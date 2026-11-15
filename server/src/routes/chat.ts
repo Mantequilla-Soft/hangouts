@@ -5,7 +5,7 @@ import { isGuestBanned } from '../lib/guestBans.js';
 import {
   addBacklogMessage, clampTimestamp, getBacklog, removeBacklogMessage, CHAT_TEXT_MAX,
 } from '../lib/chatBacklog.js';
-import { isHostOrMod, livekitIdentity, readRoomMeta, sendRoomData, sessionUser } from '../lib/liveRoom.js';
+import { isHostOrMod, livekitParticipant, readRoomMeta, sendRoomData, sessionUser } from '../lib/liveRoom.js';
 import { noteChat } from '../lib/streamHighlights.js';
 
 /** Rooms seen to exist recently, so a busy chat is not one LiveKit lookup per line. */
@@ -78,6 +78,8 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
           text: { type: 'string', minLength: 1, maxLength: 2000 },
           timestamp: { type: 'number' },
           identity: { type: 'string', maxLength: 80 },
+          /** Ignored (kept so older clients still validate): the name comes
+           *  from the session or the room token. */
           name: { type: 'string', maxLength: 128 },
           /** A guest proves who they are with their room token instead of a session. */
           livekitToken: { type: 'string', maxLength: 4096 },
@@ -93,6 +95,10 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
 
     const account = await sessionUser(request);
     let identity: string | null = null;
+    // The name is never the body's: a Hive account chats under its account
+    // name (as its LiveKit participant does), a guest under the name its room
+    // token carries. Live clients take it from the LiveKit sender the same way.
+    let lineName: string;
     if (account) {
       // The host's second device chats as `<host>~watch`: both are this account.
       const wanted = body.identity ?? account;
@@ -101,9 +107,12 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (await isUserBanned(account)) return reply.forbidden('Your account has been suspended');
       identity = wanted;
+      lineName = account;
     } else {
-      identity = await livekitIdentity(body.livekitToken, name);
-      if (!identity) return reply.unauthorized('Sign in or join the room first');
+      const guest = await livekitParticipant(body.livekitToken, name);
+      if (!guest) return reply.unauthorized('Sign in or join the room first');
+      identity = guest.identity;
+      lineName = guest.name;
       if (isGuestBanned(name, request.ip)) return reply.forbidden('You have been removed from this room');
     }
 
@@ -115,7 +124,7 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
       // the live copy of one message dedupe into one.
       id: `${identity}-${typeof body.timestamp === 'number' ? Math.round(body.timestamp) : timestamp}`,
       identity,
-      name: (body.name?.trim() || account || identity),
+      name: lineName,
       text,
       timestamp,
     });

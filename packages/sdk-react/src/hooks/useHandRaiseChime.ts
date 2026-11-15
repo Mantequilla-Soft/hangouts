@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useDataChannel, useLocalParticipant } from '@livekit/components-react';
-import type { HandRaiseEvent } from '@snapie/hangouts-core';
+import { readHandRaisePacket, type DataSender } from '../lib/dataTrust.js';
 
 const TOPIC = 'hand-raise';
 const THROTTLE_MS = 2_000;
@@ -70,16 +70,12 @@ export function useHandRaiseChime(enabled: boolean, volume = 0.3): void {
   const { localParticipant } = useLocalParticipant();
   const lastChimeAtRef = useRef(0);
 
-  const onMessage = useCallback((msg: { payload: Uint8Array }) => {
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
     if (!enabled) return;
-    let event: HandRaiseEvent;
-    try {
-      event = JSON.parse(new TextDecoder().decode(msg.payload)) as HandRaiseEvent;
-    } catch {
-      return;
-    }
-    if (event.type !== 'hand_raise') return;
-    if (!event.raised) return;
+    // A raise is always the sender's own hand (lib/dataTrust.ts), so nobody
+    // can make the host's speakers chime "for" someone else.
+    const event = readHandRaisePacket(msg.payload, msg.from, null);
+    if (!event || !event.raised) return;
     if (event.identity === localParticipant?.identity) return;
 
     const now = Date.now();

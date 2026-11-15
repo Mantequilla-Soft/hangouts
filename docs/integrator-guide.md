@@ -224,28 +224,73 @@ Participant metadata and attributes are not used. Display names come from the to
 All messages are UTF-8 JSON, sent reliable unless noted. In React use
 `useDataChannel(topic, cb)` from `@livekit/components-react`, or the SDK hooks.
 
-| Topic | Sent by | Message |
-|---|---|---|
-| `chat` | any participant (`useChat`) | `{ type: 'chat', identity, name, text, timestamp }`. Line id = `${identity}-${timestamp}`. |
-| `chat` | server | `{ type: 'chat-delete', id }` (mod delete), `{ type: 'chat-purge', identity }` (guest ban), `{ type: 'system', id, identity, name, text, timestamp, system: { kind: 'raid', from, viewers } }` (raid arrives). |
-| `hand-raise` | any participant | `{ type: 'hand_raise', raised, identity, timestamp }` |
-| `boost` | server (boost listener) | `{ type: 'boost', id, room, sender, displayName?, message, amount, asset: 'HIVE'\|'HBD', usdAmount, feeAmount, payoutAmount, recipient, txId, blockNum, timestamp, belowMinimum? }` |
-| `poll` | server, about 1/s per room at most | `{ type: 'poll', poll: PollView }` |
-| `raid` | server | `{ type: 'raid-start'\|'raid-go'\|'raid-cancel', raid: { id, from, target: { roomName, host, title }, viewers, endsAt, endsInMs } }` |
-| `captions` | host studio | `{ t: 'cap', id, text, final, lang }`. Partials lossy (at most every 400 ms), finals reliable. Viewers drop lines not sent by `meta.host`. |
-| `game` | server | `game:started`, `game:state`, `game:broadcast`, `game:feedback`, `game:ended` (each with `serverTime`). Moves go over HTTP. |
-| `draw` | Fast Draw drawer, lossy | `{ type: 'draw_stroke', stroke }` or `{ type: 'draw_clear' }` |
-| `volume` | any participant | `{ type: 'volume', identity, volume, timestamp }` |
+| Topic | Sent by | Trust | Message |
+|---|---|---|---|
+| `chat` | any participant (`useChat`) | participant | `{ type: 'chat', text, timestamp }` (older clients also send `identity`, `name`: ignored). Line id = `${sender identity}-${timestamp}`. |
+| `chat` | server | server | `{ type: 'chat-delete', id }` (mod delete), `{ type: 'chat-purge', identity }` (guest ban), `{ type: 'system', id, identity, name, text, timestamp, system: { kind: 'raid', from, viewers } }` (raid arrives). |
+| `hand-raise` | any participant | participant | `{ type: 'hand_raise', raised, identity, timestamp }`. `identity` other than the sender only for the host lowering someone's hand. |
+| `boost` | server (boost listener) | server | `{ type: 'boost', id, room, sender, displayName?, message, amount, asset: 'HIVE'\|'HBD', usdAmount, feeAmount, payoutAmount, recipient, txId, blockNum, timestamp, belowMinimum? }` |
+| `poll` | server, about 1/s per room at most | server | `{ type: 'poll', poll: PollView }` |
+| `raid` | server | server | `{ type: 'raid-start'\|'raid-go'\|'raid-cancel', raid: { id, from, target: { roomName, host, title }, viewers, endsAt, endsInMs } }` |
+| `game` | server | server | `game:started`, `game:state`, `game:broadcast`, `game:feedback`, `game:ended` (each with `serverTime`). Moves go over HTTP. |
+| `captions` | host studio | host | `{ t: 'cap', id, text, final, lang }`. Partials lossy (at most every 400 ms), finals reliable. |
+| `view-state` | host (`useViewStateBroadcast`) | host | `{ type: 'view-state', focusedIdentity, suppressScreenAutoFocus, timestamp }` |
+| `volume` | host (tile volume slider) | host | `{ type: 'volume', identity, volume (0..1), timestamp }`. Applied by every client and the recording. |
+| `draw` | Fast Draw drawer, lossy | current drawer | `{ type: 'draw_stroke', stroke }` or `{ type: 'draw_clear' }` |
 
 Battles, boost goals, captions state and the vertical crop live in room metadata,
 not on a topic.
 
-The server does not inspect data packets; LiveKit relays them to anyone with
-`canPublishData`. Treat a client-sent message as a claim. The only checked chat copy
-is the backlog (`POST /rooms/:name/chat` binds the identity to the session or room
-token). If you build your own listeners for server topics (`boost`, `poll`, `raid`),
-check that the packet has no participant sender (`participant` is undefined for
-server messages).
+### Who sent it: how the SDK checks
+
+The server does not inspect data packets: LiveKit relays them to anyone with
+`canPublishData`, and every viewer has that (anonymous guests too, so they can chat).
+So any participant can put any payload on any topic. What a participant cannot fake
+is the sender: LiveKit stamps each packet with the publisher's identity, and a packet
+the server sent with `RoomService.sendData` arrives with no participant. Every SDK
+listener checks that sender before it believes a packet (`lib/dataTrust.ts`):
+
+- **server** topics count only when there is no participant sender
+  (`msg.from` undefined in `useDataChannel`, `participant` undefined in
+  `RoomEvent.DataReceived`). A participant-made boost card, poll result, raid
+  (raid-go would send every viewer to the attacker's room), game message, chat
+  delete/purge or system line is dropped.
+- **host** topics count only when the sender's identity is `host` in the room
+  metadata (only the server writes metadata). Host transfers follow the metadata.
+- **participant** topics are anyone's, but who said it is the LiveKit sender:
+  a chat line's identity and name come from the participant (its token `name`, set by
+  the server: the Hive account for signed-in users, the chosen name for guests), never
+  from the payload. Payload `identity`, `name`, `isHost` and similar fields are ignored.
+  A hand-raise is always the sender's own hand; only the host may lower someone else's.
+- **draw** strokes count only from the current drawer the server's game state names.
+
+The chat backlog (`POST /rooms/:name/chat`) applies the same rule on the server: the
+identity is bound to the session or room token, and the stored name comes from the
+account or the token, not the request body.
+
+If you read topics yourself, do the same. The SDK exports the checks:
+
+```ts
+import { useDataChannel } from '@livekit/components-react';
+import { readBoostPacket, readChatPacket, readVolumePacket, hostFromMetadata, isServerSent } from '@snapie/hangouts-react';
+
+useDataChannel('boost', (msg) => {
+  const boost = readBoostPacket(msg.payload, msg.from); // null unless the server sent it
+  if (boost) showCard(boost);
+});
+```
+
+Each `read*Packet(payload, from, ...)` returns the checked message or null
+(`readChatPacket`, `readBoostPacket`, `readPollPacket`, `readRaidPacket`,
+`readGamePacket`, `readCaptionPacket(…, host)`, `readViewStatePacket(…, host)`,
+`readVolumePacket(…, host)`, `readHandRaisePacket(…, host)`, `readDrawPacket(…, drawer)`);
+`DATA_TOPIC_TRUST` lists the class of each topic. Without React: in
+`room.on(RoomEvent.DataReceived, (payload, participant, kind, topic) => …)`, treat
+`participant === undefined` as the server and `participant.identity` as the only
+sender identity. Never show a payload's `identity` or `name` as the author, and never
+navigate, credit or remove anything on a client-sent message. A browser source or
+recording template you build (OBS overlay, egress) needs the same checks: the demo's
+`EgressTemplate.tsx` takes chat authors from `msg.from` and volume only from the host.
 
 ## SDK packages
 
