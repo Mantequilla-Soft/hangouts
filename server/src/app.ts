@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type RouteOptions } from 'fastify';
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
@@ -25,7 +25,14 @@ import { studioToolRoutes } from './routes/studioTools.js';
 import { seedWordCollections } from './lib/seed-word-collections.js';
 import './games/index.js';
 
-export async function buildApp(): Promise<FastifyInstance> {
+export interface BuildAppOptions {
+  /** Called for every route as it is registered (scripts/list-routes.ts uses it). */
+  onRoute?: (route: RouteOptions) => void;
+  /** Fastify logger; on by default. */
+  logger?: boolean;
+}
+
+export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
   await mkdir('/tmp/livekit-recordings', { recursive: true });
   await seedWordCollections();
 
@@ -35,7 +42,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   // guest bans ALL of them via 127.0.0.1) and collapses per-IP rate limits into
   // a single global bucket. Trusting only the loopback proxy means XFF spoofed
   // by a real client is ignored (nginx appends the true peer to the right).
-  const server = Fastify({ logger: true, trustProxy: '127.0.0.1' });
+  const server = Fastify({ logger: opts.logger ?? true, trustProxy: '127.0.0.1' });
+  if (opts.onRoute) server.addHook('onRoute', opts.onRoute);
 
   await server.register(cors, { origin: true });
   await server.register(sensible);
