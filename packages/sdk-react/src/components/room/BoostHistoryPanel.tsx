@@ -1,14 +1,18 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useBoostStore, type BoostEvent } from '../../hooks/useBoosts.js';
+import { useRoomBoost } from '../../hooks/useRoomBoost.js';
+import { boostTier } from '../../lib/boostGoals.js';
+import { StreamBoostGoal, BoostTopSupporters } from './StreamBoostGoal.js';
 
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function BoostHistoryItem({ boost }: { boost: BoostEvent }) {
+function BoostHistoryItem({ boost, tiersOn }: { boost: BoostEvent; tiersOn: boolean }) {
+  const tier = tiersOn ? ` hh-boost-history__item--tier-${boostTier(boost.usdAmount).level}` : '';
   return (
-    <div className={`hh-boost-history__item${boost.belowMinimum ? ' hh-boost-history__item--below-min' : ''}`}>
+    <div className={`hh-boost-history__item${tier}${boost.belowMinimum ? ' hh-boost-history__item--below-min' : ''}`}>
       <div className="hh-boost-history__item-header">
         <span className="hh-boost-history__sender">
           @{boost.displayName || boost.sender}
@@ -35,6 +39,7 @@ interface Props {
 
 export function BoostHistoryPanel({ onClose }: Props) {
   const boosts = useBoostStore();
+  const { tiersOn } = useRoomBoost();
   const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -72,12 +77,18 @@ export function BoostHistoryPanel({ onClose }: Props) {
           ✕
         </button>
       </div>
+      {/* This stream's goal and top supporters, from the server's tally (the
+          list below is only what this browser has seen). */}
+      <div className="hh-boost-history__summary">
+        <StreamBoostGoal variant="inline" />
+        <BoostTopSupporters />
+      </div>
       <div className="hh-boost-history__list" ref={listRef}>
         {boosts.length === 0 ? (
           <p className="hh-boost-history__empty">No boosts yet this session</p>
         ) : (
           boosts.map((boost) => (
-            <BoostHistoryItem key={boost.id} boost={boost} />
+            <BoostHistoryItem key={boost.id} boost={boost} tiersOn={tiersOn} />
           ))
         )}
       </div>

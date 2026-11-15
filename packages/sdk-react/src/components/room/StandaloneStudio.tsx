@@ -22,7 +22,12 @@ import {
   IconMirror, IconBroadcast, IconPause, IconPlay, IconPost, IconShare, IconStop, IconZoomIn, IconZoomOut,
 } from './StudioIcons.js';
 import { BoostOverlay } from './BoostOverlay.js';
-import { useBoostStore, BOOST_DISPLAY_MS } from '../../hooks/useBoosts.js';
+import { useBoostStore } from '../../hooks/useBoosts.js';
+import { useRoomBoost, useGoalCelebration } from '../../hooks/useRoomBoost.js';
+import { useBoostAlerts } from '../../hooks/useBoostAlerts.js';
+import { boostTier, boostTierColorVar, pickPinnedBoosts, readBoostConfig, parseRoomMeta } from '../../lib/boostGoals.js';
+import { playBoostChime } from '../../lib/boostChime.js';
+import { StreamBoostGoal } from './StreamBoostGoal.js';
 import { BoostHistoryPanel } from './BoostHistoryPanel.js';
 import { BoostSettingsPanel } from './BoostSettingsPanel.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
@@ -360,13 +365,44 @@ function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number, ma
  * who paid got nothing in the VOD. Compositing them makes them part of the
  * picture everywhere the picture goes.
  */
+/**
+ * A theme token (`--hh-primary`) as a colour canvas understands: rendered
+ * through a probe element so `var()` chains and `color-mix()` from a skin come
+ * back as plain rgb(). Empty when it can't be resolved.
+ */
+function resolveTokenColor(host: HTMLElement, token: string): string {
+  try {
+    const probe = document.createElement('span');
+    probe.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;color:var(${token})`;
+    host.appendChild(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color || '';
+  } catch {
+    return '';
+  }
+}
+
+/** How a boost card is drawn: its tier (null = tiers off, the classic card)
+ *  and the tier's accent colour, resolved from the theme tokens. */
+export interface BoostCardStyle {
+  level: number | null;
+  accent: string;
+}
+
+/** Border width multiplier and title size multiplier, per tier. */
+const TIER_WEIGHT = [1, 1.5, 2.2, 3.2];
+const TIER_TITLE = [1, 1, 1.06, 1.14];
+
 function drawBoostCard(
   ctx: CanvasRenderingContext2D,
   boost: { displayName?: string; sender: string; message: string; amount: string; asset: string },
   x: number, y: number, w: number,
+  style: BoostCardStyle = { level: null, accent: '' },
 ): number {
+  const lvl = style.level;
   const pad = Math.round(w * 0.022);
-  const titlePx = Math.max(15, Math.round(w * 0.028));
+  const titlePx = Math.max(15, Math.round(w * 0.028 * (lvl === null ? 1 : TIER_TITLE[lvl] ?? 1)));
   const bodyPx = Math.max(14, Math.round(w * 0.025));
   const innerW = w - pad * 2;
 
@@ -390,12 +426,18 @@ function drawBoostCard(
   ctx.closePath();
   ctx.fillStyle = 'rgba(13, 13, 18, 0.88)';
   ctx.fill();
-  ctx.strokeStyle = 'rgba(227, 19, 55, 0.75)';
-  ctx.lineWidth = Math.max(1, Math.round(w * 0.0022));
+  // Tiers: the accent comes from the theme token for the tier, and the bigger
+  // tiers get a heavier frame, so they read apart even where a skin maps two
+  // tokens to one colour. Tiers off (or no colour resolved): the classic card.
+  const tiered = lvl !== null && !!style.accent;
+  ctx.strokeStyle = tiered ? style.accent : 'rgba(227, 19, 55, 0.75)';
+  ctx.lineWidth = Math.max(1, Math.round(w * 0.0022 * (tiered ? TIER_WEIGHT[lvl] ?? 1 : 1)));
   ctx.stroke();
 
   ctx.font = `800 ${titlePx}px system-ui, -apple-system, "Segoe UI", sans-serif`;
-  ctx.fillStyle = '#ff5a6e';
+  // The smallest tier keeps a white title (its muted token would be too faint
+  // over video); the others take their accent.
+  ctx.fillStyle = tiered ? (lvl === 0 ? '#fff' : style.accent) : '#ff5a6e';
   const title = `\u{1F680} @${boost.displayName || boost.sender}`;
   ctx.fillText(title, x + pad, y + pad + titlePx * 0.85);
   const amount = `${boost.amount} ${boost.asset}`;
@@ -942,16 +984,18 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // through PATCH /rooms/:name/boost, which updates that metadata).
   const [boostSettingsOpen, setBoostSettingsOpen] = useState(false);
   const roomInfo = useRoomInfo();
-  const boostConfig = useMemo(() => {
-    try {
-      const meta = JSON.parse(roomInfo.metadata || '{}') as { boost?: unknown };
-      const b = meta.boost;
-      return b && typeof b === 'object' && !Array.isArray(b)
-        ? b as { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string }
-        : undefined;
-    } catch { return undefined; }
-  }, [roomInfo.metadata]);
+  const boostConfig = useMemo(() => readBoostConfig(parseRoomMeta(roomInfo.metadata)), [roomInfo.metadata]);
   const boostsOff = boostConfig?.enabled === false;
+  // Goal, tiers and alerts (Boost settings). Alerts play here, on the host's
+  // own speakers: a chime per boost, optionally read aloud, and a run of notes
+  // when the goal is reached.
+  const roomBoost = useRoomBoost();
+  const boostTiersRef = useRef(roomBoost.tiersOn);
+  boostTiersRef.current = roomBoost.tiersOn;
+  useBoostAlerts(boostList, roomBoost.alerts);
+  useGoalCelebration(roomBoost.stats, roomBoost.loaded, () => {
+    if (roomBoost.alerts.sound) playBoostChime('goal');
+  });
   const [copied, setCopied] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   // OBS / external encoder ingest (WHIP).
@@ -1201,6 +1245,20 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // orphans the track (published, ref null) so no later guest gets a monitor.
   const monitorOpRef = useRef<Promise<void>>(Promise.resolve());
   const previewRef = useRef<HTMLDivElement>(null);
+  // Boost tier colours for the canvas, from the theme tokens as the studio's
+  // skin sets them (canvas can't read CSS variables, so they are resolved to
+  // plain colours here and re-read now and then, e.g. after a theme switch).
+  const tierColorsRef = useRef<string[]>([]);
+  useEffect(() => {
+    const resolve = () => {
+      const el = previewRef.current;
+      if (!el) return;
+      tierColorsRef.current = [0, 1, 2, 3].map((lvl) => resolveTokenColor(el, boostTierColorVar(lvl)));
+    };
+    resolve();
+    const t = window.setInterval(resolve, 5000);
+    return () => window.clearInterval(t);
+  }, []);
   const frameRef = useRef<HTMLDivElement>(null);
   const camStreamRef = useRef<MediaStream | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -3282,11 +3340,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         // gives a huge negative number that is always under the window, so the
         // card never expired and sat burned into the stream forever.
         const boostNow = Date.now();
-        const live = boostsRef.current
-          .filter((b) => !b.belowMinimum && boostNow - b.timestamp < BOOST_DISPLAY_MS)
-          .slice(-2);
+        // Each boost stays for its tier's time; with more up than the two
+        // slots, the bigger tiers keep theirs.
+        const tiersOn = boostTiersRef.current;
+        const live = pickPinnedBoosts(boostsRef.current, boostNow, tiersOn, 2);
         for (const b of live) {
-          cardY += drawBoostCard(pctx, b, Math.round((pw - cardW) / 2), cardY, cardW) + 10;
+          const level = tiersOn ? boostTier(b.usdAmount).level : null;
+          const accent = level === null ? '' : tierColorsRef.current[level] ?? '';
+          cardY += drawBoostCard(pctx, b, Math.round((pw - cardW) / 2), cardY, cardW, { level, accent }) + 10;
         }
       } else {
         drawSlate(pctx, pw, ph, titleRef.current, now, state === 'standby' ? 'soon' : 'brb');
@@ -4112,6 +4173,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         ><span /></div>
       )}
       <BoostOverlay />
+      {/* The host's goal bar, on the monitor only: viewers get the SDK's own
+          bar over the player, so it is not burned into the stream. */}
+      <StreamBoostGoal variant="overlay" className="hh-studio__boost-goal" />
     </div>
   </div>
   );
@@ -5116,7 +5180,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       {boostSettingsOpen && (
         <BoostSettingsPanel
           roomName={roomName}
-          currentConfig={boostConfig ? { enabled: boostConfig.enabled ?? true, minBoostUsd: boostConfig.minBoostUsd ?? 0, creatorPayoutAccount: boostConfig.creatorPayoutAccount } : undefined}
+          currentConfig={boostConfig ? { ...boostConfig, enabled: boostConfig.enabled ?? true, minBoostUsd: boostConfig.minBoostUsd ?? 0 } : undefined}
           onClose={() => setBoostSettingsOpen(false)}
           onSaved={() => { /* the room metadata update re-renders the button */ }}
         />

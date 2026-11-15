@@ -6,6 +6,8 @@ import type { BoostConfig } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { BoostStoreProvider } from '../../hooks/useBoosts.js';
+import { StreamBoostGoal } from './StreamBoostGoal.js';
+import type { BoostLabels } from '../../lib/boostLabels.js';
 
 /**
  * Composable watch-side of a standalone stream. Unlike <StandaloneViewer>
@@ -154,6 +156,11 @@ export function useStreamLive() {
 export interface StreamVideoProps {
   /** Overlay a small LIVE/OFFLINE badge (top-left). Default true. */
   showLiveBadge?: boolean;
+  /** The host's boost goal as a slim bar over the bottom of the video, when
+   *  the host set one. Default true; false to place <StreamBoostGoal> yourself. */
+  showBoostGoal?: boolean;
+  /** Translated text for the goal bar (see BoostLabels). */
+  boostLabels?: Partial<BoostLabels>;
 }
 /** How long after connecting an absent host still counts as "not here yet"
  *  rather than offline. The participant list arrives a moment after the room
@@ -181,7 +188,7 @@ function useConnectionSettled(): boolean {
   return settled;
 }
 
-export function StreamVideo({ showLiveBadge = true }: StreamVideoProps) {
+export function StreamVideo({ showLiveBadge = true, showBoostGoal = true, boostLabels }: StreamVideoProps) {
   const track = useProgramTrack();
   const live = useStreamLive();
   const settled = useConnectionSettled();
@@ -196,6 +203,7 @@ export function StreamVideo({ showLiveBadge = true }: StreamVideoProps) {
       {showLiveBadge && (live || settled) && (
         <span className={`hh-stream-badge${live ? '' : ' hh-stream-badge--off'}`}>{live ? '● LIVE' : '○ OFFLINE'}</span>
       )}
+      {showBoostGoal && live && <StreamBoostGoal variant="overlay" labels={boostLabels} />}
       {/* No <BoostOverlay/> here on purpose. The studio now composites boosts
           into the program canvas, so they're already in the picture — and in
           the recording, and in any player. Rendering the DOM overlay on top of
