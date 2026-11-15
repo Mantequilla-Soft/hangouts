@@ -58,8 +58,8 @@ describe('POST /rooms/:name/join', () => {
     vi.mocked(roomService.listRooms).mockResolvedValue(room({ mode: 'conference' }) as never);
     const res = await join('bob');
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ token: 'mock-token', roomName: ROOM, identity: 'bob', isHost: false, isPremium: false });
-    expect(createLivekitToken).toHaveBeenCalledWith(ROOM, 'bob', { canPublish: false, canPublishData: true, premium: false, name: undefined });
+    expect(res.json()).toEqual({ token: 'mock-token', roomName: ROOM, identity: 'bob', isHost: false, isPremium: false, delivery: 'webrtc' });
+    expect(createLivekitToken).toHaveBeenCalledWith(ROOM, 'bob', { canPublish: false, canPublishData: true, canSubscribe: true, premium: false, name: undefined });
     // Only the host or the collab guest are checked for a second device.
     expect(roomService.listParticipants).not.toHaveBeenCalled();
   });
@@ -143,7 +143,7 @@ describe('POST /rooms/:name/listen', () => {
     expect(body).toMatchObject({ roomName: ROOM, isHost: false, isGuest: true, isPremium: false });
     expect(body.identity).toMatch(/^guest-[a-z0-9]{12}$/);
     expect(vi.mocked(createLivekitToken).mock.calls[0][2]).toEqual({
-      canPublish: false, canPublishData: true, premium: false, ttl: '6h', name: undefined,
+      canPublish: false, canPublishData: true, premium: false, ttl: '6h', name: undefined, canSubscribe: true,
     });
     // The recorded IP is what a later ban acts on.
     banGuestByIdentity(ROOM, body.identity);
