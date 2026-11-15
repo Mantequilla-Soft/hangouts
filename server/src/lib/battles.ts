@@ -254,9 +254,11 @@ async function writeBoth(battle: Battle, lk: Lk): Promise<void> {
   await Promise.all([writeRoom(battle.a.room, battle, lk), writeRoom(battle.b.room, battle, lk)]);
 }
 
-/** Is `host` connected to `room` as the broadcaster (not a ~watch device)? */
+/** Is `host` connected to `room` as the broadcaster (not a ~watch device)?
+ *  A room that no longer exists (the stream ended) means no. */
 async function hostConnected(room: string, host: string, lk: Lk): Promise<boolean> {
   try {
+    if (!await readRoom(room, lk)) return false;
     const parts = await lk.listParticipants(room);
     return parts.some((p) => p.identity === host && p.state !== ParticipantInfo_State.DISCONNECTED);
   } catch {

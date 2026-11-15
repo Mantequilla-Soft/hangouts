@@ -294,6 +294,15 @@ describe('battle flow (LiveKit metadata)', () => {
     expect(d).toMatchObject({ endReason: 'dropped', winner: null, endedBy: 'fan' });
   });
 
+  it('a stream that ended (room deleted) counts as dropped at once', async () => {
+    await inviteBattle({ room: 'badadib-aaa', by: 'badadib', opponent: 'fan', durationSec: 300 }, lk);
+    await respondBattle({ room: 'fan-bbb', by: 'fan', accept: true }, lk);
+    lk.rooms.delete('fan-bbb');
+    const d = await endBattleBy({ room: 'badadib-aaa', by: 'badadib', reason: 'dropped' }, lk);
+    expect(d).toMatchObject({ endReason: 'dropped', endedBy: 'fan' });
+    expect(lk.battle('badadib-aaa')?.state).toBe('ended');
+  });
+
   it('a boost for a room that vanished still counts on the other side', async () => {
     await inviteBattle({ room: 'badadib-aaa', by: 'badadib', opponent: 'fan', durationSec: 300 }, lk);
     const live = await respondBattle({ room: 'fan-bbb', by: 'fan', accept: true }, lk);

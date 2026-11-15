@@ -46,6 +46,14 @@ export { useBoosts, useBoostStore, BoostStoreProvider } from './hooks/useBoosts.
 // Boost goals, tiers, alerts, preset amounts and top supporters.
 export { useRoomBoost, useGoalCelebration, type RoomBoostState } from './hooks/useRoomBoost.js';
 export { useBoostAlerts, type BoostAlertOptions } from './hooks/useBoostAlerts.js';
+// Live battles (H16): the meter, the studio panel, the hooks and the layout layer.
+export { useRoomBattle, useStudioBattle, type RoomBattleState, type StudioBattle, type BattleCandidate } from './hooks/useBattle.js';
+export { useBattleLink, type BattleLinkState, type BattleLinkGrant } from './hooks/useBattleLink.js';
+export {
+  readBattle, battlePhase, battleOnAir, battleShare, battleResultText, battleLabels, DEFAULT_BATTLE_LABELS,
+  BATTLE_DURATIONS, type Battle, type BattlePhase, type BattleSide, type BattleLabels,
+} from './lib/battle.js';
+export { battleTiles, drawBattleLayer, type BattleRect, type BattleTiles, type BattleLayerOptions } from './lib/battleLayout.js';
 export {
   BOOST_TIERS,
   DEFAULT_BOOST_PRESETS,
@@ -86,6 +94,8 @@ export {
   type BoostTopSupportersProps,
   type BoostAlertsProps,
 } from './components/room/StreamBoostGoal.js';
+export { StreamBattleBar, type StreamBattleBarProps } from './components/room/StreamBattleBar.js';
+export { BattlePanel, BattleInviteCard, type BattlePanelProps } from './components/room/BattlePanel.js';
 export { useWhipIngress, type UseWhipIngress } from './hooks/useWhipIngress.js';
 export { isChromium, isInAppBrowser, canBroadcast } from './lib/browser.js';
 export { CollabRequest, type CollabRequestProps } from './components/room/CollabRequest.js';
