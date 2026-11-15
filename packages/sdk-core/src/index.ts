@@ -61,3 +61,4 @@ export type {
   WordGuessGameResult,
   WordCollection,
 } from './types.js';
+export { STUDIO_PROGRAM_TRACK, STUDIO_VERTICAL_TRACK, STUDIO_MIX_TRACK, HOST_MONITOR_TRACK } from './tracks.js';

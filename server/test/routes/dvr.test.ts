@@ -151,6 +151,17 @@ describe('DVR start', () => {
     expect(await dvrStatus()).toEqual({ recording: true });
   });
 
+  it('records the landscape program, not the vertical phone track (H19), whatever order they come in', async () => {
+    const vertical = { sid: 'TR_vert', name: 'studio-vertical', type: TrackType.VIDEO, source: TrackSource.UNKNOWN, width: 406, height: 720 };
+    const vertAsCam = { ...vertical, sid: 'TR_vert2', source: TrackSource.CAMERA };
+    const program = camera({ sid: 'TR_prog', name: 'studio-program', width: 1280, height: 720 });
+    vi.mocked(lk.listParticipants).mockResolvedValue(hostWithTracks([vertical, vertAsCam, program, mic('TR_mix', 'studio-mix')]) as never);
+    await post('start');
+    const opts = egress.startTrackCompositeEgress.mock.calls[0][2];
+    expect(opts.videoTrackId).toBe('TR_prog');
+    expect(opts.encodingOptions).toMatchObject({ width: 1280, height: 720 });
+  });
+
   it('falls back to the first microphone when none is named studio-mix', async () => {
     vi.mocked(lk.listParticipants).mockResolvedValue(hostWithTracks([camera(), mic('TR_a', 'mic'), mic('TR_b', 'mic2')]) as never);
     await post('start');

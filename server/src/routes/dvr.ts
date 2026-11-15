@@ -7,6 +7,7 @@ import { readdir, stat, unlink, mkdir, chmod, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { roomService } from '../lib/livekit.js';
+import { pickProgramVideoTrack } from '../lib/programTrack.js';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
@@ -129,7 +130,8 @@ export async function startDvrSession(
   try {
     const parts = await roomService.listParticipants(name);
     const host = parts.find((pt) => pt.identity === meta.host);
-    const videoInfo = host?.tracks.find((t) => t.type === TrackType.VIDEO && t.source === TrackSource.CAMERA);
+    // The landscape program, never the vertical phone crop (lib/programTrack).
+    const videoInfo = pickProgramVideoTrack(host?.tracks);
     videoTrackId = videoInfo?.sid ?? '';
     vw = videoInfo?.width ?? 0;
     vh = videoInfo?.height ?? 0;
