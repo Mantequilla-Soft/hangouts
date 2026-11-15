@@ -173,6 +173,15 @@ describe('studio Live tab', () => {
     expect(html).toContain('Loading');
   });
 
+  it('has the live battle when the studio passes it, on air or not', () => {
+    const idle = inRoom(h(StudioLivePanel, { roomName: 'badadib-live', battle: { onAir: false, onOpen: () => {} } }));
+    expect(idle).toContain('Live battle');
+    expect(idle).toContain('Start a battle');
+    const on = inRoom(h(StudioLivePanel, { roomName: 'badadib-live', battle: { onAir: true, opponent: 'fan', onOpen: () => {} } }));
+    expect(on).toContain('On air with @fan.');
+    expect(inRoom(h(StudioLivePanel, { roomName: 'badadib-live' }))).not.toContain('Live battle');
+  });
+
   it('the poll form starts disabled until a question and two options are in', () => {
     const html = inRoom(h(PollHostPanel, { roomName: 'badadib-live' }));
     expect(html).toMatch(/<button type="submit" class="hh-btn hh-btn--primary" disabled="">Start poll<\/button>/);

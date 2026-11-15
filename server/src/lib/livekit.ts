@@ -26,7 +26,12 @@ export function generateRoomName(username: string, _title: string): string {
 export async function createLivekitToken(
   room: string,
   identity: string,
-  options: { canPublish: boolean; canPublishData: boolean; premium?: boolean; ttl?: string; name?: string },
+  options: {
+    canPublish: boolean; canPublishData: boolean; premium?: boolean; ttl?: string; name?: string;
+    /** false = an HLS viewer: in the room for chat and presence, but LiveKit
+     *  sends it no audio or video. Default true. */
+    canSubscribe?: boolean;
+  },
 ): Promise<string> {
   const at = new AccessToken(config.LIVEKIT_API_KEY, config.LIVEKIT_API_SECRET, {
     identity,
@@ -37,7 +42,7 @@ export async function createLivekitToken(
   const grant: Record<string, unknown> = {
     roomJoin: true,
     room,
-    canSubscribe: true,
+    canSubscribe: options.canSubscribe ?? true,
     canPublishData: options.canPublishData,
   };
   grant.canPublish = options.canPublish;

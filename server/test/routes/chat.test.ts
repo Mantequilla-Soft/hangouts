@@ -91,6 +91,14 @@ describe('POST /rooms/:name/chat', () => {
     expect((await post({ text: 'x' })).statusCode).toBe(401);
   });
 
+  it('takes a line from an HLS viewer: no media rights, but data', async () => {
+    const at = new AccessToken('test-key', 'test-secret', { identity: 'guest-hls' });
+    at.addGrant({ roomJoin: true, room: ROOM, canSubscribe: false, canPublishData: true });
+    const res = await post({ text: 'watching on HLS', livekitToken: await at.toJwt() });
+    expect(res.statusCode).toBe(201);
+    expect((await getBacklog(ROOM))[0].identity).toBe('guest-hls');
+  });
+
   it('refuses a banned guest', async () => {
     recordGuestIp(ROOM, 'guest-abc', '127.0.0.1');
     banGuestByIdentity(ROOM, 'guest-abc');

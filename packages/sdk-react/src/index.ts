@@ -46,6 +46,14 @@ export { useBoosts, useBoostStore, BoostStoreProvider } from './hooks/useBoosts.
 // Boost goals, tiers, alerts, preset amounts and top supporters.
 export { useRoomBoost, useGoalCelebration, type RoomBoostState } from './hooks/useRoomBoost.js';
 export { useBoostAlerts, type BoostAlertOptions } from './hooks/useBoostAlerts.js';
+// Live battles (H16): the meter, the studio panel, the hooks and the layout layer.
+export { useRoomBattle, useStudioBattle, type RoomBattleState, type StudioBattle, type BattleCandidate } from './hooks/useBattle.js';
+export { useBattleLink, type BattleLinkState, type BattleLinkGrant } from './hooks/useBattleLink.js';
+export {
+  readBattle, battlePhase, battleOnAir, battleShare, battleResultText, battleLabels, DEFAULT_BATTLE_LABELS,
+  BATTLE_DURATIONS, type Battle, type BattlePhase, type BattleSide, type BattleLabels,
+} from './lib/battle.js';
+export { battleTiles, drawBattleLayer, type BattleRect, type BattleTiles, type BattleLayerOptions } from './lib/battleLayout.js';
 export {
   BOOST_TIERS,
   DEFAULT_BOOST_PRESETS,
@@ -86,6 +94,8 @@ export {
   type BoostTopSupportersProps,
   type BoostAlertsProps,
 } from './components/room/StreamBoostGoal.js';
+export { StreamBattleBar, type StreamBattleBarProps } from './components/room/StreamBattleBar.js';
+export { BattlePanel, BattleInviteCard, type BattlePanelProps } from './components/room/BattlePanel.js';
 export { useWhipIngress, type UseWhipIngress } from './hooks/useWhipIngress.js';
 export { isChromium, isInAppBrowser, canBroadcast } from './lib/browser.js';
 export { CollabRequest, type CollabRequestProps } from './components/room/CollabRequest.js';
@@ -105,6 +115,29 @@ export {
   StreamQualityControl,
   useStreamContext, useStreamLive,
 } from './components/room/StandaloneWatch.js';
+export { HlsStreamVideo, type HlsStreamVideoProps } from './components/room/HlsStreamVideo.js';
+export {
+  PhoneScreenSourceDialog, DEFAULT_PHONE_SCREEN_LABELS,
+  type PhoneScreenSourceDialogProps, type PhoneScreenSourceLabels,
+} from './components/room/PhoneScreenSourceDialog.js';
+export type { Delivery, JoinOptions } from './lib/hlsDelivery.js';
+
+// Live captions (H11): host opt-in speech-to-text over the data channel, viewer overlay, on-device translation.
+export { useStudioCaptions, type StudioCaptions, type StudioCaptionsOptions } from './hooks/useStudioCaptions.js';
+export { useLiveCaptions, type LiveCaptionsState } from './hooks/useLiveCaptions.js';
+export { LiveCaptionsToggle, DEFAULT_STUDIO_CAPTION_LABELS, type StudioCaptionLabels } from './components/room/LiveCaptionsToggle.js';
+export { StreamCaptions, DEFAULT_STREAM_CAPTION_LABELS, type StreamCaptionsProps, type StreamCaptionLabels } from './components/room/StreamCaptions.js';
+export {
+  CAPTIONS_TOPIC,
+  tidyCaption,
+  baseLang as captionBaseLang,
+  type CaptionSource,
+  type CaptionLanguage,
+  type CaptionCue,
+  type CaptionMessage,
+} from './lib/liveCaptions.js';
+export { translationMode as captionTranslationMode, languageName as captionLanguageName, type TranslateMode } from './lib/captionTranslate.js';
+export type { StudioCaptionStatus } from './lib/captionPublisher.js';
 
 // Hooks — Chat
 export { useChat, type ChatMessage } from './hooks/useChat.js';
