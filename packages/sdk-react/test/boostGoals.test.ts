@@ -178,6 +178,10 @@ describe('small helpers', () => {
     expect(formatHbd(0.25)).toBe('0.25');
     expect(formatHbd(0)).toBe('0');
     expect(formatHbd(1234.56)).toBe('1235');
+    // Whole amounts from 100 up keep their zeros (100 once read as "1").
+    expect(formatHbd(100)).toBe('100');
+    expect(formatHbd(150)).toBe('150');
+    expect(formatHbd(1000)).toBe('1000');
     expect(formatHbd(Number.NaN)).toBe('0');
   });
 

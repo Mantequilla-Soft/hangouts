@@ -319,8 +319,9 @@ export function boostSpeechText(
 /** "12.5" / "50" / "0.25": a compact HBD figure for the bar and lists. */
 export function formatHbd(n: number): string {
   if (!Number.isFinite(n)) return '0';
-  const fixed = n >= 100 ? n.toFixed(0) : n.toFixed(2);
-  return fixed.replace(/\.?0+$/, '') || '0';
+  // Whole numbers from 100 up keep their zeros: only trailing decimals go.
+  if (n >= 100) return n.toFixed(0);
+  return n.toFixed(2).replace(/\.?0+$/, '') || '0';
 }
 
 /**
