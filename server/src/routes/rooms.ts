@@ -907,11 +907,18 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       params: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
       body: {
         type: 'object',
-        properties: { transcode: { type: 'boolean' } },
+        properties: {
+          transcode: { type: 'boolean' },
+          /** 'phone' = the studio's "Phone or tablet screen" source (a
+           *  screen-broadcast app such as Larix Screencaster). Free for every
+           *  host; 'obs' (default) stays a Pro feature. */
+          source: { type: 'string', enum: ['obs', 'phone'] },
+        },
       },
     },
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
+    const source = (request.body as { source?: 'obs' | 'phone' } | undefined)?.source ?? 'obs';
     // Passthrough forwards OBS's encoded H.264 untouched, which is cheap —
     // but plenty of Firefox builds (any Linux one without the OpenH264
     // plugin) offer only VP8/VP9/AV1, and the SFU then can't bind the track
@@ -929,8 +936,13 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     let meta: Partial<RoomMetadata> = {};
     try { meta = JSON.parse(rooms[0].metadata || '{}'); } catch { /* ignore */ }
     if (meta.host !== request.username) return reply.forbidden('Only the host can set up OBS ingest');
-    // OBS is a Pro feature (lib/streamQuota.ts).
-    if (!(await getUserStatus(request.username)).premium) return reply.code(403).send(obsProRequiredBody());
+    // OBS is a Pro feature (lib/streamQuota.ts). The phone/tablet screen source
+    // is free (owner 2026-11-15). It is the same WHIP ingress, so this is a
+    // product line, not a technical one: the endpoint can't tell which app
+    // connects to it.
+    if (source !== 'phone' && !(await getUserStatus(request.username)).premium) {
+      return reply.code(403).send(obsProRequiredBody());
+    }
 
     const identity = `obs-ingress-${name}`;
 

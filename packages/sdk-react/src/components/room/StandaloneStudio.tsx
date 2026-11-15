@@ -4,6 +4,7 @@ import { ConnectionQuality, ConnectionState, ParticipantEvent, Track } from 'liv
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { usePremiumStatus } from '../../hooks/usePremiumStatus.js';
 import { useWhipIngress } from '../../hooks/useWhipIngress.js';
+import { PhoneScreenSourceDialog, DEFAULT_PHONE_SCREEN_LABELS, type PhoneScreenSourceLabels } from './PhoneScreenSourceDialog.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
 import { ChatPanel } from './ChatPanel.js';
@@ -793,9 +794,12 @@ export interface StandaloneStudioProps {
   /** Base host for the OBS **output** (browser-source) URL a streamer pastes
    *  into OBS to pull their own stream in — same page the rooms use. */
   obsBaseUrl?: string;
+  /** Text of the "Phone or tablet screen" source (menu item and dialog), for
+   *  translation. English by default. */
+  phoneSourceLabels?: Partial<PhoneScreenSourceLabels>;
 }
 
-export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium: isPremiumOverride, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false, obsBaseUrl = 'https://hangout.3speak.tv' }: StandaloneStudioProps) {
+export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium: isPremiumOverride, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false, obsBaseUrl = 'https://hangout.3speak.tv', phoneSourceLabels }: StandaloneStudioProps) {
   // Resolves itself unless the integrator forces it. Starts false, so the
   // free-tier watermark and the short cap apply until premium is confirmed —
   // erring the safe way for a gate that's also enforced server-side.
@@ -1001,6 +1005,11 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // OBS / external encoder ingest (WHIP).
   const [obsInfo, setObsInfo] = useState<{ whipUrl: string } | null>(null);
   const [obsOpen, setObsOpen] = useState(false);
+  // The WHIP ingress serves two sources: OBS (Pro) and a phone or tablet
+  // screen through a broadcast app (free). One slot, so one kind at a time.
+  const [externalKind, setExternalKind] = useState<'obs' | 'phone'>('obs');
+  const externalKindRef = useRef<'obs' | 'phone'>('obs');
+  const phoneLabels = { ...DEFAULT_PHONE_SCREEN_LABELS, ...phoneSourceLabels };
   const [obsBusy, setObsBusy] = useState(false);
   const [obsError, setObsError] = useState('');
   const [obsLive, setObsLive] = useState(false);
@@ -2605,6 +2614,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   }, [remoteTracks, participants, ensureAudioGraph, demote, localParticipant, publishMonitor, unpublishMonitor]);
 
   const openObsSetup = useCallback(async () => {
+    setExternalKind('obs');
+    externalKindRef.current = 'obs';
     setObsBusy(true);
     setObsError('');
     try {
@@ -2633,6 +2644,25 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       setObsBusy(false);
     }
   }, [startWhipIngress, whipError, roomName]);
+
+  // Same ingress as OBS (VP8, for the same browser reasons), asked for as the
+  // free phone/tablet source.
+  const openPhoneSetup = useCallback(async () => {
+    setExternalKind('phone');
+    externalKindRef.current = 'phone';
+    setObsBusy(true);
+    setObsError('');
+    try {
+      const info = await startWhipIngress({ transcode: true, source: 'phone' });
+      if (!info) throw new Error(whipError || 'Could not set up the phone source');
+      setObsInfo(info);
+    } catch (err) {
+      setObsError(err instanceof Error ? err.message : 'Could not set up the phone source');
+    } finally {
+      setObsOpen(true);
+      setObsBusy(false);
+    }
+  }, [startWhipIngress, whipError]);
 
   useEffect(() => {
     // Match on the PUBLICATION only — deliberately NOT on `publication.track`,
@@ -2707,9 +2737,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     // live/standby gate (preMaster → master), so it can't leak over the
     // "Starting soon" slate. RoomAudio drops `obs-` identities so nobody hears
     // it twice.
+    const externalLabel = externalKindRef.current === 'phone' ? phoneLabels.sourceName : 'OBS';
     const entry: ShareEntry = {
       id: OBS_SOURCE_ID,
-      label: 'OBS',
+      label: externalLabel,
       stream: new MediaStream(),
       video: el,
       hasAudio: false,
@@ -2741,7 +2772,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     }
 
     sharesMapRef.current.set(OBS_SOURCE_ID, entry);
-    setShares((prev) => [...prev, { id: OBS_SOURCE_ID, label: 'OBS', hasAudio: entry.hasAudio, gain: 1, muted: false }]);
+    setShares((prev) => [...prev, { id: OBS_SOURCE_ID, label: externalLabel, hasAudio: entry.hasAudio, gain: 1, muted: false }]);
     setSource(`share:${OBS_SOURCE_ID}`);
     setScene((prev) => (prev === 'cam' ? 'fullscreen' : prev));
     setObsLive(true);
@@ -5062,7 +5093,17 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         </div>
       )}
 
-      {obsOpen && (
+      {obsOpen && externalKind === 'phone' && (
+        <PhoneScreenSourceDialog
+          whipUrl={obsInfo?.whipUrl || ''}
+          connected={obsLive}
+          error={obsError}
+          onClose={() => setObsOpen(false)}
+          labels={phoneLabels}
+        />
+      )}
+
+      {obsOpen && externalKind !== 'phone' && (
         <div className="hh-studio__modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setObsOpen(false); }}>
           <div className="hh-studio__obs-modal">
             <div className="hh-studio__modal-head">
@@ -5142,6 +5183,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 </button>
               );
             })()}
+            {/* Free for every host: a screen-broadcast app on the phone or
+                tablet sends its screen over WHIP into the same slot as OBS. */}
+            <button className="hh-studio__add-item" disabled={obsBusy}
+              onClick={() => { setAddMenuOpen(false); void openPhoneSetup(); }}
+              title={phoneLabels.menuHint}>
+              <span className="hh-studio__add-icon hh-studio__add-icon--phone" aria-hidden="true">📱</span>{phoneLabels.menuItem}
+              <span className="hh-studio__add-state">{obsLive && externalKind === 'phone' ? '✓' : ''}</span>
+            </button>
             <button className="hh-studio__add-item" onClick={() => { setAddMenuOpen(false); mediaInputRef.current?.click(); }}>
               <span className="hh-studio__add-icon hh-studio__add-icon--media" aria-hidden="true">🖼️</span>Media file (image / GIF / video)
             </button>
