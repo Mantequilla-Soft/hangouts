@@ -3,7 +3,9 @@
    (--hh-*, and --st-* inside the studio), so a skin restyles everything. */
 
 /* ---- H17: host preview of the overlays ---------------------------------- */
-.hh-studio__overlay-canvas {
+/* Two classes: hangouts.css (loaded after this file) gives .hh-studio__canvas
+   an opaque background and position: relative. */
+.hh-studio__canvas.hh-studio__overlay-canvas {
   position: absolute;
   inset: 0;
   z-index: 1;
@@ -217,8 +219,9 @@
   text-align: left;
 }
 @media (max-width: 767px) {
-  /* The header's backdrop filter makes it the containing block: span it. */
-  .hh-health__panel { position: fixed; top: calc(100% + 6px); left: 8px; right: 8px; width: auto; }
+  /* Phones: span the header (positioned, above) instead of hanging off the pill. */
+  .hh-health { position: static; }
+  .hh-health__panel { top: calc(100% + 6px); left: 8px; right: 8px; width: auto; }
 }
 .hh-health__head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; margin-bottom: 0.35rem; }
 .hh-health__close {
