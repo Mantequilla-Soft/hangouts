@@ -29,6 +29,8 @@ vi.mock('../../src/lib/permissions.js', () => ({ canRecordVideo: vi.fn(), canRec
 vi.mock('../../src/lib/streamVodPublish.js', () => ({
   publishRecordingToVod: vi.fn(), getPublishState: vi.fn(), hasPublish: vi.fn(),
 }));
+const vodClips = vi.hoisted(() => ({ noteVodRecording: vi.fn(), cutPendingClips: vi.fn() }));
+vi.mock('../../src/lib/vodClips.js', () => vodClips);
 
 const ROOM = 'alice-rec1234';
 const SEC = 1e9; // egress reports durations in nanoseconds
@@ -83,6 +85,8 @@ beforeEach(async () => {
     egressId: id, fileResults: [{ filename: `/tmp/livekit-recordings/${id}.mp4`, duration: 12 * SEC }],
   }));
   fsp.unlink.mockResolvedValue(undefined);
+  vodClips.cutPendingClips.mockReset().mockResolvedValue({ ready: 0, unavailable: 0 });
+  vodClips.noteVodRecording.mockReset();
   fsp.stat.mockResolvedValue({ size: 5 });
   fsp.readFile.mockResolvedValue(Buffer.alloc(80_000));
   createReadStreamMock.mockImplementation(() => Readable.from([Buffer.from('FILE!')]));
@@ -428,6 +432,8 @@ describe('record stop', () => {
     expect(res.json()).toMatchObject({ status: 'stopped', downloadUrl: `/rooms/${ROOM}/record/file/EG_1` });
     await vi.advanceTimersByTimeAsync(0);
     expect(vod.publishRecordingToVod).not.toHaveBeenCalled();
+    // The stream's clips are still cut from the (kept) file.
+    expect(vodClips.cutPendingClips).toHaveBeenCalledWith(ROOM, '/tmp/livekit-recordings/EG_1.mp4', 12);
   });
 
   // An egress that already ended on LiveKit's side (egress crash, disk full,
@@ -715,11 +721,42 @@ describe('headless helpers', () => {
     vi.mocked(vod.publishRecordingToVod).mockReturnValue(new Promise<void>((r) => { finish = r; }));
     await rec.stopStandaloneVod(ROOM);
     expect(egress.stopEgress).toHaveBeenCalledWith('EG_1');
+    // The stream's pending clips are cut first (lib/vodClips.ts), then the upload.
+    await vi.advanceTimersByTimeAsync(0);
     expect(vod.publishRecordingToVod).toHaveBeenCalledTimes(1);
     expect(fsp.unlink).not.toHaveBeenCalled();
     finish();
     await vi.advanceTimersByTimeAsync(0);
     expect(fsp.unlink).toHaveBeenCalledWith('/tmp/livekit-recordings/EG_1.mp4');
+  });
+
+  it('clips without DVR: the recording is noted at start, its pending clips are cut BEFORE the upload, with the final file', async () => {
+    setRoom(STANDALONE);
+    await startRec({ mode: 'video' });
+    expect(vodClips.noteVodRecording).toHaveBeenCalledWith(ROOM, { maxMs: null });
+    const order: string[] = [];
+    vodClips.cutPendingClips.mockImplementation(async () => { order.push('clips'); return { ready: 1, unavailable: 0 }; });
+    vi.mocked(vod.publishRecordingToVod).mockImplementation(async () => { order.push('upload'); });
+    await rec.stopStandaloneVod(ROOM);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vodClips.cutPendingClips).toHaveBeenCalledWith(ROOM, '/tmp/livekit-recordings/EG_1.mp4', 12);
+    expect(order).toEqual(['clips', 'upload']);
+  });
+
+  it('a clip step that fails never blocks the VOD upload', async () => {
+    setRoom(STANDALONE);
+    await startRec({ mode: 'video' });
+    vodClips.cutPendingClips.mockRejectedValue(new Error('ffmpeg exploded'));
+    await rec.stopStandaloneVod(ROOM);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vod.publishRecordingToVod).toHaveBeenCalledTimes(1);
+  });
+
+  it('a free stream notes its 30 minute cap for the clips', async () => {
+    vi.mocked(perms.canRecordVideo).mockResolvedValue({ ok: false, reason: 'Pro only' });
+    setRoom(STANDALONE);
+    expect((await startRec({ mode: 'video' })).statusCode).toBe(200);
+    expect(vodClips.noteVodRecording).toHaveBeenCalledWith(ROOM, { maxMs: 30 * 60 * 1000 });
   });
 
   it('a background publish failure is swallowed (the publish-state map carries it)', async () => {

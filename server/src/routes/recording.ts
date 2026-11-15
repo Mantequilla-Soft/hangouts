@@ -9,6 +9,7 @@ import { checkBan } from '../middleware/checkBan.js';
 import { canRecordVideo, canRecordAudio } from '../lib/permissions.js';
 import { FREE_STREAM_CAP_MS } from '../lib/streamQuota.js';
 import { publishRecordingToVod, getPublishState, hasPublish } from '../lib/streamVodPublish.js';
+import { noteVodRecording, cutPendingClips } from '../lib/vodClips.js';
 import { readFile, unlink, stat } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { createReadStream } from 'node:fs';
@@ -90,8 +91,16 @@ async function finishAndPublishVod(
   activeRecordings.delete(roomName);
   hostLastSeen.delete(roomName);
 
-  if (!pending.publish || alreadyPublished) return;
+  // Clips of a stream without the Pro DVR wait for this file (lib/vodClips.ts):
+  // cut them first (stream copy, time-boxed), then publish. A clip that fails
+  // is marked unavailable; it never stops or breaks the VOD.
+  const clipsFirst = () => cutPendingClips(roomName, filePath, duration).catch(() => undefined);
+  if (!pending.publish || alreadyPublished) {
+    if (opts?.background) void clipsFirst(); else await clipsFirst();
+    return;
+  }
   const publish = async () => {
+    await clipsFirst();
     await publishRecordingToVod({
       filePath,
       roomName,
@@ -219,6 +228,8 @@ export async function startStandaloneVod(
     publish: opts.publish,
     download: opts.download,
   });
+  // Clips of a stream without DVR are cut from this recording when it ends.
+  noteVodRecording(name, { maxMs: opts.maxMs ?? null });
   hostLastSeen.set(name, Date.now());
   /* A free host's recording ends at the free stream cap, whatever the client does.
    * The studio stops the stream there itself; this is what holds when it does not
@@ -552,6 +563,10 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
     if (rec.mode === 'video' && pending?.publish && filePath && !hasPublish(name)) {
       void finishAndPublishVod(name, { stopEgress: false, filePath, duration }).catch(() => { /* state map carries the error */ });
       publishStatusUrl = `/rooms/${encodeURIComponent(name)}/record/publish-status`;
+    } else if (rec.mode === 'video' && pending && filePath) {
+      // Not published (download only, or a replay already out): the clips of
+      // the stream are still cut from the file (lib/vodClips.ts).
+      void cutPendingClips(name, filePath, duration).catch(() => { /* best effort */ });
     }
 
     // DOWNLOAD: make the SERVER's recording available as a file the host's

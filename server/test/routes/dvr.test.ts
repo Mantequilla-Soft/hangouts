@@ -254,6 +254,28 @@ describe('DVR clip', () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
+  it('without DVR but with a VOD recording: a pending clip, cut from the recording when the stream ends', async () => {
+    const vc = await import('../../src/lib/vodClips.js');
+    const start = Date.now() - 100_000;
+    vc.noteVodRecording(ROOM, { startedAt: start, maxMs: null });
+    expect(await dvrStatus()).toEqual({ recording: false, clips: 'after' });
+    const res = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip`, headers: { authorization: `Bearer ${await makeToken('fan')}` } });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({ path: null, pending: true, clip: { status: 'pending', path: null, clipper: 'fan', host: 'alice', durationSec: 36 } });
+    expect(spawnMock).not.toHaveBeenCalled();
+    const store = await (await import('../../src/lib/streamClips.js')).clipStore();
+    const [row] = await store.listPending(ROOM);
+    expect(row.vodStartSec).toBeCloseTo(66, 0);
+  });
+
+  it('a free stream past its 30 minute recording cap gets an unavailable clip', async () => {
+    const vc = await import('../../src/lib/vodClips.js');
+    vc.noteVodRecording(ROOM, { startedAt: Date.now() - 31 * 60_000, maxMs: 30 * 60_000 });
+    const res = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip` });
+    expect(res.json().clip).toMatchObject({ status: 'unavailable', reason: 'past_cap', clipper: null });
+  });
+
   it('returns 400 when no segment falls inside the clip window yet', async () => {
     await post('start');
     disk[SEG_DIR] = { 'seg_old.ts': Date.now() - 60_000 };

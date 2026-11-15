@@ -13,6 +13,12 @@ import { randomBytes } from 'node:crypto';
 import { config } from '../config.js';
 
 export type ClipSource = 'viewer' | 'host' | 'auto';
+/** `ready`: the MP4 is there. `pending`: a stream without the Pro DVR; the clip
+ *  is cut from the VOD recording when the stream ends (lib/vodClips.ts).
+ *  `unavailable`: it could not be cut (see `reason`). Older rows have no status
+ *  and are ready. */
+export type ClipStatus = 'pending' | 'ready' | 'unavailable';
+export type ClipUnavailableReason = 'past_cap' | 'past_end' | 'no_recording' | 'failed';
 
 export interface StreamClip {
   id: string;
@@ -34,6 +40,10 @@ export interface StreamClip {
   crop?: { x: number; w: number };
   /** The vertical (cropped) copy, made on request (POST /clips/:id/vertical). */
   verticalFile?: string;
+  status?: ClipStatus;
+  /** Pending clips: where the window starts in the VOD recording, seconds. */
+  vodStartSec?: number;
+  reason?: ClipUnavailableReason;
   createdAt: Date;
   expiresAt: Date;
 }
@@ -50,7 +60,8 @@ export interface ClipStore {
   listForClipper(clipper: string): Promise<StreamClip[]>;
   get(id: string): Promise<StreamClip | null>;
   remove(id: string): Promise<void>;
-  setVerticalFile(id: string, file: string): Promise<void>;
+  listPending(room: string): Promise<StreamClip[]>;
+  update(id: string, patch: Partial<Pick<StreamClip, 'status' | 'reason' | 'verticalFile'>>): Promise<void>;
 }
 
 const live = (c: StreamClip, now: number) => c.expiresAt.getTime() > now;
@@ -67,7 +78,8 @@ export function memoryClipStore(): ClipStore {
     async listForClipper(clipper) { return all().filter((c) => c.clipper === clipper).sort(newestFirst).slice(0, 50); },
     async get(id) { const c = rows.get(id); return c && live(c, Date.now()) ? c : null; },
     async remove(id) { rows.delete(id); },
-    async setVerticalFile(id, file) { const c = rows.get(id); if (c) rows.set(id, { ...c, verticalFile: file }); },
+    async listPending(room) { return all().filter((c) => c.room === room && c.status === 'pending').sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()); },
+    async update(id, patch) { const c = rows.get(id); if (c) rows.set(id, { ...c, ...patch }); },
   };
 }
 
@@ -85,7 +97,10 @@ function mongoClipStore(c: Collection<StreamClip>): ClipStore {
     },
     async get(id) { return c.findOne({ id, expiresAt: now() }, { projection: { _id: 0 } }); },
     async remove(id) { await c.deleteOne({ id }); },
-    async setVerticalFile(id, file) { await c.updateOne({ id }, { $set: { verticalFile: file } }); },
+    async listPending(room) {
+      return c.find({ room, status: 'pending', expiresAt: now() }, { projection: { _id: 0 } }).sort({ createdAt: 1 }).limit(MAX_CLIPS_PER_ROOM).toArray();
+    },
+    async update(id, patch) { await c.updateOne({ id }, { $set: patch }); },
   };
 }
 
@@ -129,6 +144,9 @@ export async function registerClip(input: {
   room: string; host: string | null; clipper: string | null; source: ClipSource;
   file: string; offsetSec: number | null; durationSec: number; reasons?: string[];
   crop?: { x: number; w: number } | null;
+  /** A clip of a stream without DVR: cut later from the VOD at this second. */
+  pendingAt?: number;
+  unavailable?: ClipUnavailableReason;
 }): Promise<{ clip: StreamClip } | { refused: ClipRefusal }> {
   const store = await clipStore();
   if (await store.countForRoom(input.room) >= MAX_CLIPS_PER_ROOM) return { refused: 'room_full' };
@@ -147,6 +165,9 @@ export async function registerClip(input: {
     durationSec: input.durationSec,
     ...(input.reasons?.length ? { reasons: input.reasons } : {}),
     ...(input.crop ? { crop: input.crop } : {}),
+    ...(input.unavailable
+      ? { status: 'unavailable' as const, reason: input.unavailable }
+      : input.pendingAt != null ? { status: 'pending' as const, vodStartSec: Math.max(0, Math.round(input.pendingAt * 10) / 10) } : {}),
     createdAt: now,
     expiresAt: new Date(now.getTime() + config.CLIP_KEEP_HOURS * 3_600_000),
   };
@@ -155,20 +176,35 @@ export async function registerClip(input: {
 }
 
 /** The public shape (dates as ISO strings, the file as a path). */
+/** A pending clip older than this never got its recording (a server restart
+ *  lost it, the longest stream is 4 h): it is shown as unavailable. */
+const PENDING_GIVE_UP_MS = 5 * 3_600_000;
+
+export function clipStatusOf(c: StreamClip, now = Date.now()): { status: ClipStatus; reason?: ClipUnavailableReason } {
+  if (c.status === 'pending' && now - c.createdAt.getTime() > PENDING_GIVE_UP_MS) return { status: 'unavailable', reason: 'no_recording' };
+  if (c.status === 'unavailable') return { status: 'unavailable', reason: c.reason ?? 'failed' };
+  return { status: c.status ?? 'ready' };
+}
+
 export function clipView(c: StreamClip) {
+  const st = clipStatusOf(c);
+  const ready = st.status === 'ready';
   return {
     id: c.id,
     room: c.room,
     host: c.host,
     clipper: c.clipper,
     source: c.source,
-    path: `/dvr/clips/${c.file}`,
+    status: st.status,
+    ...(st.reason ? { reason: st.reason } : {}),
+    // Only a ready clip has a file to fetch.
+    path: ready ? `/dvr/clips/${c.file}` : null,
     offsetSec: c.offsetSec,
     durationSec: c.durationSec,
     reasons: c.reasons ?? [],
     // A Shorts-ready 9:16 version: possible when the host had the phone crop
     // on; `path` once it has been made.
-    vertical: { available: !!c.crop, path: c.verticalFile ? `/dvr/clips/${c.verticalFile}` : null },
+    vertical: { available: ready && !!c.crop, path: ready && c.verticalFile ? `/dvr/clips/${c.verticalFile}` : null },
     createdAt: c.createdAt.toISOString(),
     expiresAt: c.expiresAt.toISOString(),
   };

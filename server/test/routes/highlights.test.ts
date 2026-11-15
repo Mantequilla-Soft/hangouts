@@ -94,6 +94,16 @@ describe('automatic clips from highlights', () => {
     expect(c).toMatchObject({ source: 'auto', clipper: null, host: 'badadib', file: 'auto.mp4', offsetSec: 300, reasons: ['chat'] });
   });
 
+  it('without DVR, a stream recording its VOD gets a pending automatic clip of the moment', async () => {
+    const vc = await import('../../src/lib/vodClips.js');
+    vc.noteVodRecording(ROOM, { startedAt: T0 - 600_000, maxMs: null });
+    const m = { at: T0, offsetSec: 600, reasons: ['chat' as const], chatters: 6, lines: 6, boosts: 0, usd: 0, score: 6 };
+    expect(await routes.autoClipMoment(ROOM, m, { host: 'badadib', liveAt: T0 - 600_000 })).toBe(true);
+    const [p] = await (await clips.clipStore()).listPending(ROOM);
+    expect(p).toMatchObject({ source: 'auto', status: 'pending', vodStartSec: 566, reasons: ['chat'] });
+    vc.resetVodClips();
+  });
+
   it('does nothing without DVR, and gives up quietly when the cut fails', async () => {
     const m = { at: T0, offsetSec: 1, reasons: ['chat' as const], chatters: 6, lines: 6, boosts: 0, usd: 0, score: 6 };
     expect(await routes.autoClipMoment(ROOM, m, { host: 'badadib', liveAt: null })).toBe(false);
@@ -149,6 +159,8 @@ describe('POST /clips/:id/vertical', () => {
 
   it('refuses strangers, unknown clips, and clips without a crop; a failed encode is a 500', async () => {
     const plain = await keep(null);
+    const waiting = await clips.registerClip({ room: ROOM, host: 'badadib', clipper: 'fan', source: 'viewer', file: 'p.mp4', offsetSec: 1, durationSec: 36, crop: { x: 0.5, w: 0.3 }, pendingAt: 10 });
+    if ('clip' in waiting) expect((await vert('fan', waiting.clip.id)).statusCode).toBe(409);
     expect((await vert('stranger', plain.id)).statusCode).toBe(403);
     expect((await vert('fan', 'abcdefabcdefabcdef')).statusCode).toBe(404);
     expect((await vert('fan', plain.id)).statusCode).toBe(400);
@@ -178,7 +190,7 @@ describe('clips of a user, and deleting', () => {
     expect((await del('stranger')).statusCode).toBe(403);
     expect((await del('fan', 'abcdefabcdefabcdef')).statusCode).toBe(404);
     expect((await del('fan', 'nothex')).statusCode).toBe(400);
-    await (await clips.clipStore()).setVerticalFile(r.clip.id, 'v-v.mp4');
+    await (await clips.clipStore()).update(r.clip.id, { verticalFile: 'v-v.mp4' });
     expect((await del('badadib')).json()).toEqual({ deleted: true });
     expect(fsp.unlink).toHaveBeenCalledWith('/tmp/livekit-dvr-clips/v-v.mp4');
     expect(fsp.unlink).toHaveBeenCalledWith('/tmp/livekit-dvr-clips/v.mp4');

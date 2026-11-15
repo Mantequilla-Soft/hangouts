@@ -8,9 +8,10 @@ import {
   getHighlights, onHighlight, setRoomResolver, startHighlightSweep,
   type HighlightMoment, type RoomInfo,
 } from '../lib/streamHighlights.js';
-import { clipStore, clipView, registerClip, cropFromMeta } from '../lib/streamClips.js';
+import { clipStore, clipView, clipStatusOf, registerClip, cropFromMeta } from '../lib/streamClips.js';
 import { readRoomFacts } from '../lib/roomInfo.js';
 import { cutDvrClip, dvrDirOf } from './dvr.js';
+import { vodRecordingOf, vodWindow, VOD_CLIP_SEC } from '../lib/vodClips.js';
 
 /**
  * Highlight clips that become Shorts (H13).
@@ -36,7 +37,7 @@ const nameParams = {
 
 /** The automatic clip of a moment, when the room's DVR is running. */
 export async function autoClipMoment(room: string, moment: HighlightMoment, info: RoomInfo): Promise<boolean> {
-  if (!dvrDirOf(room)) return false;
+  if (!dvrDirOf(room)) return pendingMomentClip(room, moment, info);
   const cut = await cutDvrClip(room);
   if (cut.error) return false;
   const facts = await readRoomFacts(room);
@@ -50,6 +51,23 @@ export async function autoClipMoment(room: string, moment: HighlightMoment, info
     return false;
   }
   return true;
+}
+
+/** Without DVR: a pending clip of the moment, cut from the VOD when the stream
+ *  ends (lib/vodClips.ts). Nothing when the stream records no VOD. */
+async function pendingMomentClip(room: string, moment: HighlightMoment, info: RoomInfo): Promise<boolean> {
+  const rec = vodRecordingOf(room);
+  if (!rec) return false;
+  const win = vodWindow(rec, moment.at);
+  const facts = await readRoomFacts(room);
+  const kept = await registerClip({
+    room, host: info.host, clipper: null, source: 'auto',
+    file: `${room.replace(/[^A-Za-z0-9_-]/g, '_')}-${moment.at}-${randomBytes(4).toString('hex')}.mp4`,
+    offsetSec: moment.offsetSec, durationSec: VOD_CLIP_SEC, reasons: moment.reasons,
+    crop: cropFromMeta(facts?.meta),
+    ...('start' in win ? { pendingAt: win.start } : { unavailable: win.unavailable }),
+  }).catch(() => null);
+  return !!kept && 'clip' in kept;
 }
 
 /** Pure: the ffmpeg arguments for the 9:16 copy (crop x*W - w*W/2 .. x*W + w*W/2,
@@ -139,6 +157,7 @@ export const highlightRoutes: FastifyPluginAsync = async (fastify) => {
     if (clip.verticalFile && await stat(join(CLIP_DIR, clip.verticalFile)).catch(() => null)) {
       return reply.send({ clip: clipView(clip) });
     }
+    if (clipStatusOf(clip).status !== 'ready') return reply.conflict('The clip is not ready yet');
     if (!clip.crop) return reply.badRequest('This stream had no phone crop');
     const out = `${clip.file.replace(/\.mp4$/, '')}-v-${randomBytes(3).toString('hex')}.mp4`;
     try {
@@ -148,7 +167,7 @@ export const highlightRoutes: FastifyPluginAsync = async (fastify) => {
       await unlink(join(CLIP_DIR, out)).catch(() => { /* never written */ });
       return reply.code(500).send({ message: 'Could not make the vertical clip.' });
     }
-    await store.setVerticalFile(id, out);
+    await store.update(id, { verticalFile: out });
     return reply.send({ clip: clipView({ ...clip, verticalFile: out }) });
   });
 

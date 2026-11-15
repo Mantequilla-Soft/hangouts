@@ -13,6 +13,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { isUserPremium } from '../lib/users.js';
 import { registerClip, clipView, cropFromMeta } from '../lib/streamClips.js';
+import { vodRecordingOf, vodWindow, VOD_CLIP_SEC } from '../lib/vodClips.js';
 import { readRoomFacts, optionalUser } from '../lib/roomInfo.js';
 
 /**
@@ -265,7 +266,30 @@ export const dvrRoutes: FastifyPluginAsync = async (fastify) => {
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
     const cut = await cutDvrClip(name);
-    if (cut.error === 'no_session') return reply.badRequest('This stream is not recording: clips are not available.');
+    if (cut.error === 'no_session') {
+      // No Pro DVR: a stream that records its VOD gets the clip when it ends,
+      // cut from the recording (lib/vodClips.ts).
+      const rec = vodRecordingOf(name);
+      if (!rec) return reply.badRequest('This stream is not recording: clips are not available.');
+      const user = await optionalUser(request);
+      const facts = await readRoomFacts(name);
+      const host = facts?.host ?? null;
+      const win = vodWindow(rec, Date.now());
+      const kept = await registerClip({
+        room: name,
+        host,
+        clipper: user,
+        source: user && host && user === host ? 'host' : 'viewer',
+        file: `${safeName(name)}-${Date.now()}-${randomBytes(4).toString('hex')}.mp4`,
+        offsetSec: facts?.liveAt ? Math.max(0, Math.round((Date.now() - facts.liveAt) / 1000)) : null,
+        durationSec: VOD_CLIP_SEC,
+        crop: cropFromMeta(facts?.meta),
+        ...('start' in win ? { pendingAt: win.start } : { unavailable: win.unavailable }),
+      }).catch(() => null);
+      if (!kept) return reply.code(500).send({ message: 'Could not keep the clip.' });
+      if (!('clip' in kept)) return reply.code(429).send({ message: 'This stream has all the clips it can keep.' });
+      return reply.send({ path: null, pending: true, clip: clipView(kept.clip) });
+    }
     if (cut.error === 'empty') return reply.badRequest('Nothing recorded yet, give it a few seconds.');
     if (cut.error) {
       request.log.error({ err: cut.cause }, '[dvr] clip failed');
@@ -307,7 +331,9 @@ export const dvrRoutes: FastifyPluginAsync = async (fastify) => {
   // Clip button (true only while a Pro host has DVR running).
   fastify.get('/rooms/:name/dvr/status', { schema: paramsSchema }, async (request, reply) => {
     const { name } = request.params as { name: string };
-    return reply.send({ recording: active.has(name) });
+    // `clips: 'after'`: no DVR, but the stream records its VOD, so a clip is
+    // cut from the recording when the stream ends (H13).
+    return reply.send({ recording: active.has(name), ...(!active.has(name) && vodRecordingOf(name) ? { clips: 'after' } : {}) });
   });
 };
 
