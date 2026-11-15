@@ -1,6 +1,9 @@
 /* Hive Hangouts — .hh- prefix to avoid collisions */
 /* Theme via CSS custom properties — override these in your app */
 
+/* Polls and predictions, raids (their own file so feature branches do not collide here). */
+@import './live-interact.css';
+
 /* === Theme Variables === */
 
 :root, [data-hh-theme="light"] {

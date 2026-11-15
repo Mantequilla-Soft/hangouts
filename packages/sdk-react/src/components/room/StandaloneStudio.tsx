@@ -30,6 +30,7 @@ import { playBoostChime } from '../../lib/boostChime.js';
 import { StreamBoostGoal } from './StreamBoostGoal.js';
 import { BoostHistoryPanel } from './BoostHistoryPanel.js';
 import { BoostSettingsPanel } from './BoostSettingsPanel.js';
+import { StudioLivePanel, IconLive } from './StudioLivePanel.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
 import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
 import { useDvr } from '../../hooks/useDvr.js';
@@ -1078,7 +1079,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [postModalOpen, setPostModalOpen] = useState(false);
   // Post tab first — hosts set up the stream's post details before going live.
   // Once live the post is locked, so the studio flips to chat (effect below).
-  const [rightTab, setRightTab] = useState<'chat' | 'post' | 'settings'>(() => (streamState === 'standby' ? 'post' : 'chat'));
+  const [rightTab, setRightTab] = useState<'chat' | 'post' | 'settings' | 'live'>(() => (streamState === 'standby' ? 'post' : 'chat'));
   const postLocked = streamState !== 'standby';
 
   // ---- panel sizing ------------------------------------------------------
@@ -1093,7 +1094,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const isMobile = useIsMobile();
   const isMobileRef = useRef(isMobile);
   isMobileRef.current = isMobile;
-  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests' | 'settings';
+  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests' | 'settings' | 'live';
   const [mobileSheet, setMobileSheet] = useState<MobileSheetId | null>(null);
 
   // Going live locks the post, and chat is what the host needs from then on:
@@ -1224,7 +1225,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     return {
       chat: Math.round(vh * 0.62), post: Math.round(vh * 0.92),
       mic: Math.round(vh * 0.5), lens: Math.round(vh * 0.5), share: Math.round(vh * 0.42),
-      guests: Math.round(vh * 0.45), settings: Math.round(vh * 0.75),
+      guests: Math.round(vh * 0.45), settings: Math.round(vh * 0.75), live: Math.round(vh * 0.7),
     };
   });
 
@@ -4447,6 +4448,15 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               )}
               <span className="hh-studio__rbtn-label">Chat</span>
             </button>
+            {/* Polls, predictions and raids (StudioLivePanel). */}
+            <button
+              className={`hh-studio__rbtn${mobileSheet === 'live' ? ' hh-studio__rbtn--on' : ''}`}
+              onClick={() => setMobileSheet((v) => (v === 'live' ? null : 'live'))}
+              title="Polls, predictions and raids"
+            >
+              <IconLive />
+              <span className="hh-studio__rbtn-label">Live</span>
+            </button>
             {/* Unlisted streams are never announced — no post to write. */}
             {!isUnlisted && (
               <button
@@ -4532,7 +4542,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 : mobileSheet === 'lens' ? 'Camera'
                 : mobileSheet === 'share' ? 'Share this stream'
                 : mobileSheet === 'guests' ? 'Requests to join'
-                : mobileSheet === 'settings' ? 'Stream settings' : 'Microphone'}
+                : mobileSheet === 'settings' ? 'Stream settings'
+                : mobileSheet === 'live' ? 'Polls and raids' : 'Microphone'}
               onClose={() => setMobileSheet(null)}
               height={sheetH[mobileSheet]}
               onHeightChange={(h) => setSheetH((prev) => ({ ...prev, [mobileSheet]: h }))}
@@ -4542,6 +4553,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               {mobileSheet === 'chat' && <ChatPanel readOnly readOnlyNotice="" />}
               {mobileSheet === 'post' && renderPostEditor(false)}
               {mobileSheet === 'settings' && renderSettings()}
+              {mobileSheet === 'live' && <StudioLivePanel roomName={roomName} />}
               {mobileSheet === 'guests' && (
                 <div className="hh-guests">
                   {collabError && <p className="hh-guests__error">{collabError}</p>}
@@ -4960,11 +4972,13 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                     the title, community and payout. Mirrors the mobile rail. */}
                 {streamState === 'standby' && <span className="hh-studio__rbtn-dot" aria-hidden="true" />}
               </button>
+              <button className={`hh-studio__tab${rightTab === 'live' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('live')} title="Polls, predictions and raids">📊 Live</button>
               <button className={`hh-studio__tab${rightTab === 'settings' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('settings')}>⚙️ Settings</button>
               <button className="hh-studio__collapse hh-studio__tabs-collapse" onClick={() => setChatCollapsed(true)} title="Collapse">›</button>
             </div>
             <div className="hh-studio__tab-body">
-              {rightTab === 'chat' ? <ChatPanel /> : rightTab === 'settings' ? renderSettings() : renderPostEditor(false)}
+              {rightTab === 'chat' ? <ChatPanel /> : rightTab === 'settings' ? renderSettings()
+                : rightTab === 'live' ? <StudioLivePanel roomName={roomName} /> : renderPostEditor(false)}
             </div>
             <div className="hh-studio__transport">
               {streamState === 'standby' && <button className="hh-studio__go-btn" onClick={() => { void savePost(); setStreamState('live'); }} title="Cut the program and audio over to your viewers"><span className="hh-studio__icon" aria-hidden="true">🔴</span>Start stream</button>}

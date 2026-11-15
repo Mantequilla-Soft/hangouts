@@ -8,6 +8,8 @@ import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { BoostStoreProvider } from '../../hooks/useBoosts.js';
 import { StreamBoostGoal } from './StreamBoostGoal.js';
 import type { BoostLabels } from '../../lib/boostLabels.js';
+import type { LiveLabels } from '../../lib/liveLabels.js';
+import { RaidBanner, type RaidTargetInfo } from './RaidBanner.js';
 
 /**
  * Composable watch-side of a standalone stream. Unlike <StandaloneViewer>
@@ -30,6 +32,9 @@ interface StreamCtxValue {
    *  studio has the Guests panel for accepting collab requests, so it also
    *  tells a viewer whether asking to join can lead anywhere. */
   portrait?: boolean;
+  /** This viewer's room token: a guest proves who they are with it when the
+   *  chat posts its copy of a line for the backlog. */
+  livekitToken?: string | null;
 }
 const StreamContext = createContext<StreamCtxValue>({ hostIdentity: null, isGuest: true, roomName: '' });
 export const useStreamContext = () => useContext(StreamContext);
@@ -42,9 +47,14 @@ export interface StandaloneWatchProps {
   /** Silence the stream's sound without leaving the room, e.g. while the page
    *  plays an ad over it. The picture keeps running underneath. */
   audioMuted?: boolean;
+  /** The host raided another stream and the countdown ran out: move the viewer
+   *  to `target` (the integrator knows its own URLs). Without it, no raid banner. */
+  onRaid?: (target: RaidTargetInfo) => void;
+  /** Translated text for the raid banner (see LiveLabels). */
+  liveLabels?: Partial<LiveLabels>;
 }
 
-export function StandaloneWatch({ roomName, children, connecting, audioMuted = false }: StandaloneWatchProps) {
+export function StandaloneWatch({ roomName, children, connecting, audioMuted = false, onRaid, liveLabels }: StandaloneWatchProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
   const joinedForRef = useRef<string | null>(null);
@@ -92,8 +102,9 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
       video={false}
       options={{ adaptiveStream: true, dynacast: true }}
     >
-      <StreamContextBridge roomName={roomName} isGuest={room.isGuest} joinMeta={room.roomMeta}>
+      <StreamContextBridge roomName={roomName} isGuest={room.isGuest} joinMeta={room.roomMeta} livekitToken={room.livekitToken}>
         <RoomAudio programOnly muted={audioMuted} />
+        {onRaid && <RaidBanner roomName={roomName} onRaid={onRaid} labels={liveLabels} />}
         <StartAudio label="Click to enable audio" className="hh-start-audio" />
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
           {children}
@@ -110,10 +121,11 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
  * stays hidden and they can't ask to join the stage until they refresh. Falls
  * back to the join-time meta until the first metadata sync lands.
  */
-function StreamContextBridge({ roomName, isGuest, joinMeta, children }: {
+function StreamContextBridge({ roomName, isGuest, joinMeta, livekitToken, children }: {
   roomName: string;
   isGuest: boolean;
   joinMeta: unknown;
+  livekitToken?: string | null;
   children: ReactNode;
 }) {
   const roomInfo = useRoomInfo();
@@ -130,6 +142,7 @@ function StreamContextBridge({ roomName, isGuest, joinMeta, children }: {
       roomName,
       boostConfig: meta.boost,
       portrait: meta.portrait,
+      livekitToken,
     }}>
       {children}
     </StreamContext.Provider>

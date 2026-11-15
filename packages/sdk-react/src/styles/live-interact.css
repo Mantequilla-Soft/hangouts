@@ -1,0 +1,225 @@
+/* Live interaction: the poll / prediction card, the studio's Live tab
+   (polls, raids) and the raid banner. Flat, theme variables only. Imported by
+   hangouts.css. */
+
+/* === Poll / prediction card === */
+.hh-chat__poll { padding: 0.5rem 0.5rem 0; }
+
+.hh-poll {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--hh-border-light);
+  border-radius: 12px;
+  background: var(--hh-surface);
+  color: var(--hh-text);
+}
+.hh-poll__head { display: flex; align-items: center; gap: 0.5rem; min-height: 24px; }
+.hh-poll__badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--hh-accent);
+}
+.hh-poll__status { flex: 1; font-size: 0.78rem; color: var(--hh-text-muted); }
+.hh-poll__close {
+  border: 0; background: transparent; color: var(--hh-text-muted);
+  cursor: pointer; width: 24px; height: 24px; border-radius: 6px;
+}
+.hh-poll__close:hover { background: var(--hh-bg-hover); }
+.hh-poll__question { margin: 0; font-weight: 600; font-size: 0.95rem; line-height: 1.3; overflow-wrap: anywhere; }
+.hh-poll__options { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.hh-poll__opt { display: flex; gap: 0.4rem; align-items: stretch; }
+.hh-poll__choice,
+.hh-poll__result {
+  position: relative;
+  flex: 1;
+  min-height: 36px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--hh-border);
+  border-radius: 8px;
+  background: var(--hh-bg);
+  color: var(--hh-text);
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  overflow: hidden;
+}
+.hh-poll__choice { cursor: pointer; }
+.hh-poll__choice:hover:not(:disabled) { border-color: var(--hh-accent); }
+.hh-poll__choice:disabled { opacity: 0.6; cursor: default; }
+.hh-poll__bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--hh-bg-hover);
+  transition: width 0.4s ease;
+}
+.hh-poll__label { position: relative; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.hh-poll__pct { position: relative; font-size: 0.8rem; color: var(--hh-text-secondary); }
+.hh-poll__opt.is-mine .hh-poll__result { border-color: var(--hh-accent); }
+.hh-poll__opt.is-winner .hh-poll__label { font-weight: 700; }
+.hh-poll__opt.is-winner .hh-poll__result { border-color: var(--hh-success); }
+.hh-poll__stake-btn { flex-shrink: 0; }
+.hh-poll__stake { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.hh-poll__amount {
+  width: 7rem;
+  max-width: 100%;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--hh-input-border);
+  border-radius: 8px;
+  background: var(--hh-bg);
+  color: var(--hh-text);
+  font: inherit;
+  font-size: 0.88rem;
+}
+.hh-poll__balance { font-size: 0.78rem; color: var(--hh-text-muted); }
+.hh-poll__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--hh-text-muted);
+}
+.hh-poll__error,
+.hh-pollhost__error { margin: 0; font-size: 0.8rem; color: var(--hh-danger); }
+
+/* === Raid line in chat === */
+.hh-chat__msg--system {
+  align-items: center;
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  background: var(--hh-bg-hover);
+  font-weight: 600;
+}
+.hh-chat__system-icon { flex-shrink: 0; }
+
+/* === Studio Live tab === */
+.hh-livepanel .hh-settings__group { display: flex; flex-direction: column; gap: 0.6rem; }
+.hh-pollhost,
+.hh-raidhost { display: flex; flex-direction: column; gap: 0.6rem; }
+.hh-pollhost__form { display: flex; flex-direction: column; gap: 0.5rem; }
+.hh-pollhost__kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.hh-pollhost__kind {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--hh-border);
+  border-radius: 10px;
+  background: var(--hh-bg);
+  color: var(--hh-text);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+}
+.hh-pollhost__kind em { font-style: normal; font-weight: 400; font-size: 0.75rem; color: var(--hh-text-muted); }
+.hh-pollhost__kind.is-on { border-color: var(--hh-accent); }
+.hh-pollhost__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--hh-input-border);
+  border-radius: 8px;
+  background: var(--hh-bg);
+  color: var(--hh-text);
+  font: inherit;
+  font-size: 0.9rem;
+}
+.hh-pollhost__opt { display: flex; gap: 0.4rem; align-items: center; }
+.hh-pollhost__remove {
+  flex-shrink: 0; width: 32px; height: 32px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--hh-text-muted); cursor: pointer;
+}
+.hh-pollhost__remove:hover { background: var(--hh-bg-hover); }
+.hh-pollhost__durations { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--hh-text-muted); }
+.hh-pollhost__chip {
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--hh-border);
+  border-radius: 999px;
+  background: var(--hh-bg);
+  color: var(--hh-text);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.hh-pollhost__chip.is-on { border-color: var(--hh-accent); color: var(--hh-accent); font-weight: 600; }
+.hh-pollhost__actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+@media (max-width: 420px) {
+  .hh-pollhost__kinds { grid-template-columns: 1fr; }
+}
+
+.hh-raidhost__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.hh-raidhost__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.hh-raidhost__row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--hh-border-light);
+  border-radius: 10px;
+  background: var(--hh-bg);
+}
+.hh-raidhost__info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.hh-raidhost__title { font-weight: 600; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hh-raidhost__meta { font-size: 0.75rem; color: var(--hh-text-muted); }
+.hh-raidhost__empty,
+.hh-raidhost__sent { margin: 0; font-size: 0.82rem; color: var(--hh-text-muted); }
+.hh-raidhost__pending {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--hh-accent);
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+.hh-raidhost__pending > span:nth-child(2) { flex: 1; min-width: 0; }
+
+/* === Raid banner (viewers) === */
+.hh-raid {
+  position: fixed;
+  z-index: 1000;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, calc(100vw - 32px));
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--hh-border);
+  border-radius: 14px;
+  background: var(--hh-bg);
+  color: var(--hh-text);
+  box-shadow: 0 6px 20px var(--hh-shadow);
+}
+.hh-raid__count {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--hh-accent);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+.hh-raidhost__pending .hh-raid__count { width: 32px; height: 32px; font-size: 0.9rem; }
+.hh-raid__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.hh-raid__title { font-size: 0.92rem; overflow-wrap: anywhere; }
+.hh-raid__body { font-size: 0.8rem; color: var(--hh-text-secondary); overflow-wrap: anywhere; }
+.hh-raid__actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+@media (max-width: 480px) {
+  .hh-raid { flex-wrap: wrap; }
+  .hh-raid__actions { width: 100%; justify-content: flex-end; }
+}
