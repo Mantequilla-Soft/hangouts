@@ -14,6 +14,7 @@ import { checkBan } from '../middleware/checkBan.js';
 import { isUserPremium } from '../lib/users.js';
 import { registerClip, clipView, cropFromMeta } from '../lib/streamClips.js';
 import { vodRecordingOf, vodWindow, VOD_CLIP_SEC } from '../lib/vodClips.js';
+import { notifyClipsReady } from '../lib/clipNotify.js';
 import { readRoomFacts, optionalUser } from '../lib/roomInfo.js';
 
 /**
@@ -102,6 +103,8 @@ async function teardown(name: string, entry: { egressId: string; dir: string; ja
   await egressClient.stopEgress(entry.egressId).catch(() => { /* already completed */ });
   // The stream is over — no more clips can come from it, so drop the segments.
   await rm(entry.dir, { recursive: true, force: true }).catch(() => { /* raced */ });
+  // Its clips are all made now: tell the host and the clippers (bell + push).
+  void notifyClipsReady(name);
 }
 
 type LogLike = { warn: (obj: unknown, msg?: string) => void };

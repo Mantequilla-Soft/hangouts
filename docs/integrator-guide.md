@@ -478,10 +478,27 @@ last `DVR_BUFFER_SEC` (150 by default) on disk.
 
 - **Clips**: any viewer can clip the last 30 s (`POST /rooms/:name/dvr/clip`).
   Signed-in clippers are credited and their clips kept `CLIP_KEEP_HOURS` (48).
+  With DVR the clip is ready at once (`status: 'ready'`, `path`).
+- **Clips without DVR** (free streams too): a stream that records its VOD answers
+  the same route with `{ pending: true, clip: { status: 'pending', path: null } }`.
+  `GET /rooms/:name/dvr/status` says `clips: 'after'` for such a stream. When the
+  recording ends, before the VOD upload deletes the file, every pending clip is cut
+  from it with an ffmpeg stream copy (niced, one at a time, the whole step capped at
+  90 s) and turns `ready`. One that cannot be cut becomes `unavailable` with a
+  `reason`: `past_cap` (after a free stream's 30 minutes), `past_end`,
+  `no_recording` (no file, or the VOD was off) or `failed`. A clip failure never
+  holds up the VOD.
 - **Highlights**: chat and boost spikes in 20 s buckets become moments
-  (`HIGHLIGHTS_ENABLED`); while DVR runs each moment cuts an automatic clip. The
-  host sees them in `GET /rooms/:name/highlights`. `POST /clips/:id/vertical` makes
-  a 9:16 copy with the host's crop, ready for a Short.
+  (`HIGHLIGHTS_ENABLED`). Chat lines are counted by the chat backlog route. While
+  DVR runs each moment cuts an automatic clip; without DVR it is a pending clip
+  cut from the recording. The host sees them in `GET /rooms/:name/highlights`.
+  `POST /clips/:id/vertical` makes a 9:16 copy of a ready clip with the host's
+  crop, ready for a Short. `GET /clips/mine` lists the clips a user made and every
+  clip of their own streams.
+- **Clips ready**: once a stream's clips exist (end of a DVR stream, or after the
+  cut from the recording) the server posts `{ room, host, title, total, clippers }`
+  to the checker's `POST /stream-stats/clips-ready` (`STREAM_STATS_SECRET`): the
+  host and each clipper get a bell notification and a push.
 - **Rewind**: `GET /rooms/:name/dvr/rewind` gives viewers an HLS playlist of the
   DVR window to seek back in while the stream is live.
 
@@ -534,7 +551,8 @@ checker from a subscription, by the trial, or by hand). The SDK reads it from
 | OBS source and OBS templates | no (403 `pro_required`) | yes |
 | Phone screen source | yes | yes |
 | Conference recording, podcast recording | no | yes |
-| DVR, clips, highlights, rewind | no | yes |
+| Clips and highlights (from the VOD, after the stream) | yes, first 30 min | yes |
+| DVR (instant clips), rewind | no | yes |
 | Restream to YouTube/Twitch | no (402) | yes |
 | Watermark | yes | no |
 

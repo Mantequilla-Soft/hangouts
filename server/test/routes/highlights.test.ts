@@ -180,6 +180,11 @@ describe('clips of a user, and deleting', () => {
     await clips.registerClip({ room: ROOM, host: 'badadib', clipper: 'fan', source: 'viewer', file: 'v.mp4', offsetSec: 10, durationSec: 30 });
     const res = await app.inject({ method: 'GET', url: '/clips/mine', headers: await bearer('fan') });
     expect(res.json().clips).toHaveLength(1);
+    // A host sees the clips of their streams too, with how long clips are kept.
+    await clips.registerClip({ room: ROOM, host: 'badadib', clipper: null, source: 'auto', file: 'a.mp4', offsetSec: 20, durationSec: 30 });
+    const host = (await app.inject({ method: 'GET', url: '/clips/mine', headers: await bearer('badadib') })).json();
+    expect(host.clips.map((c: { path: string }) => c.path).sort()).toEqual(['/dvr/clips/a.mp4', '/dvr/clips/v.mp4']);
+    expect(host.keepHours).toBe(48);
     expect((await app.inject({ method: 'GET', url: '/clips/mine' })).statusCode).toBe(401);
   });
 

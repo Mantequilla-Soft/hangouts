@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { clipStore, type StreamClip } from './streamClips.js';
+import { notifyClipsReady } from './clipNotify.js';
 
 /**
  * Clips of streams WITHOUT the Pro DVR (H13), cut from the VOD recording every
@@ -115,6 +116,8 @@ export async function cutPendingClips(room: string, filePath: string | null | un
         await fail(c, 'failed');
       }
     }
+    // The host and the clippers hear that the clips are there (bell + push).
+    if (summary.ready > 0) void notifyClipsReady(room);
   } catch {
     // A store that is down: the clips stay pending and show as unavailable
     // after a few hours (streamClips clipStatusOf). The VOD is never held up.

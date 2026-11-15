@@ -58,6 +58,8 @@ export interface ClipStore {
   countForClipper(room: string, clipper: string): Promise<number>;
   listForRoom(room: string): Promise<StreamClip[]>;
   listForClipper(clipper: string): Promise<StreamClip[]>;
+  /** Every clip of the host's streams (theirs, their viewers', automatic). */
+  listForHost(host: string): Promise<StreamClip[]>;
   get(id: string): Promise<StreamClip | null>;
   remove(id: string): Promise<void>;
   listPending(room: string): Promise<StreamClip[]>;
@@ -76,6 +78,7 @@ export function memoryClipStore(): ClipStore {
     async countForClipper(room, clipper) { return all().filter((c) => c.room === room && c.clipper === clipper).length; },
     async listForRoom(room) { return all().filter((c) => c.room === room).sort(newestFirst); },
     async listForClipper(clipper) { return all().filter((c) => c.clipper === clipper).sort(newestFirst).slice(0, 50); },
+    async listForHost(host) { return all().filter((c) => c.host === host).sort(newestFirst).slice(0, 100); },
     async get(id) { const c = rows.get(id); return c && live(c, Date.now()) ? c : null; },
     async remove(id) { rows.delete(id); },
     async listPending(room) { return all().filter((c) => c.room === room && c.status === 'pending').sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()); },
@@ -94,6 +97,9 @@ function mongoClipStore(c: Collection<StreamClip>): ClipStore {
     },
     async listForClipper(clipper) {
       return c.find({ clipper, expiresAt: now() }, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(50).toArray();
+    },
+    async listForHost(host) {
+      return c.find({ host, expiresAt: now() }, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(100).toArray();
     },
     async get(id) { return c.findOne({ id, expiresAt: now() }, { projection: { _id: 0 } }); },
     async remove(id) { await c.deleteOne({ id }); },
@@ -119,6 +125,7 @@ export async function clipStore(): Promise<ClipStore> {
       await c.createIndex({ id: 1 }, { unique: true });
       await c.createIndex({ room: 1, createdAt: -1 });
       await c.createIndex({ clipper: 1, createdAt: -1 });
+      await c.createIndex({ host: 1, createdAt: -1 });
       await c.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
       current = mongoClipStore(c);
     } catch (err) {

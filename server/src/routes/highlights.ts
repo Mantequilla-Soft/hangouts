@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { config } from '../config.js';
 import {
   getHighlights, onHighlight, setRoomResolver, startHighlightSweep,
   type HighlightMoment, type RoomInfo,
@@ -18,7 +19,8 @@ import { vodRecordingOf, vodWindow, VOD_CLIP_SEC } from '../lib/vodClips.js';
  *
  *   GET    /rooms/:name/highlights        the host: moments + every kept clip;
  *                                         anyone else signed in: their own clips
- *   GET    /clips/mine                    the signed-in user's recent clips
+ *   GET    /clips/mine                    the clips the signed-in user made, and
+ *                                         every clip of their own streams
  *   DELETE /clips/:id                     the host or the clipper drops a clip
  *   POST   /clips/:id/vertical            a 9:16 copy cut with the host's phone
  *                                         crop (H19), for posting as a Short
@@ -138,8 +140,12 @@ export const highlightRoutes: FastifyPluginAsync = async (fastify) => {
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const store = await clipStore();
+    // The clips they made, and every clip of their own streams (H13 /clips page).
+    const [mine, ofMyStreams] = await Promise.all([store.listForClipper(request.username), store.listForHost(request.username)]);
+    const byId = new Map([...ofMyStreams, ...mine].map((c) => [c.id, c]));
+    const clips = [...byId.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 100);
     reply.header('Cache-Control', 'private, no-store');
-    return reply.send({ clips: (await store.listForClipper(request.username)).map(clipView) });
+    return reply.send({ clips: clips.map(clipView), keepHours: config.CLIP_KEEP_HOURS });
   });
 
   fastify.post('/clips/:id/vertical', {
