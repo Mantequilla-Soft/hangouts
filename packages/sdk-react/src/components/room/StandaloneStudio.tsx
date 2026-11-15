@@ -5275,7 +5275,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       {battleOpen && (
         <BattlePanel
           battle={battle}
-          streamLive={streamState !== 'standby'}
+          streamLive={streamState === 'live'}
           hasGuest={!!guestIdentity}
           onClose={() => setBattleOpen(false)}
         />

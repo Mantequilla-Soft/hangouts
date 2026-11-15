@@ -130,7 +130,7 @@ export function BattlePanel({ battle, streamLive, hasGuest, onClose }: BattlePan
               Challenge another live stream. You both appear side by side on both streams for the set time, and the
               boosts each of you gets in that time decide the winner. Each of you keeps your own boosts.
             </p>
-            {!streamLive && <p className="hh-battle-panel__note">Go live first: battles are between two live streams.</p>}
+            {!streamLive && <p className="hh-battle-panel__note">Go live first (or resume): battles are between two live streams.</p>}
             {hasGuest && <p className="hh-battle-panel__note">Remove your guest first: a battle takes the whole screen.</p>}
             <div className="hh-battle-panel__field">
               <span className="hh-battle-panel__label">How long</span>
