@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const mongo = vi.hoisted(() => ({
-  insertOne: vi.fn(), countDocuments: vi.fn(), find: vi.fn(), findOne: vi.fn(), deleteOne: vi.fn(), createIndex: vi.fn(), fail: false,
+  updateOne: vi.fn(), insertOne: vi.fn(), countDocuments: vi.fn(), find: vi.fn(), findOne: vi.fn(), deleteOne: vi.fn(), createIndex: vi.fn(), fail: false,
 }));
 vi.mock('mongodb', () => ({
   MongoClient: class {
@@ -100,7 +100,16 @@ describe('Mongo store', () => {
     mongo.deleteOne.mockResolvedValue({});
     await store.remove('x');
     expect(mongo.deleteOne).toHaveBeenCalledWith({ id: 'x' });
-    expect(mongo.createIndex).toHaveBeenCalledTimes(4);
+    expect(await store.listForHost('badadib')).toEqual([{ id: 'x' }]);
+    expect(limit).toHaveBeenCalledWith(100);
+    expect(mongo.find).toHaveBeenCalledWith({ host: 'badadib', expiresAt: { $gt: expect.any(Date) } }, { projection: { _id: 0 } });
+    expect(await store.listPending('badadib-r1')).toEqual([{ id: 'x' }]);
+    expect(mongo.find).toHaveBeenCalledWith({ room: 'badadib-r1', status: 'pending', expiresAt: { $gt: expect.any(Date) } }, { projection: { _id: 0 } });
+    mongo.updateOne = vi.fn().mockResolvedValue({});
+    await store.update('x', { status: 'ready' });
+    expect(mongo.updateOne).toHaveBeenCalledWith({ id: 'x' }, { $set: { status: 'ready' } });
+    expect(mongo.createIndex).toHaveBeenCalledWith({ host: 1, createdAt: -1 });
+    expect(mongo.createIndex).toHaveBeenCalledTimes(5);
   });
 
   it('falls back to memory when Mongo cannot connect', async () => {
