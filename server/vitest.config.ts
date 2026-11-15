@@ -15,6 +15,8 @@ export default defineConfig({
       MONGODB_URI: '',
       OPENPODS_ANNOUNCE_SECRET: 'test-announce-secret',
       STREAM_KEY_SECRET: '',
+      // Clip and stream-stats reporting to the checker stays off in tests.
+      STREAM_STATS_SECRET: '',
     },
   },
 });

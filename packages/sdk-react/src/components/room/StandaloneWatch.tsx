@@ -9,6 +9,11 @@ import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { BoostStoreProvider } from '../../hooks/useBoosts.js';
 import { StreamBoostGoal } from './StreamBoostGoal.js';
 import type { BoostLabels } from '../../lib/boostLabels.js';
+import { STUDIO_VERTICAL_TRACK, prefersVertical, readVerticalMeta, type VerticalMeta } from '../../lib/verticalCrop.js';
+import type { LiveLabels } from '../../lib/liveLabels.js';
+import { RaidBanner, type RaidTargetInfo } from './RaidBanner.js';
+import { StreamBattleBar } from './StreamBattleBar.js';
+import type { BattleLabels } from '../../lib/battle.js';
 
 /**
  * Composable watch-side of a standalone stream. Unlike <StandaloneViewer>
@@ -18,9 +23,10 @@ import type { BoostLabels } from '../../lib/boostLabels.js';
  * e.g. drop the video into a watch-page player slot, the viewer count next
  * to the title, and the chat in a sidebar.
  *
- * Auto-joins with NO name prompt: authenticated users join as themselves
- * (can chat); everyone else auto-joins as an anonymous guest (watch-only,
- * chat is read-only).
+ * Auto-joins with NO name prompt: authenticated users join as themselves;
+ * everyone else auto-joins as an anonymous guest. Both can chat (a guest's
+ * token has `canPublishData`); pass `readOnly` to <ChatPanel> to show
+ * guests a "sign in to chat" notice instead.
  */
 interface StreamCtxValue {
   hostIdentity: string | null;
@@ -31,6 +37,11 @@ interface StreamCtxValue {
    *  studio has the Guests panel for accepting collab requests, so it also
    *  tells a viewer whether asking to join can lead anywhere. */
   portrait?: boolean;
+  /** The host's phone crop (H19), from the live room metadata, or null. */
+  vertical?: VerticalMeta | null;
+  /** This viewer's room token: a guest proves who they are with it when the
+   *  chat posts its copy of a line for the backlog. */
+  livekitToken?: string | null;
   /** 'hls' = this viewer plays the stream from `hlsUrl`; the room connection
    *  carries chat and presence only (see the server's HLS_VIEWER_THRESHOLD). */
   delivery?: 'webrtc' | 'hls';
@@ -51,9 +62,14 @@ export interface StandaloneWatchProps {
   /** Silence the stream's sound without leaving the room, e.g. while the page
    *  plays an ad over it. The picture keeps running underneath. */
   audioMuted?: boolean;
+  /** The host raided another stream and the countdown ran out: move the viewer
+   *  to `target` (the integrator knows its own URLs). Without it, no raid banner. */
+  onRaid?: (target: RaidTargetInfo) => void;
+  /** Translated text for the raid banner (see LiveLabels). */
+  liveLabels?: Partial<LiveLabels>;
 }
 
-export function StandaloneWatch({ roomName, children, connecting, audioMuted = false }: StandaloneWatchProps) {
+export function StandaloneWatch({ roomName, children, connecting, audioMuted = false, onRaid, liveLabels }: StandaloneWatchProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
   const joinedForRef = useRef<string | null>(null);
@@ -130,11 +146,14 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
         hlsUrl={room.hlsUrl}
         audioMuted={audioMuted}
         onHlsUnavailable={onHlsUnavailable}
+        livekitToken={room.livekitToken}
       >
         {/* HLS viewers get their sound from the HLS player. */}
         {!hls && <RoomAudio programOnly muted={audioMuted} />}
         {!hls && <StartAudio label="Click to enable audio" className="hh-start-audio" />}
         {!hls && room.hlsFallback && <WeakConnectionWatcher onWeak={onWeak} />}
+        {/* HLS viewers are in the room for data too, so they get the raid. */}
+        {onRaid && <RaidBanner roomName={roomName} onRaid={onRaid} labels={liveLabels} />}
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
           {children}
         </BoostStoreProvider>
@@ -150,7 +169,7 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
  * stays hidden and they can't ask to join the stage until they refresh. Falls
  * back to the join-time meta until the first metadata sync lands.
  */
-function StreamContextBridge({ roomName, isGuest, joinMeta, delivery, hlsUrl, audioMuted, onHlsUnavailable, children }: {
+function StreamContextBridge({ roomName, isGuest, joinMeta, delivery, hlsUrl, audioMuted, onHlsUnavailable, livekitToken, children }: {
   roomName: string;
   isGuest: boolean;
   joinMeta: unknown;
@@ -158,15 +177,17 @@ function StreamContextBridge({ roomName, isGuest, joinMeta, delivery, hlsUrl, au
   hlsUrl?: string | null;
   audioMuted?: boolean;
   onHlsUnavailable?: () => void;
+  livekitToken?: string | null;
   children: ReactNode;
 }) {
   const roomInfo = useRoomInfo();
-  const meta = useMemo((): { host?: string; boost?: BoostConfig; portrait?: boolean } => {
+  const meta = useMemo((): { host?: string; boost?: BoostConfig; portrait?: boolean; vertical?: unknown } => {
     if (roomInfo.metadata) {
       try { return JSON.parse(roomInfo.metadata); } catch { /* fall back below */ }
     }
     return (joinMeta as { host?: string; boost?: BoostConfig; portrait?: boolean }) ?? {};
   }, [roomInfo.metadata, joinMeta]);
+  const vertical = useMemo(() => readVerticalMeta(meta as Record<string, unknown>), [meta]);
   return (
     <StreamContext.Provider value={{
       hostIdentity: meta.host ?? null,
@@ -174,6 +195,8 @@ function StreamContextBridge({ roomName, isGuest, joinMeta, delivery, hlsUrl, au
       roomName,
       boostConfig: meta.boost,
       portrait: meta.portrait,
+      vertical,
+      livekitToken,
       delivery,
       hlsUrl,
       audioMuted,
@@ -228,6 +251,51 @@ function useProgramTrack() {
   }, [cameraTracks, hostIdentity]);
 }
 
+/** The host's vertical phone track (H19), when the studio sends one. Under
+ *  the Unknown source, so useProgramTrack never mistakes it for the program. */
+function useVerticalTrack() {
+  const { hostIdentity } = useStreamContext();
+  const tracks = useTracks([Track.Source.Unknown]);
+  return useMemo(() => tracks.find((t) => !t.participant.isLocal
+    && t.publication?.trackName === STUDIO_VERTICAL_TRACK
+    && t.publication?.kind === 'video'
+    && !t.publication.isMuted
+    && (!hostIdentity || t.participant.identity === hostIdentity)) ?? null, [tracks, hostIdentity]);
+}
+
+/**
+ * What the stream offers for phones (H19): `hasVertical` when the studio
+ * sends its own 9:16 video, and `crop`, where the host placed the 9:16 box
+ * over the landscape picture (for a viewer-side crop when there is no
+ * vertical video, e.g. an OBS stream). Use it to decide whether to offer a
+ * vertical/full switch, and where to start a crop.
+ */
+export function useStreamFormats(): { hasVertical: boolean; crop: VerticalMeta | null } {
+  const track = useVerticalTrack();
+  const { vertical, delivery } = useStreamContext();
+  // An HLS viewer gets the landscape program only: they crop it themselves.
+  return { hasVertical: !!track && delivery !== 'hls', crop: vertical ?? null };
+}
+
+/** A phone held upright, following resizes and rotation. */
+function usePrefersVertical(enabled: boolean): boolean {
+  const read = () => {
+    if (typeof window === 'undefined') return false;
+    const coarse = !!window.matchMedia?.('(pointer: coarse)').matches;
+    return prefersVertical(window.innerWidth, window.innerHeight, coarse);
+  };
+  const [v, setV] = useState(() => (enabled ? read() : false));
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const on = () => setV(read());
+    on();
+    window.addEventListener('resize', on);
+    window.addEventListener('orientationchange', on);
+    return () => { window.removeEventListener('resize', on); window.removeEventListener('orientationchange', on); };
+  }, [enabled]);
+  return v;
+}
+
 /** True when the streamer is connected and publishing. */
 export function useStreamLive() {
   const { hostIdentity } = useStreamContext();
@@ -243,6 +311,15 @@ export interface StreamVideoProps {
   showBoostGoal?: boolean;
   /** Translated text for the goal bar (see BoostLabels). */
   boostLabels?: Partial<BoostLabels>;
+  /** Which picture to show (H19). 'landscape' (default): the program.
+   *  'vertical': the studio's 9:16 phone video when it sends one, else the
+   *  program. 'auto': vertical on a phone held upright. */
+  format?: 'landscape' | 'vertical' | 'auto';
+  /** The live battle meter and countdown over the top of the video, while
+   *  this stream is in a battle. Default true. */
+  showBattle?: boolean;
+  /** Translated text for the battle meter (see BattleLabels). */
+  battleLabels?: Partial<BattleLabels>;
 }
 /** How long after connecting an absent host still counts as "not here yet"
  *  rather than offline. The participant list arrives a moment after the room
@@ -270,20 +347,29 @@ function useConnectionSettled(): boolean {
   return settled;
 }
 
-export function StreamVideo({ showLiveBadge = true, showBoostGoal = true, boostLabels }: StreamVideoProps) {
-  const track = useProgramTrack();
+export function StreamVideo({ showLiveBadge = true, showBoostGoal = true, boostLabels, showBattle = true, battleLabels, format = 'landscape' }: StreamVideoProps) {
+  const program = useProgramTrack();
+  const verticalTrack = useVerticalTrack();
+  const autoVertical = usePrefersVertical(format === 'auto');
+  const wantVertical = format === 'vertical' || (format === 'auto' && autoVertical);
+  // Only the picture on screen is attached, so with adaptive streaming the
+  // other one is paused on the server and costs this viewer nothing. HLS
+  // carries the landscape program only (an integrator crops it itself, see
+  // useStreamFormats).
+  const showingVertical = wantVertical && !!verticalTrack;
+  const track = showingVertical ? verticalTrack : program;
   const live = useStreamLive();
   const settled = useConnectionSettled();
   const { delivery, hlsUrl, audioMuted, onHlsUnavailable } = useStreamContext();
   const placeholder = live ? 'Stream is starting…' : (settled ? 'The streamer is offline' : 'Connecting…');
   return (
-    <div className="hh-stream-video">
+    <div className={`hh-stream-video${showingVertical && delivery !== 'hls' ? ' hh-stream-video--vertical' : ''}`}>
       {delivery === 'hls' && hlsUrl ? (
         live
           ? <HlsStreamVideo url={hlsUrl} muted={audioMuted} onUnavailable={onHlsUnavailable} />
           : <div className="hh-stream-video__placeholder">{placeholder}</div>
       ) : track ? (
-        <VideoTrack trackRef={track} className="hh-stream-video__el" />
+        <VideoTrack key={showingVertical ? 'vertical' : 'program'} trackRef={track} className="hh-stream-video__el" />
       ) : (
         <div className="hh-stream-video__placeholder">{placeholder}</div>
       )}
@@ -291,6 +377,7 @@ export function StreamVideo({ showLiveBadge = true, showBoostGoal = true, boostL
         <span className={`hh-stream-badge${live ? '' : ' hh-stream-badge--off'}`}>{live ? '● LIVE' : '○ OFFLINE'}</span>
       )}
       {showBoostGoal && live && <StreamBoostGoal variant="overlay" labels={boostLabels} />}
+      {showBattle && live && <StreamBattleBar variant="overlay" labels={battleLabels} />}
       {/* No <BoostOverlay/> here on purpose. The studio now composites boosts
           into the program canvas, so they're already in the picture — and in
           the recording, and in any player. Rendering the DOM overlay on top of

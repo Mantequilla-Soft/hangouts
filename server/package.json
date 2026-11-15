@@ -9,7 +9,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "load-collections": "tsx scripts/load-collections.ts"
+    "load-collections": "tsx scripts/load-collections.ts",
+    "routes": "tsx scripts/list-routes.ts",
+    "routes:check": "tsx scripts/list-routes.ts --check ../docs/api-routes.md"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.0",

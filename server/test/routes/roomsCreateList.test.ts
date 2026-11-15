@@ -310,6 +310,18 @@ describe('GET /streams (discover feed)', () => {
     expect(list.find((s: { name: string }) => s.name === 'stream-idle')).toMatchObject({ live: false, viewers: 1 });
   });
 
+  it('flags an audio room that is being recorded as a podcast (for the RSS live item)', async () => {
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(roomService.listRooms).mockResolvedValue([
+      lkRoom('show', { host: 'badadib', mode: 'conference', podcastLive: { startedAt: '2026-11-15T12:00:00Z' } }),
+      lkRoom('plain', { host: 'bob', mode: 'conference' }),
+    ] as never);
+    vi.mocked(roomService.listParticipants).mockResolvedValue([{ identity: 'badadib' }] as never);
+    const list = (await feedApp.inject({ method: 'GET', url: '/streams' })).json();
+    expect(list.find((s: { name: string }) => s.name === 'show').podcast).toBe(true);
+    expect(list.find((s: { name: string }) => s.name === 'plain').podcast).toBeUndefined();
+  });
+
   it('a stale broadcasting flag is not live once the host has left', async () => {
     const { roomService } = await import('../../src/lib/livekit.js');
     vi.mocked(roomService.listRooms).mockResolvedValue([lkRoom('s', { host: 'alice', mode: 'standalone', broadcasting: true })] as never);

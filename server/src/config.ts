@@ -74,6 +74,27 @@ const envSchema = z.object({
   // still apply. Empty = nobody is exempt.
   STREAM_LIMIT_EXEMPT: z.string().default('')
     .transform((v) => new Set(v.split(',').map((s) => s.trim().replace(/^@/, '').toLowerCase()).filter(Boolean))),
+  // --- Highlights, clips, rewind, podcast recording (H13, H14, H23) ----------
+  // How far back the DVR keeps segments: the range a highlight clip can come
+  // from and, with REWIND_ENABLED, the rewind window viewers can seek in. About
+  // 56 MB per stream at the DVR's 3 Mbps for the default 150 s (600 s, the
+  // rewind window we built for, is about 225 MB), pruned every 30 s.
+  DVR_BUFFER_SEC: z.coerce.number().int().min(60).max(3600).default(150),
+  // Rewind during a live stream (H14): off until the owner turns it on (then
+  // set DVR_BUFFER_SEC=600 too for a 10 minute window).
+  REWIND_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  // DVR clips (viewer, host and automatic highlight clips) are kept this long so
+  // they can still be posted as Shorts after the stream, then swept.
+  CLIP_KEEP_HOURS: z.coerce.number().positive().max(24 * 14).default(48),
+  // Upper bound for all kept clips on disk; the oldest go first past it.
+  CLIPS_DIR_MAX_MB: z.coerce.number().int().positive().default(4096),
+  // Tell the 3Speak checker when a stream's clips are ready (bell + push that
+  // open 3speak.tv/clips). Off until the frontend with the /clips page is live.
+  CLIPS_NOTIFY_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  // Chat and boost spike detection (per-room counters in 20 s buckets).
+  HIGHLIGHTS_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // "Record as podcast" in audio rooms: one audio track egress per speaker.
+  PODCAST_RECORDING_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   // --- HLS for large audiences (backlog idea H1) ------------------------------
   // How many viewers of ONE stream watch over WebRTC before the rest get the
   // stream over HLS. Default 50, from the 2026-11-05 stress test (clean at 50
@@ -99,6 +120,16 @@ const envSchema = z.object({
   // Video bitrate of the HLS rendition in kbps (one rendition, 720p or the
   // stream's own size).
   HLS_VIDEO_BITRATE: z.coerce.number().int().min(300).max(8000).default(2000),
+  // Live captions (H11): the host's browser streams its own mic to the speech
+  // server and sends the text over the data channel; this server only hands out
+  // caption slots, at most CAPTIONS_MAX_STREAMS at once, so the speech box never
+  // carries more continuous recognitions from streams than that. A slot lapses
+  // CAPTIONS_SLOT_TTL_SEC after the studio's last renewal (it renews every 30 s).
+  // Off by default: the speech box (speech.okinoko.io) is the same machine as
+  // live.3speak.tv and the Mongo primary; the owner turns it on with CAPTIONS_ENABLED=true.
+  CAPTIONS_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  CAPTIONS_MAX_STREAMS: z.coerce.number().int().min(0).max(100).default(3),
+  CAPTIONS_SLOT_TTL_SEC: z.coerce.number().int().min(30).max(3600).default(90),
   PORT: z.coerce.number().default(3002),
 });
 

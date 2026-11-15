@@ -1,5 +1,7 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDataChannel, useRoomContext } from '@livekit/components-react';
+import { readVolumePacket, type DataSender } from '../lib/dataTrust.js';
+import { useLiveHost } from './useLiveHost.js';
 import { Track, RoomEvent, type RemoteAudioTrack } from 'livekit-client';
 
 const TOPIC = 'volume';
@@ -60,22 +62,29 @@ export function useParticipantVolumes(): {
     };
   }, [room, applyVolumes, volumes]);
 
-  const onMessage = useCallback((msg: { payload: Uint8Array }) => {
-    try {
-      const text = new TextDecoder().decode(msg.payload);
-      const event = JSON.parse(text) as VolumeEvent;
-      if (event.type !== 'volume') return;
-      setVolumes((prev) => {
-        const next = new Map(prev);
-        next.set(event.identity, event.volume);
-        return next;
-      });
-    } catch { /* ignore malformed */ }
+  // The mix is the host's: a volume change from anyone else is dropped (it
+  // would otherwise mute a speaker for every listener and the recording).
+  const { hostIdentity, isCurrentUserHost } = useLiveHost();
+  const hostRef = useRef(hostIdentity);
+  hostRef.current = hostIdentity;
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
+    const event = readVolumePacket(msg.payload, msg.from, hostRef.current);
+    if (!event) return;
+    setVolumes((prev) => {
+      const next = new Map(prev);
+      next.set(event.identity, event.volume);
+      return next;
+    });
   }, []);
 
   const { send } = useDataChannel(TOPIC, onMessage);
 
   const setParticipantVolume = useCallback((identity: string, volume: number) => {
+    // Not the host: the change stays on this device (everyone else ignores it).
+    if (!isCurrentUserHost) {
+      setVolumes((prev) => new Map(prev).set(identity, volume));
+      return;
+    }
     const event: VolumeEvent = {
       type: 'volume',
       identity,
@@ -89,7 +98,7 @@ export function useParticipantVolumes(): {
       next.set(identity, volume);
       return next;
     });
-  }, [send]);
+  }, [send, isCurrentUserHost]);
 
   return { volumes, setParticipantVolume };
 }

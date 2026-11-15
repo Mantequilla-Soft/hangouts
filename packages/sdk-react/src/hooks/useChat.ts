@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { useDataChannel, useLocalParticipant, useRoomContext } from '@livekit/components-react';
+import { useCallback, useContext, useEffect, useSyncExternalStore } from 'react';
+import { useConnectionState, useDataChannel, useLocalParticipant, useRoomContext } from '@livekit/components-react';
+import { ConnectionState } from 'livekit-client';
+import { HangoutsContext } from '../context/HangoutsContext.js';
+import { useStreamContext } from '../components/room/StandaloneWatch.js';
+import { mergeChatLines, parseBacklog, type ChatSystemInfo } from '../lib/chatBacklog.js';
+import { readChatPacket, type DataSender } from '../lib/dataTrust.js';
 
 export interface ChatMessage {
   id: string;
@@ -9,6 +14,9 @@ export interface ChatMessage {
   name: string;
   text: string;
   timestamp: number;
+  /** A line the server wrote, not a person: a raid arriving. ChatPanel draws
+   *  it from labels; `text` is the English fallback. */
+  system?: ChatSystemInfo;
 }
 
 const TOPIC = 'chat';
@@ -30,6 +38,13 @@ let messages: ChatMessage[] = [];
 /** The Room the log belongs to — the OBJECT, not its name. See the effect. */
 let currentRoom: unknown = null;
 const listeners = new Set<() => void>();
+/** Taken down by a moderator, or written by someone they banned, in this room:
+ *  kept so a backlog that arrives later cannot bring them back. */
+let removedIds = new Set<string>();
+let purgedIdentities = new Set<string>();
+/** When the backlog was last asked for, per Room object (one fetch per connect,
+ *  however many useChat callers mount). */
+let backlogAskedAt = new WeakMap<object, number>();
 
 function emit() {
   for (const l of listeners) l();
@@ -39,7 +54,30 @@ function pushMessage(msg: ChatMessage) {
   // Several hook instances subscribe to the same topic, so the same message
   // arrives more than once. Dedupe on id (identity + timestamp).
   if (messages.some((m) => m.id === msg.id)) return;
+  if (removedIds.has(msg.id) || purgedIdentities.has(msg.identity)) return;
   messages = [...messages, msg];
+  emit();
+}
+
+/** Lines from the server's backlog, merged under what arrived live. */
+function mergeBacklog(lines: ChatMessage[]) {
+  const next = mergeChatLines(messages, lines, removedIds, purgedIdentities);
+  if (next === messages) return;
+  messages = next;
+  emit();
+}
+
+function removeMessage(id: string) {
+  removedIds.add(id);
+  if (!messages.some((m) => m.id === id)) return;
+  messages = messages.filter((m) => m.id !== id);
+  emit();
+}
+
+function purgeIdentity(identity: string) {
+  purgedIdentities.add(identity);
+  if (!messages.some((m) => m.identity === identity)) return;
+  messages = messages.filter((m) => m.identity !== identity);
   emit();
 }
 
@@ -67,25 +105,45 @@ export function useChat() {
     if (!room || currentRoom === room) return;
     currentRoom = room;
     messages = [];
+    removedIds = new Set();
+    purgedIdentities = new Set();
     emit();
   }, [room]);
 
   const current = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-  const onMessage = useCallback((msg: { payload: Uint8Array }) => {
-    try {
-      const text = new TextDecoder().decode(msg.payload);
-      const parsed = JSON.parse(text);
-      if (parsed.type !== 'chat') return;
+  // The backlog: what was said before this page connected (a reload, a late
+  // join, a reconnect after a network drop). Asked for on every connect, once
+  // per Room however many callers there are; the merge dedupes on id.
+  const ctx = useContext(HangoutsContext);
+  const { livekitToken } = useStreamContext();
+  const state = useConnectionState(room);
+  const apiBaseUrl = ctx?.apiBaseUrl;
+  useEffect(() => {
+    if (state !== ConnectionState.Connected || !room?.name || !apiBaseUrl) return;
+    const last = backlogAskedAt.get(room) ?? 0;
+    if (Date.now() - last < 2000) return;
+    backlogAskedAt.set(room, Date.now());
+    const token = ctx?.apiClient.getSessionToken();
+    let alive = true;
+    fetch(`${apiBaseUrl}/rooms/${encodeURIComponent(room.name)}/chat`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => { if (alive && currentRoom === room) mergeBacklog(parseBacklog(body)); })
+      .catch(() => { /* an older server, or offline: live chat still works */ });
+    return () => { alive = false; };
+  }, [state, room, apiBaseUrl, ctx]);
 
-      pushMessage({
-        id: `${parsed.identity}-${parsed.timestamp}`,
-        identity: parsed.identity,
-        name: parsed.name || parsed.identity,
-        text: parsed.text,
-        timestamp: parsed.timestamp,
-      });
-    } catch { /* ignore malformed */ }
+  // Who sent it comes from LiveKit, never from the payload: anyone in the room
+  // can publish on this topic (lib/dataTrust.ts). Deletes, purges and system
+  // lines count only when the server sent them.
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
+    const packet = readChatPacket(msg.payload, msg.from);
+    if (!packet) return;
+    if (packet.kind === 'delete') removeMessage(packet.id);
+    else if (packet.kind === 'purge') purgeIdentity(packet.identity);
+    else pushMessage(packet.line);
   }, []);
 
   const { send } = useDataChannel(TOPIC, onMessage);
@@ -112,7 +170,40 @@ export function useChat() {
       text: event.text,
       timestamp: event.timestamp,
     });
-  }, [localParticipant, send]);
+
+    // The server's copy for the backlog. Fire and forget: chat never waits on
+    // it, and an older server without the route just answers 404.
+    const roomName = room?.name;
+    const token = ctx?.apiClient.getSessionToken();
+    if (apiBaseUrl && roomName && (token || livekitToken)) {
+      fetch(`${apiBaseUrl}/rooms/${encodeURIComponent(roomName)}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          text: event.text,
+          timestamp: event.timestamp,
+          identity: event.identity,
+          name: event.name,
+          ...(token ? {} : { livekitToken }),
+        }),
+      }).catch(() => { /* best effort */ });
+    }
+  }, [localParticipant, send, room, ctx, apiBaseUrl, livekitToken]);
 
   return { messages: current, sendMessage };
+}
+
+/** Drop one line from everyone's list right away (the moderator who deleted it). */
+export function dropChatMessage(id: string): void {
+  removeMessage(id);
+}
+
+/** Test helper: reset the shared store. */
+export function __resetChatStore(): void {
+  messages = [];
+  currentRoom = null;
+  removedIds = new Set();
+  purgedIdentities = new Set();
+  backlogAskedAt = new WeakMap();
+  emit();
 }

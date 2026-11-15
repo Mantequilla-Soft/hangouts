@@ -3,6 +3,7 @@ import { TrackType, TrackSource, ParticipantInfo_Kind, ParticipantInfo_State, ty
 import { mkdir, chmod, rm, readdir, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { pickProgramVideoTrack } from './programTrack.js';
 import { roomService } from './livekit.js';
 import { config } from '../config.js';
 
@@ -157,18 +158,9 @@ async function programTracks(room: string, meta: HlsRoomMeta) {
   try {
     const parts = await roomService.listParticipants(room);
     const host = parts.find((pt) => pt.identity === meta.host);
-    // The host may publish more than one program video: 'studio-vertical' is a
-    // second, vertical composition for phone viewers (idea H19). Skip it, and
-    // among the rest take the one whose shape matches the stream.
-    const videos = (host?.tracks.filter((t) => t.type === TrackType.VIDEO && t.source === TrackSource.CAMERA) ?? [])
-      .filter((t, _i, all) => t.name !== 'studio-vertical' || all.every((x) => x.name === 'studio-vertical'));
-    const wantPortrait = meta.portrait === true;
-    const matches = (t: { width: number; height: number }) => !t.width || !t.height
-      || (wantPortrait ? t.height > t.width : t.width >= t.height);
-    // 'studio-program' is the landscape program track by name (idea H19, the
-    // same rule as DVR and VOD); older studios don't name it, so fall back
-    // to the shape.
-    const video = videos.find((t) => t.name === 'studio-program') ?? videos.find(matches) ?? videos[0];
+    // The landscape (or phone portrait) program, never the 'studio-vertical'
+    // phone crop (idea H19); the same pick as the DVR and the VOD recording.
+    const video = pickProgramVideoTrack(host?.tracks, { portrait: meta.portrait === true });
     videoTrackId = video?.sid ?? '';
     width = video?.width ?? 0;
     height = video?.height ?? 0;

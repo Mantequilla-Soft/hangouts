@@ -151,6 +151,17 @@ describe('DVR start', () => {
     expect(await dvrStatus()).toEqual({ recording: true });
   });
 
+  it('records the landscape program, not the vertical phone track (H19), whatever order they come in', async () => {
+    const vertical = { sid: 'TR_vert', name: 'studio-vertical', type: TrackType.VIDEO, source: TrackSource.UNKNOWN, width: 406, height: 720 };
+    const vertAsCam = { ...vertical, sid: 'TR_vert2', source: TrackSource.CAMERA };
+    const program = camera({ sid: 'TR_prog', name: 'studio-program', width: 1280, height: 720 });
+    vi.mocked(lk.listParticipants).mockResolvedValue(hostWithTracks([vertical, vertAsCam, program, mic('TR_mix', 'studio-mix')]) as never);
+    await post('start');
+    const opts = egress.startTrackCompositeEgress.mock.calls[0][2];
+    expect(opts.videoTrackId).toBe('TR_prog');
+    expect(opts.encodingOptions).toMatchObject({ width: 1280, height: 720 });
+  });
+
   it('falls back to the first microphone when none is named studio-mix', async () => {
     vi.mocked(lk.listParticipants).mockResolvedValue(hostWithTracks([camera(), mic('TR_a', 'mic'), mic('TR_b', 'mic2')]) as never);
     await post('start');
@@ -210,11 +221,12 @@ describe('DVR start', () => {
 });
 
 describe('DVR segment janitor', () => {
-  it('every 30 s deletes only .ts segments older than the 150 s buffer', async () => {
+  it('every 30 s deletes only .ts segments older than the 150 s buffer (DVR_BUFFER_SEC default)', async () => {
     await post('start');
     const now = Date.now();
     disk[SEG_DIR] = {
       'seg_old.ts': now - 200_000,
+      'seg_kept.ts': now - 100_000,
       'seg_new.ts': now - 1_000,
       'index.m3u8': now - 999_999,
     };
@@ -240,6 +252,28 @@ describe('DVR clip', () => {
     const res = await clip();
     expect(res.statusCode).toBe(400);
     expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it('without DVR but with a VOD recording: a pending clip, cut from the recording when the stream ends', async () => {
+    const vc = await import('../../src/lib/vodClips.js');
+    const start = Date.now() - 100_000;
+    vc.noteVodRecording(ROOM, { startedAt: start, maxMs: null });
+    expect(await dvrStatus()).toEqual({ recording: false, clips: 'after' });
+    const res = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip`, headers: { authorization: `Bearer ${await makeToken('fan')}` } });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({ path: null, pending: true, clip: { status: 'pending', path: null, clipper: 'fan', host: 'alice', durationSec: 36 } });
+    expect(spawnMock).not.toHaveBeenCalled();
+    const store = await (await import('../../src/lib/streamClips.js')).clipStore();
+    const [row] = await store.listPending(ROOM);
+    expect(row.vodStartSec).toBeCloseTo(66, 0);
+  });
+
+  it('a free stream past its 30 minute recording cap gets an unavailable clip', async () => {
+    const vc = await import('../../src/lib/vodClips.js');
+    vc.noteVodRecording(ROOM, { startedAt: Date.now() - 31 * 60_000, maxMs: 30 * 60_000 });
+    const res = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip` });
+    expect(res.json().clip).toMatchObject({ status: 'unavailable', reason: 'past_cap', clipper: null });
   });
 
   it('returns 400 when no segment falls inside the clip window yet', async () => {
@@ -270,6 +304,29 @@ describe('DVR clip', () => {
     expect(args).toContain(`concat:${SEG_DIR}/seg_a.ts|${SEG_DIR}/seg_b.ts|${SEG_DIR}/seg_c.ts`);
     expect(args).toEqual(expect.arrayContaining(['-c', 'copy']));
     expect(args[args.length - 1]).toBe(`${CLIP_DIR}/${path.split('/').pop()}`);
+  });
+
+  it('keeps the clip for posting: a signed-in viewer is credited as the clipper, with the offset since go-live', async () => {
+    vi.mocked(lk.listRooms).mockResolvedValue([{ name: ROOM, metadata: JSON.stringify({ host: 'alice', mode: 'standalone', liveAt: new Date(Date.now() - 125_000).toISOString(), vertical: { on: true, x: 0.6, w: 0.316 } }) }] as never);
+    await post('start');
+    disk[SEG_DIR] = { 's1.ts': Date.now() - 1000, 's2.ts': Date.now() };
+    const res = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip`, headers: { authorization: `Bearer ${await makeToken('fan')}` } });
+    expect(res.statusCode).toBe(200);
+    const { path, clip } = res.json();
+    expect(clip).toMatchObject({ room: ROOM, host: 'alice', clipper: 'fan', source: 'viewer', path, durationSec: 4 });
+    // The host's phone crop is on: a vertical copy can be made (POST /clips/:id/vertical).
+    expect(clip.vertical).toEqual({ available: true, path: null });
+    expect(clip.offsetSec).toBeGreaterThanOrEqual(124);
+    expect(clip.offsetSec).toBeLessThanOrEqual(126);
+  });
+
+  it('a clip by the host is marked as the host\'s, a guest clip has no clipper', async () => {
+    await post('start');
+    disk[SEG_DIR] = { 's.ts': Date.now() };
+    const mine = (await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip`, headers: auth })).json();
+    expect(mine.clip).toMatchObject({ clipper: 'alice', source: 'host', offsetSec: null, vertical: { available: false, path: null } });
+    const guest = (await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip`, headers: { authorization: 'Bearer nonsense' } })).json();
+    expect(guest.clip).toMatchObject({ clipper: null, source: 'viewer' });
   });
 
   it('returns 500 when ffmpeg exits non-zero', async () => {
@@ -400,12 +457,28 @@ describe('DVR background sweeps', () => {
     expect(await dvrStatus()).toEqual({ recording: true });
   });
 
-  it('every 10 min deletes clips older than 1 h and keeps newer ones', async () => {
+  it('every 10 min deletes clips older than 48 h (CLIP_KEEP_HOURS, kept for posting as Shorts) and keeps newer ones', async () => {
     const now = Date.now();
-    disk[CLIP_DIR] = { 'old.mp4': now - 2 * 3600_000, 'fresh.mp4': now };
+    disk[CLIP_DIR] = { 'old.mp4': now - 49 * 3600_000, 'yesterday.mp4': now - 24 * 3600_000, 'fresh.mp4': now };
     await vi.advanceTimersByTimeAsync(10 * 60_000);
     expect(fsp.unlink).toHaveBeenCalledTimes(1);
     expect(fsp.unlink).toHaveBeenCalledWith(`${CLIP_DIR}/old.mp4`);
+  });
+
+  it('past the clip disk budget (CLIPS_DIR_MAX_MB) the oldest clips go first', async () => {
+    await app.close();
+    await setup({ CLIPS_DIR_MAX_MB: '1' });
+    const now = Date.now();
+    disk[CLIP_DIR] = { 'a.mp4': now - 3000, 'b.mp4': now - 2000, 'c.mp4': now - 1000 };
+    fsp.stat.mockImplementation(async (p: string) => {
+      const i = p.lastIndexOf('/');
+      const m = disk[p.slice(0, i)]?.[p.slice(i + 1)];
+      if (m === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return { mtimeMs: m, size: 400 * 1024 };
+    });
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(fsp.unlink).toHaveBeenCalledTimes(1);
+    expect(fsp.unlink).toHaveBeenCalledWith(`${CLIP_DIR}/a.mp4`);
   });
 
   it('the clip sweep tolerates a missing clip dir', async () => {

@@ -209,10 +209,12 @@ describe('choosing WebRTC or HLS', () => {
     expect(egress.startTrackCompositeEgress.mock.calls[0][2].videoTrackId).toBe('TR_land');
   });
 
-  it('prefers the track named studio-program and never takes studio-vertical', async () => {
+  it('never carries the studio-vertical phone track, whatever its source or shape (same pick as DVR and VOD)', async () => {
+    vi.mocked(lk.roomService.listRooms).mockResolvedValue(room({ portrait: false }) as never);
     vi.mocked(lk.roomService.listParticipants).mockResolvedValue([host([
-      { sid: 'TR_vert', name: 'studio-vertical', type: TrackType.VIDEO, source: TrackSource.CAMERA, width: 1280, height: 720 },
-      { sid: 'TR_prog', name: 'studio-program', type: TrackType.VIDEO, source: TrackSource.CAMERA, width: 720, height: 1280 },
+      { sid: 'TR_v1', name: 'studio-vertical', type: TrackType.VIDEO, source: TrackSource.CAMERA, width: 1280, height: 720 },
+      { sid: 'TR_v2', name: 'studio-vertical', type: TrackType.VIDEO, source: TrackSource.UNKNOWN, width: 406, height: 720 },
+      { sid: 'TR_prog', name: 'studio-program', type: TrackType.VIDEO, source: TrackSource.CAMERA, width: 1280, height: 720 },
     ])] as never);
     await listen({ delivery: 'hls' });
     await settle();

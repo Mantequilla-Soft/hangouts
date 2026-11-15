@@ -46,6 +46,14 @@ export { useBoosts, useBoostStore, BoostStoreProvider } from './hooks/useBoosts.
 // Boost goals, tiers, alerts, preset amounts and top supporters.
 export { useRoomBoost, useGoalCelebration, type RoomBoostState } from './hooks/useRoomBoost.js';
 export { useBoostAlerts, type BoostAlertOptions } from './hooks/useBoostAlerts.js';
+// Live battles (H16): the meter, the studio panel, the hooks and the layout layer.
+export { useRoomBattle, useStudioBattle, type RoomBattleState, type StudioBattle, type BattleCandidate } from './hooks/useBattle.js';
+export { useBattleLink, type BattleLinkState, type BattleLinkGrant } from './hooks/useBattleLink.js';
+export {
+  readBattle, battlePhase, battleOnAir, battleShare, battleResultText, battleLabels, DEFAULT_BATTLE_LABELS,
+  BATTLE_DURATIONS, type Battle, type BattlePhase, type BattleSide, type BattleLabels,
+} from './lib/battle.js';
+export { battleTiles, drawBattleLayer, type BattleRect, type BattleTiles, type BattleLayerOptions } from './lib/battleLayout.js';
 export {
   BOOST_TIERS,
   DEFAULT_BOOST_PRESETS,
@@ -76,6 +84,13 @@ export { ParticipantTile, type ParticipantTileProps } from './components/room/Pa
 export { HostControlsPanel, type HostControlsPanelProps } from './components/room/HostControlsPanel.js';
 export { RoomHeader, type RoomHeaderProps } from './components/room/RoomHeader.js';
 export { ChatPanel } from './components/room/ChatPanel.js';
+// Record an audio room as a podcast episode (H23), and the helpers behind the
+// highlight clips (H13), rewind (H14) and podcast endpoints.
+export { PodcastRecordControls, type PodcastRecordControlsProps, type PodcastHandoff } from './components/room/PodcastRecordControls.js';
+export {
+  podcastApi, waitForEpisode, chapterTitle,
+  type PodcastEpisode, type PodcastChapter, type PodcastChapterKind, type PodcastStatus,
+} from './lib/hangoutsHttp.js';
 export { BoostOverlay } from './components/room/BoostOverlay.js';
 export { SendBoostDialog } from './components/room/SendBoostDialog.js';
 export {
@@ -86,6 +101,8 @@ export {
   type BoostTopSupportersProps,
   type BoostAlertsProps,
 } from './components/room/StreamBoostGoal.js';
+export { StreamBattleBar, type StreamBattleBarProps } from './components/room/StreamBattleBar.js';
+export { BattlePanel, BattleInviteCard, type BattlePanelProps } from './components/room/BattlePanel.js';
 export { useWhipIngress, type UseWhipIngress } from './hooks/useWhipIngress.js';
 export { isChromium, isInAppBrowser, canBroadcast } from './lib/browser.js';
 export { CollabRequest, type CollabRequestProps } from './components/room/CollabRequest.js';
@@ -103,7 +120,7 @@ export {
   StreamVideo, type StreamVideoProps,
   StreamViewerCount, type StreamViewerCountProps,
   StreamQualityControl,
-  useStreamContext, useStreamLive,
+  useStreamContext, useStreamLive, useStreamFormats,
 } from './components/room/StandaloneWatch.js';
 export { HlsStreamVideo, type HlsStreamVideoProps } from './components/room/HlsStreamVideo.js';
 export {
@@ -112,8 +129,47 @@ export {
 } from './components/room/PhoneScreenSourceDialog.js';
 export type { Delivery, JoinOptions } from './lib/hlsDelivery.js';
 
+// Live captions (H11): host opt-in speech-to-text over the data channel, viewer overlay, on-device translation.
+export { useStudioCaptions, type StudioCaptions, type StudioCaptionsOptions } from './hooks/useStudioCaptions.js';
+export { useLiveCaptions, type LiveCaptionsState } from './hooks/useLiveCaptions.js';
+export { LiveCaptionsToggle, DEFAULT_STUDIO_CAPTION_LABELS, type StudioCaptionLabels } from './components/room/LiveCaptionsToggle.js';
+export { StreamCaptions, DEFAULT_STREAM_CAPTION_LABELS, type StreamCaptionsProps, type StreamCaptionLabels } from './components/room/StreamCaptions.js';
+export {
+  CAPTIONS_TOPIC,
+  tidyCaption,
+  baseLang as captionBaseLang,
+  type CaptionSource,
+  type CaptionLanguage,
+  type CaptionCue,
+  type CaptionMessage,
+} from './lib/liveCaptions.js';
+export { translationMode as captionTranslationMode, languageName as captionLanguageName, type TranslateMode } from './lib/captionTranslate.js';
+export type { StudioCaptionStatus } from './lib/captionPublisher.js';
+
 // Hooks — Chat
 export { useChat, type ChatMessage } from './hooks/useChat.js';
+export { mergeChatLines, parseBacklog, type BacklogLine, type ChatSystemInfo } from './lib/chatBacklog.js';
+// Who may send what on the data channel, for integrators reading topics themselves.
+export {
+  DATA_TOPIC_TRUST, isServerSent, isSentBy, hostFromMetadata, decodeData,
+  readChatPacket, readBoostPacket, readPollPacket, readRaidPacket, readGamePacket,
+  readCaptionPacket, readViewStatePacket, readVolumePacket, readHandRaisePacket, readDrawPacket,
+  type DataSender, type TopicTrust, type ChatPacket, type RaidPacketType,
+  type ViewStatePacket, type VolumePacket, type DrawPacket,
+} from './lib/dataTrust.js';
+
+// Live interaction: polls and predictions, raids, and their viewer text.
+export { usePolls, type CreatePollInput } from './hooks/usePolls.js';
+export { useRaid, parseRaid, type RaidTargetInfo, type ViewerRaid } from './hooks/useRaid.js';
+export { StreamPollCard, PollCardView, PollHostPanel, type StreamPollCardProps, type PollCardViewProps } from './components/room/StreamPolls.js';
+export { RaidBanner, RaidBannerView, type RaidBannerProps, type RaidBannerViewProps } from './components/room/RaidBanner.js';
+export { RaidHostPanel } from './components/room/RaidHostPanel.js';
+export { StudioLivePanel } from './components/room/StudioLivePanel.js';
+export { DEFAULT_LIVE_LABELS, liveLabels, fillLabel, clockLabel, type LiveLabels } from './lib/liveLabels.js';
+export {
+  parsePoll, isFinished as isPollFinished, optionShare, leaders as pollLeaders, payoutFor,
+  type PollView, type PollOptionView, type PollKind, type PollStatus, type PollStake,
+} from './lib/polls.js';
 
 // Hooks — Recording
 export { useRecording } from './hooks/useRecording.js';
@@ -177,3 +233,16 @@ export { useIsMobile, MOBILE_QUERY } from './hooks/useIsMobile.js';
 // the same format the form reads, instead of copying storage keys.
 export { readPostDraft, writePostDraft, type PostDraft, type DraftMode } from './lib/postDraft.js';
 export { AUTO_VOD_KEY, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from './utils/streamRecordingPrefs.js';
+
+// Studio overlays (H17), the phone version (H19) and stream health (H20).
+export {
+  OverlayLayerList, FadeTransition, createTextOverlayLayers, cleanOverlayConfig, DEFAULT_OVERLAY_CONFIG,
+  type OverlayLayer, type FrameInfo, type OverlayConfig, type OverlayTemplate, type OutputShape,
+} from './lib/studioOverlays.js';
+export { BUILTIN_TRACKS, type BuiltinTrackId } from './lib/brbMusic.js';
+export {
+  STUDIO_PROGRAM_TRACK, STUDIO_VERTICAL_TRACK, readVerticalMeta, objectPositionFor, prefersVertical,
+  type VerticalMeta, type VerticalMode, type VerticalFollow,
+} from './lib/verticalCrop.js';
+export { useStreamHealth, type StreamHealthState } from './hooks/useStreamHealth.js';
+export { describeViewerQuality, type StreamHealth } from './lib/streamHealth.js';

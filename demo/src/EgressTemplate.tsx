@@ -97,19 +97,29 @@ function ChatRail() {
   // useDataChannel re-runs setupDataMessageHandler whenever the callback
   // identity changes — without useCallback, every render leaks a fresh
   // listener and stale ones can drop incoming messages. Memoize.
-  const onChat = useCallback((msg: { payload: Uint8Array }) => {
+  //
+  // Who wrote a line is the LiveKit sender (`msg.from`), never the payload:
+  // anyone in the room can publish on 'chat' (the SDK's lib/dataTrust.ts has
+  // the same rule). A moderator's delete or ban comes from the server only
+  // (no participant sender) and takes the lines out of the recording too.
+  const onChat = useCallback((msg: { payload: Uint8Array; from?: Participant }) => {
     try {
       const text = new TextDecoder().decode(msg.payload);
-      const parsed = JSON.parse(text) as { type?: string; identity?: string; text?: string; timestamp?: number };
-      if (parsed.type !== 'chat' || !parsed.identity || !parsed.text) return;
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `${parsed.identity}-${parsed.timestamp ?? Date.now()}`,
-          identity: parsed.identity!,
-          text: parsed.text!,
-        },
-      ]);
+      const parsed = JSON.parse(text) as { type?: string; id?: unknown; identity?: unknown; text?: unknown; timestamp?: unknown };
+      if (!msg.from) {
+        if (parsed.type === 'chat-delete' && typeof parsed.id === 'string') {
+          setMessages((prev) => prev.filter((m) => m.id !== parsed.id));
+        } else if (parsed.type === 'chat-purge' && typeof parsed.identity === 'string') {
+          setMessages((prev) => prev.filter((m) => m.identity !== parsed.identity));
+        }
+        return;
+      }
+      const identity = msg.from.identity;
+      const line = typeof parsed.text === 'string' ? parsed.text.trim().slice(0, 2000) : '';
+      if (parsed.type !== 'chat' || !identity || !line) return;
+      const ts = typeof parsed.timestamp === 'number' && Number.isFinite(parsed.timestamp)
+        ? Math.round(parsed.timestamp) : Date.now();
+      setMessages((prev) => [...prev, { id: `${identity}-${ts}`, identity, text: line }]);
     } catch { /* ignore malformed */ }
   }, []);
   useDataChannel('chat', onChat);
@@ -199,12 +209,20 @@ function VolumeSyncBridge() {
     });
   }, [room]);
 
-  const onVolume = useCallback((msg: { payload: Uint8Array }) => {
+  // The mix is the host's: only a volume change the room host sent counts
+  // (LiveKit sender vs meta.host), anyone else could mute a speaker in the
+  // recording otherwise.
+  const meta = useRoomMeta();
+  const hostRef = useRef(meta.host);
+  hostRef.current = meta.host;
+  const onVolume = useCallback((msg: { payload: Uint8Array; from?: Participant }) => {
+    if (!hostRef.current || msg.from?.identity !== hostRef.current) return;
     try {
       const text = new TextDecoder().decode(msg.payload);
-      const event = JSON.parse(text) as { type: string; identity: string; volume: number };
-      if (event.type !== 'volume') return;
-      volumesRef.current.set(event.identity, event.volume);
+      const event = JSON.parse(text) as { type?: unknown; identity?: unknown; volume?: unknown };
+      if (event.type !== 'volume' || typeof event.identity !== 'string') return;
+      if (typeof event.volume !== 'number' || !Number.isFinite(event.volume)) return;
+      volumesRef.current.set(event.identity, Math.min(1, Math.max(0, event.volume)));
       apply(volumesRef.current);
     } catch { /* ignore */ }
   }, [apply]);

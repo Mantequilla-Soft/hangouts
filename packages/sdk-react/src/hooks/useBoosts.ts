@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode, createElement } from 'react';
 import { useDataChannel } from '@livekit/components-react';
+import { readBoostPacket, type DataSender } from '../lib/dataTrust.js';
 
 export interface BoostEvent {
   type: 'boost';
@@ -82,10 +83,12 @@ export function BoostStoreProvider({ children, roomName, minBoostUsd = 0 }: Prov
     if (roomName) saveSession(roomName, boosts);
   }, [boosts, roomName]);
 
-  const onMessage = useCallback((msg: { payload: Uint8Array }) => {
+  // Boost cards come from the server's boost listener only (it saw the Hive
+  // transfer): a packet any participant published is not a boost.
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
     try {
-      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as BoostEvent;
-      if (parsed.type !== 'boost') return;
+      const parsed = readBoostPacket<BoostEvent>(msg.payload, msg.from);
+      if (!parsed) return;
 
       // Hard discard: sub-penny boosts are spam
       if (parsed.usdAmount < SUB_PENNY) return;
@@ -125,10 +128,10 @@ export function useBoostStore(): BoostEvent[] {
 export function useBoosts() {
   const [boosts, setBoosts] = useState<BoostEvent[]>([]);
 
-  const onMessage = useCallback((msg: { payload: Uint8Array }) => {
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
     try {
-      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as BoostEvent;
-      if (parsed.type !== 'boost') return;
+      const parsed = readBoostPacket<BoostEvent>(msg.payload, msg.from);
+      if (!parsed) return;
       if (parsed.usdAmount < SUB_PENNY) return;
       setBoosts((prev) => {
         if (prev.some((b) => b.id === parsed.id)) return prev;

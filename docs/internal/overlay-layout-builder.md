@@ -1,6 +1,6 @@
 # OBS Overlay Layout Builder
 
-**Status:** Planned — not started  
+**Status:** Planned (OBS overlay); the browser studio's own overlays shipped separately, see below  
 **Priority:** Medium  
 **Owner:** TBD
 
@@ -188,3 +188,32 @@ Not planned for any specific milestone.
   in addition to images?
 - Should the accent color apply to the boost overlay cards as well,
   or keep them always red?
+
+---
+
+## Related: overlays burned into the browser studio (2026-11)
+
+The browser studio (`StandaloneStudio`) now draws its own overlays straight
+into the composed program, so they reach viewers, the VOD, DVR clips and the
+vertical phone version without OBS:
+
+- Lower third (name + title, slide in, optional auto-hide), a scrolling
+  ticker, a countdown (big on the slates, a chip while live), fades between
+  scenes and slates, and a custom "be right back" message with music (three
+  built-in tracks synthesised in the browser, or the host's own file).
+- Code: `packages/sdk-react/src/lib/studioOverlays.ts` (drawing + the
+  `OverlayLayerList` the compositor draws on every output; add a layer there
+  to burn something else into the stream), `hooks/useStudioOverlays.ts`,
+  `components/room/StudioOverlaysPanel.tsx`, `lib/brbMusic.ts`.
+- Templates are saved per host on the server (`GET/PUT /studio/overlays`,
+  collection `studio-overlays`, one small doc per host), unlike the OBS
+  layout above, which stays URL-only. The same named-profile idea answers the
+  first open question here for the studio.
+
+Phone version (H19): the studio can also publish a 9:16 crop of the program as
+a second track named `studio-vertical` (source Unknown), and reports the crop
+in room metadata `vertical: { on, x, w, follow, track }` via
+`PATCH /rooms/:name/vertical`. Recorders, DVR and HLS must take the landscape
+track (`server/src/lib/programTrack.ts` `pickProgramVideoTrack`). A vertical
+clip can be cut from the landscape DVR with the crop
+`x*W - w*W/2 .. x*W + w*W/2` (full height).

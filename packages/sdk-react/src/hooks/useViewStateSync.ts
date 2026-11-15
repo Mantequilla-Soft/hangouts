@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDataChannel } from '@livekit/components-react';
+import { readViewStatePacket, type DataSender } from '../lib/dataTrust.js';
+import { useLiveHost } from './useLiveHost.js';
 
 /**
  * Live "what the host is looking at" — broadcast over a reliable data
@@ -54,17 +56,18 @@ export function useViewStateBroadcast(state: Omit<ViewState, 'type' | 'timestamp
  */
 export function useViewStateSubscribe(): ViewState | null {
   const [state, setState] = useState<ViewState | null>(null);
+  // From the room host only (room metadata): anyone else could publish here.
+  const { hostIdentity } = useLiveHost();
+  const hostRef = useRef(hostIdentity);
+  hostRef.current = hostIdentity;
 
-  const onMessage = useCallback((msg: { payload: Uint8Array }) => {
-    try {
-      const text = new TextDecoder().decode(msg.payload);
-      const event = JSON.parse(text) as ViewState;
-      if (event.type !== 'view-state') return;
-      setState((prev) => {
-        if (prev && prev.timestamp > event.timestamp) return prev;
-        return event;
-      });
-    } catch { /* ignore malformed */ }
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
+    const event = readViewStatePacket(msg.payload, msg.from, hostRef.current);
+    if (!event) return;
+    setState((prev) => {
+      if (prev && prev.timestamp > event.timestamp) return prev;
+      return event;
+    });
   }, []);
 
   useDataChannel(TOPIC, onMessage);

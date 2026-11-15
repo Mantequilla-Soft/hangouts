@@ -3,6 +3,7 @@ import { useDataChannel, useLocalParticipant } from '@livekit/components-react';
 import type { Participant } from 'livekit-client';
 import { getStroke } from 'perfect-freehand';
 import type { Stroke } from '../../hooks/useFastDraw.js';
+import { readDrawPacket } from '../../lib/dataTrust.js';
 
 interface DrawingCanvasProps {
   isDrawer: boolean;
@@ -71,24 +72,23 @@ export function DrawingCanvas({ isDrawer, currentDrawer, strokeSnapshot, disable
   }, [strokeSnapshot, isDrawer]);
 
   // Receiver: listen to draw topic
+  // From the current drawer only (the server's game state names them): the
+  // LiveKit sender, never the payload (lib/dataTrust.ts).
   const onDrawMessage = useCallback((msg: { payload: Uint8Array; from?: Participant }) => {
     if (isDrawer) return;
-    const senderId = msg.from?.identity ?? '';
-    if (senderId !== currentDrawer) return;
+    const data = readDrawPacket(msg.payload, msg.from, currentDrawer);
+    if (!data) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    try {
-      const data = JSON.parse(new TextDecoder().decode(msg.payload)) as { type: string; stroke?: Stroke };
-      if (data.type === 'draw_stroke' && data.stroke) {
-        receivedStrokesRef.current.push(data.stroke);
-        renderStroke(ctx, data.stroke, canvas.width, canvas.height);
-      } else if (data.type === 'draw_clear') {
-        receivedStrokesRef.current = [];
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-    } catch { /* ignore */ }
+    if (data.type === 'draw_stroke') {
+      receivedStrokesRef.current.push(data.stroke);
+      renderStroke(ctx, data.stroke, canvas.width, canvas.height);
+    } else {
+      receivedStrokesRef.current = [];
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
   }, [isDrawer, currentDrawer]);
 
   useDataChannel('draw', onDrawMessage);

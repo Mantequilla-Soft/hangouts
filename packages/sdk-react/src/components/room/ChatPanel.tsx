@@ -1,6 +1,9 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useLocalParticipant, useLocalParticipantPermissions, useParticipants } from '@livekit/components-react';
-import { useChat } from '../../hooks/useChat.js';
+import { useChat, dropChatMessage } from '../../hooks/useChat.js';
+import { useHangoutsContext } from '../../context/HangoutsContext.js';
+import { fillLabel, liveLabels, type LiveLabels } from '../../lib/liveLabels.js';
+import { StreamPollCard } from './StreamPolls.js';
 import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
 import { useModerators } from '../../hooks/useModerators.js';
@@ -18,9 +21,10 @@ function parseMentions(text: string): Array<{ type: 'text' | 'mention'; value: s
 export interface ChatPanelProps {
   /** Called when the user clicks the collapse button in the chat header. */
   onClose?: () => void;
-  /** Listen-only guest — render the chat in read-only mode. Server
-   *  blocks data publishing for guest identities anyway, but hiding
-   *  the input keeps the UI honest. */
+  /** Anonymous guest. Only a fallback until LiveKit reports this
+   *  participant's permissions: guests hold `canPublishData` and CAN chat
+   *  (under the name they picked; who sent a line is always the LiveKit
+   *  sender, see lib/dataTrust.ts). Use `readOnly` to keep them out. */
   isGuest?: boolean;
   /** Force read-only regardless of the LiveKit publish permission. Use for
    *  watch-page embeds where anonymous viewers may hold a chat-capable guest
@@ -32,11 +36,17 @@ export interface ChatPanelProps {
    *  (3Speak posts each line as a timecoded Hive comment). Must not throw —
    *  it is intentionally not awaited, so chat never waits on a network call. */
   onMessageSent?: (text: string) => void;
+  /** Translated text for the poll card and the raid line (see LiveLabels). */
+  liveLabels?: Partial<LiveLabels>;
+  /** The running poll or prediction above the messages, on a stream. Default true. */
+  showPolls?: boolean;
 }
 
-function ChatBubble({ identity, name, text, localName, onModerate }: {
-  identity: string; name: string; text: string; localName: string;
-  onModerate?: (target: { identity: string; name: string }) => void;
+type ModTarget = { identity: string; name: string; messageId?: string };
+
+function ChatBubble({ id, identity, name, text, localName, onModerate }: {
+  id: string; identity: string; name: string; text: string; localName: string;
+  onModerate?: (target: ModTarget) => void;
 }) {
   const avatar = useHiveAvatar(identity, 'small');
   const segments = parseMentions(text);
@@ -53,7 +63,7 @@ function ChatBubble({ identity, name, text, localName, onModerate }: {
           <button
             type="button"
             className="hh-chat__msg-name hh-chat__msg-name--tappable"
-            onClick={() => onModerate({ identity, name })}
+            onClick={() => onModerate({ identity, name, messageId: id })}
             title={`Moderate ${name}`}
           >
             {name}
@@ -84,13 +94,23 @@ function ChatBubble({ identity, name, text, localName, onModerate }: {
  * their own moderation actions — anonymous guests can't be mods).
  */
 function ModerationPopup({ target, roomName, isHost, targetIsMod, onClose }: {
-  target: { identity: string; name: string };
+  target: ModTarget;
   roomName: string;
   isHost: boolean;
   targetIsMod: boolean;
   onClose: () => void;
 }) {
   const { kick, ban, setModerator, pending } = useHostControls(roomName);
+  const { apiBaseUrl, apiClient } = useHangoutsContext();
+  // Take one line down for everyone, and out of the server's chat backlog.
+  const deleteMessage = async (id: string) => {
+    const token = apiClient.getSessionToken();
+    const res = await fetch(`${apiBaseUrl}/rooms/${encodeURIComponent(roomName)}/chat/${encodeURIComponent(id)}`, {
+      method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok && res.status !== 404) throw new Error('Could not delete the message');
+    dropChatMessage(id);
+  };
   const [confirmBan, setConfirmBan] = useState(false);
   const [error, setError] = useState('');
   const busy = pending.has(target.identity) || pending.has(target.identity.toLowerCase());
@@ -113,6 +133,17 @@ function ModerationPopup({ target, roomName, isHost, targetIsMod, onClose }: {
         </div>
 
         {error && <p className="hh-modsheet__error">{error}</p>}
+
+        {target.messageId && (
+          <button
+            className="hh-modsheet__action"
+            disabled={busy}
+            onClick={() => void run(() => deleteMessage(target.messageId!))}
+          >
+            🗑️ Delete this message
+            <em>Gone for everyone, also for viewers who join later.</em>
+          </button>
+        )}
 
         {canManageMods && (
           <button
@@ -152,7 +183,8 @@ function ModerationPopup({ target, roomName, isHost, targetIsMod, onClose }: {
   );
 }
 
-export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnlyNotice, onMessageSent }: ChatPanelProps = {}) {
+export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnlyNotice, onMessageSent, liveLabels: liveLabelsProp, showPolls = true }: ChatPanelProps = {}) {
+  const L = liveLabels(liveLabelsProp);
   const { messages, sendMessage } = useChat();
   const permissions = useLocalParticipantPermissions();
   const { localParticipant } = useLocalParticipant();
@@ -166,7 +198,7 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
   // Host-appointed moderators can moderate too (see useModerators).
   const { moderators, isCurrentUserMod } = useModerators();
   const canModerate = isHost || isCurrentUserMod;
-  const [modTarget, setModTarget] = useState<{ identity: string; name: string } | null>(null);
+  const [modTarget, setModTarget] = useState<ModTarget | null>(null);
   const canChat = readOnly ? false : (permissions ? (permissions.canPublishData ?? false) : !isGuest);
 
   // The name to match against incoming @mentions for highlight
@@ -254,13 +286,20 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
           </button>
         )}
       </div>
+      {showPolls && streamRoom && <StreamPollCard roomName={streamRoom} labels={liveLabelsProp} className="hh-chat__poll" />}
       <div className="hh-chat__messages" ref={messagesRef}>
         {messages.length === 0 && (
           <div className="hh-chat__empty">No messages yet</div>
         )}
-        {messages.map((msg) => (
+        {messages.map((msg) => msg.system?.kind === 'raid' ? (
+          <div key={msg.id} className="hh-chat__msg hh-chat__msg--system hh-chat__msg--raid" role="status">
+            <span className="hh-chat__system-icon" aria-hidden="true">🚀</span>
+            <span className="hh-chat__msg-text">{fillLabel(L.raidLine, { name: msg.system.from, count: msg.system.viewers })}</span>
+          </div>
+        ) : (
           <ChatBubble
             key={msg.id}
+            id={msg.id}
             identity={msg.identity}
             name={msg.name}
             text={msg.text}

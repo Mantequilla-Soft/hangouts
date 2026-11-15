@@ -17,9 +17,10 @@ Deploy a production-ready LiveKit server on an OVH VPS using Docker Compose + Ca
 9. [Testing the Server](#testing-the-server)
 10. [Recording & Egress Setup](#recording--egress-setup)
 11. [Ingress Setup](#ingress-setup)
-12. [Monitoring & Logs](#monitoring--logs)
-13. [Upgrading](#upgrading)
-14. [Troubleshooting](#troubleshooting)
+12. [Connect the OpenPods API](#connect-the-openpods-api)
+13. [Monitoring & Logs](#monitoring--logs)
+14. [Upgrading](#upgrading)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -40,10 +41,10 @@ Client (browser/app)
                                :3478/UDP (TURN)
 ```
 
-- **Caddy :443/TCP** — reverse proxy with automatic TLS (Let's Encrypt). Handles HTTPS + WebSocket signaling.
-- **LiveKit :443/UDP** — TURN/TLS for clients behind strict firewalls. Shares port 443 with Caddy (different protocol: UDP vs TCP), so no separate TURN subdomain or certificate is needed.
-- **Ports 50000–60000 UDP** — the actual audio data flows here, directly from LiveKit.
-- **Port 7881 TCP** — TCP fallback when UDP is blocked.
+- **Caddy :443/TCP**: reverse proxy with automatic TLS (Let's Encrypt). Handles HTTPS + WebSocket signaling.
+- **LiveKit :443/UDP**: TURN/TLS for clients behind strict firewalls. Shares port 443 with Caddy (different protocol: UDP vs TCP), so no separate TURN subdomain or certificate is needed.
+- **Ports 50000–60000 UDP**: the actual audio data flows here, directly from LiveKit.
+- **Port 7881 TCP**: TCP fallback when UDP is blocked.
 
 ### What changed from the old Nginx approach
 
@@ -51,8 +52,8 @@ The previous setup required Nginx + manual certbot + a separate TURN subdomain w
 
 - Caddy auto-provisions and renews TLS certificates
 - No Nginx configuration needed
-- No separate TURN subdomain or certificate — TURN uses 443/UDP alongside Caddy's 443/TCP
-- Everything runs in Docker — one command to start, one to stop
+- No separate TURN subdomain or certificate, TURN uses 443/UDP alongside Caddy's 443/TCP
+- Everything runs in Docker, one command to start, one to stop
 - Redis is included in the compose stack
 
 ---
@@ -82,7 +83,7 @@ Create **one** A record pointing to your OVH server's public IP:
 |----------------------------|------|------------------|
 | `livekit.yourproject.com`  | A    | `YOUR_SERVER_IP` |
 
-That's it — no separate TURN subdomain needed.
+That's it, no separate TURN subdomain needed.
 
 Allow 5–10 minutes for DNS propagation. Verify with:
 
@@ -126,7 +127,7 @@ keys:
   YOUR_API_KEY: YOUR_API_SECRET
 ```
 
-Save these — you'll need them for the Hangouts server `.env` file.
+Save these, you'll need them for the Hangouts server `.env` file.
 
 ---
 
@@ -213,9 +214,9 @@ Open these ports in the **OVH Control Panel** firewall and/or via `ufw`:
 | `7881/TCP`         | WebRTC TCP fallback                  |
 | `3478/UDP`         | TURN/STUN UDP                        |
 | `50000–60000/UDP`  | WebRTC media (ICE/UDP)               |
-| `40000–40100/UDP`  | WHIP ingress media (ICE/UDP) — separate range from the SFU's 50000–60000. See [Ingress Setup](#ingress-setup) |
+| `40000–40100/UDP`  | WHIP ingress media (ICE/UDP), separate range from the SFU's 50000–60000. See [Ingress Setup](#ingress-setup) |
 
-Note: the WHIP ingress **HTTP** port (`whip_port` in `ingress.yaml`, e.g. `8082` — pick whatever's free, see [Ingress Setup](#ingress-setup)) is proxied internally by nginx at `/whip/` on the existing `443/TCP` — it does not need its own firewall rule, same as LiveKit's own `7880` signaling port isn't separately exposed.
+Note: the WHIP ingress **HTTP** port (`whip_port` in `ingress.yaml`, e.g. `8082`, pick whatever's free, see [Ingress Setup](#ingress-setup)) is proxied internally by nginx at `/whip/` on the existing `443/TCP`, it does not need its own firewall rule, same as LiveKit's own `7880` signaling port isn't separately exposed.
 
 ### Using UFW
 
@@ -260,7 +261,7 @@ If you see `"certificate obtained successfully"`, TLS is working.
 curl https://livekit.yourproject.com/
 ```
 
-Should return a response (might be empty or a simple status — that's fine, it means Caddy is proxying to LiveKit).
+Should return a response (might be empty or a simple status, that's fine, it means Caddy is proxying to LiveKit).
 
 ---
 
@@ -351,7 +352,7 @@ htop
 
 ## Recording & Egress Setup
 
-> **Note:** Skip this for MVP. Egress (recording) is useful later for podcast export, but it's not needed to get hangouts working.
+> **Note:** OpenPods needs egress for recording, stream VODs, the DVR (clips and rewind), HLS delivery for big audiences, restreaming and podcast recording. Rooms and live streams work without it; those features fail. The API and egress must share `/tmp/livekit-recordings`: it is the only path mounted into the egress container, and the API reads VODs, DVR segments, HLS playlists and podcast tracks from it. So run egress on the same box as the API.
 
 If you enabled egress during the `livekit/generate` step, the egress service is already in your `docker-compose.yaml`. If not, add it manually:
 
@@ -407,7 +408,7 @@ lk egress start \
 
 ## Ingress Setup
 
-WHIP ingress lets an external encoder (OBS Studio 30.2+, ffmpeg, GStreamer, a hardware encoder) publish directly into a room as a low-latency WebRTC participant — instead of being limited to a browser's mic/cam. This is the inverse of egress: media flows *into* LiveKit rather than out to YouTube/Twitch.
+WHIP ingress lets an external encoder (OBS Studio 30.2+, ffmpeg, GStreamer, a hardware encoder) publish directly into a room as a low-latency WebRTC participant, instead of being limited to a browser's mic/cam. This is the inverse of egress: media flows *into* LiveKit rather than out to YouTube/Twitch.
 
 ### Add the ingress service
 
@@ -446,13 +447,13 @@ cd /opt/livekit && docker compose up -d ingress   # while nobody is streaming
 
 If a stream is stuck on an unpatched ingress, `docker compose restart ingress` clears it. Once a LiveKit release includes the fix, switch back to that release's image.
 
-**Before picking `whip_port`, check it's actually free.** `8080` is the obvious default, but it's a common port and may already be bound by something else on the box (that happened on the production VPS — `8080` was taken, `8082` was used instead). Check first:
+**Before picking `whip_port`, check it's actually free.** `8080` is the obvious default, but it's a common port and may already be bound by something else on the box (that happened on the production VPS, `8080` was taken, `8082` was used instead). Check first:
 
 ```bash
-ss -tln | grep ':8080 '   # if this prints anything, 8080 is taken — pick another port
+ss -tln | grep ':8080 '   # if this prints anything, 8080 is taken, pick another port
 ```
 
-Create `ingress.yaml` alongside your other config files on the VPS (`/opt/livekit/` — same as `egress.yaml`, this file is **not** committed since it holds your API secret):
+Create `ingress.yaml` alongside your other config files on the VPS (`/opt/livekit/`, same as `egress.yaml`, this file is **not** committed since it holds your API secret):
 
 ```yaml
 api_key: YOUR_API_KEY        # same key/secret pair as livekit.yaml
@@ -463,9 +464,9 @@ redis:
   address: localhost:6379
 
 whip_port: 8082               # HTTP port WHIP publishers POST to; proxied by nginx at /whip/.
-                               # Confirmed free on the production box — 8080 was already in use
+                               # Confirmed free on the production box, 8080 was already in use
                                # by another service there. Re-check with `ss -tln` on your own VPS.
-http_relay_port: 9090         # internal relay — doesn't need to be public
+http_relay_port: 9090         # internal relay, doesn't need to be public
 
 rtc_port_range_start: 40000   # separate UDP range from the SFU's 50000-60000
 rtc_port_range_end: 40100
@@ -480,46 +481,55 @@ Restart:
 cd /opt/livekit && sudo docker compose up -d
 ```
 
-### Set `whip_base_url` on the main LiveKit server (not the ingress config)
+### `whip_base_url` (optional for OpenPods)
 
-Without this, `POST /rooms/:name/ingress/whip` will succeed but return an **empty `url`** — the ingress gets created fine, but there's nothing to hand the encoder. This is a separate setting from `ingress.yaml` above: it goes under `ingress:` in the **main server's** `livekit.yaml`:
+The OpenPods API does not use the URL LiveKit returns for an ingress. It builds the
+encoder URL itself as `${INGRESS_WHIP_URL}/<streamKey>`. Set `whip_base_url` under
+`ingress:` in the main `livekit.yaml` only if you also create ingresses with the
+`lk` CLI:
 
 ```yaml
 # livekit.yaml
-keys:
-  YOUR_API_KEY: YOUR_API_SECRET
 ingress:
-  whip_base_url: https://livekit.yourproject.com/whip   # matches the nginx location below
+  whip_base_url: https://livekit.yourproject.com/w
 ```
 
-Restarting the `livekit` container to pick this up **drops any rooms with active participants** — LiveKit doesn't persist room state across a restart, only cross-node signaling goes through Redis. Time this for a low-traffic window, not mid-deploy on a whim.
-
-```bash
-cd /opt/livekit && sudo docker compose restart livekit
-```
+Restarting the `livekit` container drops every room with active participants. Do it
+in a quiet window.
 
 ### nginx proxy for `/whip/`
 
-The `examples/livekit/livekit.okinoko.io.nginx` config in this repo already proxies `location /whip/` to `127.0.0.1:8082` (match this to whatever `whip_port` you actually picked above), so WHIP traffic rides the same TLS cert/domain as signaling — no separate subdomain or port needed. Re-apply it with `certbot --nginx` (or just reload nginx) if you're deploying this config for the first time.
+The `examples/livekit/livekit.okinoko.io.nginx` config in this repo already proxies `location /whip/` to `127.0.0.1:8082` (match this to whatever `whip_port` you actually picked above), so WHIP traffic rides the same TLS cert/domain as signaling, no separate subdomain or port needed. Re-apply it with `certbot --nginx` (or just reload nginx) if you're deploying this config for the first time.
 
 ### Firewall
 
-Open the ingress media UDP range (see the [Firewall / Port Rules](#firewall--port-rules) table above) — the HTTP side rides through nginx on the port you already opened.
+Open the ingress media UDP range (see the [Firewall / Port Rules](#firewall--port-rules) table above), the HTTP side rides through nginx on the port you already opened.
 
-### Create a WHIP ingress from the Hangouts API
+### Point the OpenPods API at the ingress
 
-The Fastify server exposes host-only routes (`server/src/routes/ingress.ts`) that wrap LiveKit's `IngressClient`:
+| API setting | Set it to |
+|---|---|
+| `INGRESS_WHIP_URL` | The public URL that nginx proxies to the ingress WHIP handler (`whip_port`, path `/w`), e.g. `https://livekit.yourproject.com/w`. Studio OBS and phone sources get `<this>/<streamKey>`. |
+| `INGRESS_WHIP_INTERNAL_URL` | The same handler on loopback, e.g. `http://127.0.0.1:8086/w`. Headless OBS streams send their WHIP signalling here through the API, so the stream key never leaves the box. |
+| `PUBLIC_WHIP_BASE` | The API's own public WHIP base, e.g. `https://hangouts.yourproject.com/whip`. OBS templates point at `<this>/<owner>/<slug>`. |
 
-| Endpoint | Auth | Purpose |
-|----------|------|---------|
-| `POST /rooms/:name/ingress/whip` | Host | Create a WHIP ingress for the room. Returns `{ ingressId, url, streamKey }` — paste `url` into the encoder's "Server" field and `streamKey` into its "Bearer Token"/stream key field. |
-| `DELETE /rooms/:name/ingress` | Host | Stop the active ingress and disconnect the broadcaster. |
-| `GET /rooms/:name/ingress/status` | Host | `{ active, ingressId? }` |
+Make the nginx `location` match your `whip_port` and path. The example in
+`examples/livekit/livekit.okinoko.io.nginx` proxies `/whip/` to `127.0.0.1:8082/whip/`;
+adjust it (or `INGRESS_WHIP_URL`) so both describe the same path.
+
+The API routes that use the ingress (details in [api-routes.md](api-routes.md)):
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `POST /rooms/:name/ingress` | host | Create or reuse the room's WHIP ingress. Body `{ transcode?: boolean (default true, VP8), source?: 'obs' \| 'phone' }`; `obs` is Pro, `phone` is free. Answers `{ ingressId, whipUrl, streamKey, participantIdentity }`. The ingress joins as `obs-ingress-<room>`. |
+| `DELETE /rooms/:name/ingress` | host | Remove the room's ingress. |
+| `POST /whip/:owner/:slug` | streaming secret as Bearer | Headless OBS stream from a template (Pro). Answers the SDP; `Location: /whip/s/<token>`. |
+| `PATCH`, `DELETE /whip/s/:token` | token | Trickle ICE; stop. |
 
 ### Test with OBS
 
 1. OBS Studio 30.2+: Settings → Stream → Service: **WHIP**.
-2. Paste the `url` from `POST /rooms/:name/ingress/whip` into **Server**, and `streamKey` into **Bearer Token**.
+2. Paste `whipUrl` from `POST /rooms/:name/ingress` into **Server** (the stream key is its last path segment, so no Bearer Token is needed). For a headless stream use the template's `whipUrl` and the streaming secret as **Bearer Token**.
 3. Start Streaming.
 4. Confirm the broadcaster shows up as a room participant:
 
@@ -530,6 +540,27 @@ lk room list-participants \
   --api-secret YOUR_API_SECRET \
   --room test-room
 ```
+
+---
+
+## Connect the OpenPods API
+
+The API (`server/`) talks to LiveKit with the server SDK. On the same box:
+
+```bash
+# server/.env (names only; see docs/integrator-guide.md#server-configuration)
+LIVEKIT_HOST=http://127.0.0.1:7880
+LIVEKIT_API_KEY=...        # the same pair as livekit.yaml, egress.yaml, ingress.yaml
+LIVEKIT_API_SECRET=...
+SESSION_SECRET=...         # 32+ random characters
+MONGODB_URI=mongodb://...
+```
+
+Run it with systemd (`hangouts-api.service` in the repo root is an example) and put
+nginx in front (`examples/hangouts.okinoko.io.nginx`, proxy to `127.0.0.1:3002`).
+The API trusts `X-Forwarded-For` only from `127.0.0.1`, so nginx must run on the
+same box for per-IP rate limits and guest bans to work. Check it with
+`curl https://<api host>/health`.
 
 ---
 
@@ -568,9 +599,9 @@ prometheus_port: 6789
 ```
 
 Then expose port 6789 and scrape `http://YOUR_SERVER_IP:6789/metrics`. Key metrics:
-- `livekit_rooms_total` — active rooms
-- `livekit_participants_total` — connected participants
-- `livekit_bytestransmitted_total` — bandwidth usage
+- `livekit_rooms_total`: active rooms
+- `livekit_participants_total`: connected participants
+- `livekit_bytestransmitted_total`: bandwidth usage
 
 ---
 
@@ -649,7 +680,7 @@ cd /opt/livekit && sudo docker compose logs --tail=50
 - [ ] Firewall ports open (443/TCP+UDP, 80, 7881, 3478, 50000-60000)
 - [ ] `lk` CLI installed locally
 - [ ] Health check passes
-- [ ] Test room joined via LiveKit Meet demo — audio works
+- [ ] Test room joined via LiveKit Meet demo, audio works
 - [ ] Load test run successfully
 
 ---
