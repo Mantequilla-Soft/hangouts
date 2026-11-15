@@ -38,6 +38,9 @@ import { battleTiles, drawBattleLayer } from '../../lib/battleLayout.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
 import { StreamingPanel, StopStreamingPanel } from './StreamingPanel.js';
 import { useDvr } from '../../hooks/useDvr.js';
+import { useStudioCaptions, type StudioCaptionsOptions } from '../../hooks/useStudioCaptions.js';
+import { LiveCaptionsToggle } from './LiveCaptionsToggle.js';
+import type { CaptionCue } from '../../lib/liveCaptions.js';
 
 /** Program canvas resolution — every scene composites into this fixed
  *  16:9 frame, and this exact frame is what gets published. */
@@ -744,6 +747,9 @@ export interface StreamVodResult {
   filename?: string;
   duration?: number;
   size?: number;
+  /** Live captions the host ran during the recording, timed from its start,
+   *  for the replay's subtitles. Absent when captions were off. */
+  captions?: { lang: string; cues: CaptionCue[] };
 }
 
 export interface StandaloneStudioProps {
@@ -804,9 +810,12 @@ export interface StandaloneStudioProps {
   /** Text of the "Phone or tablet screen" source (menu item and dialog), for
    *  translation. English by default. */
   phoneSourceLabels?: Partial<PhoneScreenSourceLabels>;
+  /** Offer live captions (host opt-in): the integrator's speech-to-text for
+   *  the host's mic, sent to viewers on the data channel. See useStudioCaptions. */
+  captions?: StudioCaptionsOptions;
 }
 
-export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium: isPremiumOverride, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false, obsBaseUrl = 'https://hangout.3speak.tv', phoneSourceLabels }: StandaloneStudioProps) {
+export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium: isPremiumOverride, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false, obsBaseUrl = 'https://hangout.3speak.tv', phoneSourceLabels, captions }: StandaloneStudioProps) {
   // Resolves itself unless the integrator forces it. Starts false, so the
   // free-tier watermark and the short cap apply until premium is confirmed —
   // erring the safe way for a gate that's also enforced server-side.
@@ -1278,6 +1287,15 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const frameRef = useRef<HTMLDivElement>(null);
   const camStreamRef = useRef<MediaStream | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
+  // Live captions (opt-in): the host's own mic, only while live and unmuted.
+  const studioCaptions = useStudioCaptions({
+    roomName,
+    options: captions,
+    live: streamState === 'live',
+    track: micOn && !micMuted ? micStreamRef.current?.getAudioTracks()[0] ?? null : null,
+  });
+  const studioCaptionsRef = useRef(studioCaptions);
+  studioCaptionsRef.current = studioCaptions;
   const camVideoRef = useRef<HTMLVideoElement | null>(null);
   const sharesMapRef = useRef<Map<string, ShareEntry>>(new Map());
   const mediaMapRef = useRef<Map<string, MediaEntry>>(new Map());
@@ -1570,6 +1588,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       await authedPost(`/rooms/${encodeURIComponent(roomName)}/record/start`, {
         mode: 'video', layout: 'single', publish, download,
       });
+      studioCaptionsRef.current.markRecordingStart();
     } catch (err) {
       egressStartedRef.current = false;
       // Non-fatal: the stream itself is unaffected, but say so — silently
@@ -1593,7 +1612,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       // Server publishes the VOD itself — hand the integrator the status URL to
       // poll for toasts.
       if (res?.publishStatusUrl && onStreamVod) {
-        onStreamVod({ roomName, publishStatusUrl: abs(res.publishStatusUrl) });
+        onStreamVod({ roomName, publishStatusUrl: abs(res.publishStatusUrl), captions: studioCaptionsRef.current.takeCues() ?? undefined });
       }
 
       // Download: stream the SERVER's file straight to the host's disk via a
@@ -4029,6 +4048,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           </span>
         </label>
       </div>
+
+      <LiveCaptionsToggle captions={studioCaptions} />
     </div>
   );
 

@@ -17,6 +17,7 @@ import { premiumRoutes } from './routes/premium.js';
 import { templateRoutes } from './routes/templates.js';
 import { whipRoutes } from './routes/whip.js';
 import { battleRoutes } from './routes/battles.js';
+import { captionRoutes } from './routes/captions.js';
 import { seedWordCollections } from './lib/seed-word-collections.js';
 import './games/index.js';
 
@@ -49,6 +50,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await server.register(templateRoutes);
   await server.register(whipRoutes);
   await server.register(battleRoutes);
+  await server.register(captionRoutes);
 
   return server;
 }
