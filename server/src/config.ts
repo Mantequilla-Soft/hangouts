@@ -74,6 +74,20 @@ const envSchema = z.object({
   // still apply. Empty = nobody is exempt.
   STREAM_LIMIT_EXEMPT: z.string().default('')
     .transform((v) => new Set(v.split(',').map((s) => s.trim().replace(/^@/, '').toLowerCase()).filter(Boolean))),
+  // --- Highlights, clips, rewind, podcast recording (H13, H14, H23) ----------
+  // How far back the DVR keeps segments: the rewind window viewers can seek in
+  // and the range a highlight clip can come from. About 225 MB per stream at
+  // the DVR's 3 Mbps for the default 10 minutes, pruned every 30 s.
+  DVR_BUFFER_SEC: z.coerce.number().int().min(60).max(3600).default(600),
+  // DVR clips (viewer, host and automatic highlight clips) are kept this long so
+  // they can still be posted as Shorts after the stream, then swept.
+  CLIP_KEEP_HOURS: z.coerce.number().positive().max(24 * 14).default(48),
+  // Upper bound for all kept clips on disk; the oldest go first past it.
+  CLIPS_DIR_MAX_MB: z.coerce.number().int().positive().default(4096),
+  // Chat and boost spike detection (per-room counters in 20 s buckets).
+  HIGHLIGHTS_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // "Record as podcast" in audio rooms: one audio track egress per speaker.
+  PODCAST_RECORDING_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   PORT: z.coerce.number().default(3002),
 });
 

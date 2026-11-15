@@ -15,6 +15,9 @@ import { gameRoutes } from './routes/games.js';
 import { premiumRoutes } from './routes/premium.js';
 import { templateRoutes } from './routes/templates.js';
 import { whipRoutes } from './routes/whip.js';
+import { highlightRoutes } from './routes/highlights.js';
+import { dvrRewindRoutes } from './routes/dvrRewind.js';
+import { podcastRoutes } from './routes/podcast.js';
 import { seedWordCollections } from './lib/seed-word-collections.js';
 import './games/index.js';
 
@@ -45,6 +48,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await server.register(premiumRoutes);
   await server.register(templateRoutes);
   await server.register(whipRoutes);
+  // Highlight clips (H13), rewind (H14), record as podcast (H23).
+  await server.register(highlightRoutes);
+  await server.register(dvrRewindRoutes);
+  await server.register(podcastRoutes);
 
   return server;
 }

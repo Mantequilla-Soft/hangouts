@@ -33,6 +33,10 @@ vi.mock('../../src/lib/streamStats.js', () => ({
   recordBoost: vi.fn(),
 }));
 
+vi.mock('../../src/lib/streamHighlights.js', () => ({
+  noteBoost: vi.fn(),
+}));
+
 const noop = () => {};
 
 function makeRoomMeta(overrides: Record<string, unknown> = {}) {
@@ -213,6 +217,8 @@ describe('processBoostTransfer: recipients, conversion and failures', () => {
     expect(payout).toHaveBeenCalledWith({
       to: 'alice', amount: '1.900', asset: 'HBD', memo: 'boost payout:alice-room-abc123:tx-event-001',
     });
+    // ...and counts towards the stream's highlight moments (H13).
+    expect(vi.mocked((await import('../../src/lib/streamHighlights.js')).noteBoost)).toHaveBeenCalledWith('alice-room-abc123', 2);
   });
 
   it('values HIVE boosts at the HIVE/USD rate', async () => {
