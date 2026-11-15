@@ -6,6 +6,7 @@ import {
 import { config } from '../config.js';
 import { roomService, createLivekitToken } from '../lib/livekit.js';
 import { mutateRoomMetadata } from '../lib/roomMeta.js';
+import { boostSummary, parseBoostExtras, readGoal, readStats, restampGoal, type BoostExtrasInput } from '../lib/boostGoals.js';
 import { verifySessionToken } from '../lib/session.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
@@ -313,6 +314,8 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       // non-Pro watermark the studio would otherwise have drawn in.
       headless: meta.headless === true ? true : undefined,
       watermark: meta.headless === true ? meta.watermark === true : undefined,
+      // Goal progress, totals and top supporters for this stream.
+      boostSummary: boostSummary(meta as Record<string, unknown>),
     });
   });
 
@@ -690,6 +693,27 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
           enabled: { type: 'boolean' },
           minBoostUsd: { type: 'number', minimum: 0 },
           creatorPayoutAccount: { type: 'string', maxLength: 16 },
+          // Goal bar ("50 HBD for a new mic"); null removes it.
+          goal: {
+            type: ['object', 'null'],
+            properties: {
+              title: { type: 'string', maxLength: 200 },
+              targetHbd: { type: 'number' },
+            },
+            required: ['targetHbd'],
+          },
+          // Amount tiers (colour + how long a boost stays pinned); false = off.
+          tiers: { type: 'boolean' },
+          alerts: {
+            type: 'object',
+            properties: {
+              sound: { type: 'boolean' },
+              tts: { type: 'boolean' },
+              ttsMinHbd: { type: 'number' },
+            },
+          },
+          // Preset amounts in the viewer's boost dialog; [] = the defaults.
+          presets: { type: 'array', maxItems: 20, items: { type: 'number' } },
         },
       },
     },
@@ -699,7 +723,12 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       enabled?: boolean;
       minBoostUsd?: number;
       creatorPayoutAccount?: string;
-    };
+    } & BoostExtrasInput;
+
+    // Ranges and normalising for the goal / tiers / alerts / presets, checked
+    // before taking the lock so a bad value never half-applies.
+    const extras = parseBoostExtras(body);
+    if (!extras.ok) return reply.badRequest(extras.error);
 
     // Under the per-room metadata lock: hosts change Boosts MID-STREAM now, and
     // an unlocked read-modify-write here raced the studio's broadcast heartbeat
@@ -712,19 +741,39 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         const existing = (meta.boost && typeof meta.boost === 'object' && !Array.isArray(meta.boost))
           ? meta.boost as Record<string, unknown>
           : {};
-        boost = {
+        boost = extras.apply({
           ...existing,
           ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
           ...(body.minBoostUsd !== undefined ? { minBoostUsd: body.minBoostUsd } : {}),
           ...(body.creatorPayoutAccount !== undefined ? { creatorPayoutAccount: body.creatorPayoutAccount || undefined } : {}),
-        };
-        return { ...meta, boost };
+        });
+        const next: Record<string, unknown> = { ...meta, boost };
+        // A changed goal re-checks "reached" against this stream's progress:
+        // raising it past the progress lets reaching it celebrate again.
+        if (body.goal !== undefined && meta.boostStats !== undefined) {
+          next.boostStats = restampGoal(readStats(meta), readGoal(next));
+        }
+        return next;
       });
     } catch {
       return reply.notFound('Room not found');
     }
     if (forbidden) return reply.forbidden('Only the host can update boost settings');
     return reply.send({ boost });
+  });
+
+  // This stream's boost goal, totals and top supporters, for surfaces that are
+  // not in the LiveKit room (the room metadata carries the same live). Public:
+  // every boost is a public Hive transfer already.
+  fastify.get('/rooms/:name/boost/summary', {
+    schema: { params: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } } },
+  }, async (request, reply) => {
+    const { name } = request.params as { name: string };
+    const rooms = await roomService.listRooms([name]);
+    if (rooms.length === 0) return reply.notFound('Room not found');
+    let meta: Record<string, unknown> = {};
+    try { meta = JSON.parse(rooms[0].metadata || '{}') as Record<string, unknown>; } catch { /* empty */ }
+    return reply.send(boostSummary(meta));
   });
 
   // Update the feed-post details (title/thumbnail/description/tags) for a

@@ -25,6 +25,7 @@ import {
 } from './boostLedger.js';
 import { sendBoostPayout, sendBoostRefund } from './boostPayout.js';
 import { recordBoost } from './streamStats.js';
+import { recordBoostTally } from './boostGoals.js';
 
 interface BoostTransferInput {
   /** The account that sent the transfer: where a refund goes. Taken from the
@@ -266,6 +267,24 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
   } catch (err) {
     await handleRejected(id, 'internal_error', log, err);
     return;
+  }
+
+  // This stream's tally: the goal bar and top supporters (meta.boostStats).
+  // Counted once the boost is on screen, like the leaderboard above. Keyed by
+  // the account that actually SENT the money (the op's `from`), not the memo's
+  // `sender`, which the sender's client writes: a hand-made memo must not put
+  // someone else on the supporters list. A failure here never blocks the payout.
+  const supporter = input.from?.trim().toLowerCase() || memo.sender;
+  try {
+    const { reachedNow } = await recordBoostTally(memo.room, {
+      account: supporter,
+      displayName: supporter === memo.sender ? memo.displayName : undefined,
+      hbd: usdAmount,
+      countsToGoal: recipient === hostAccount,
+    }, lk);
+    if (reachedNow) log(`[Boost] ${memo.room} reached its boost goal`);
+  } catch (err) {
+    log(`[Boost] could not update the boost tally for ${memo.room}`, err);
   }
 
   try {

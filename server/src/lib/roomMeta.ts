@@ -1,3 +1,4 @@
+import type { RoomServiceClient } from 'livekit-server-sdk';
 import { roomService } from './livekit.js';
 
 /**
@@ -23,6 +24,10 @@ export type RoomMetaRecord = Record<string, unknown>;
 export async function mutateRoomMetadata(
   roomName: string,
   mutate: (meta: RoomMetaRecord) => RoomMetaRecord | null | Promise<RoomMetaRecord | null>,
+  /** The LiveKit room service to use. Callers that already take one as a
+   *  parameter (the boost listener, for its tests) pass it through; the lock
+   *  is per room name either way. */
+  lk: Pick<RoomServiceClient, 'listRooms' | 'updateRoomMetadata'> = roomService,
 ): Promise<RoomMetaRecord> {
   const prev = chains.get(roomName) ?? Promise.resolve();
 
@@ -30,7 +35,7 @@ export async function mutateRoomMetadata(
     // A failed mutation must not poison every later one on the same room.
     .catch(() => undefined)
     .then(async () => {
-      const rooms = await roomService.listRooms([roomName]);
+      const rooms = await lk.listRooms([roomName]);
       if (rooms.length === 0) throw new Error('Room not found');
 
       let meta: RoomMetaRecord = {};
@@ -41,7 +46,7 @@ export async function mutateRoomMetadata(
       // inspect the current metadata under the lock.
       if (next === null) return meta;
 
-      await roomService.updateRoomMetadata(roomName, JSON.stringify(next));
+      await lk.updateRoomMetadata(roomName, JSON.stringify(next));
       return next;
     });
 
