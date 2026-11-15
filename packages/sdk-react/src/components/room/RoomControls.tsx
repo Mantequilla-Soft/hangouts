@@ -313,8 +313,9 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           row stays balanced for non-hosts who only see Leave on the right) */}
       <div className="hh-controls__group hh-controls__group--right">
         {effectiveIsHost && <RecordingControls roomName={roomName} onVideoHandoff={onVideoHandoff} onAudioHandoff={onAudioHandoff} />}
-        {/* Audio rooms: record the show as a podcast episode (H23). */}
-        {effectiveIsHost && !roomVideoEnabled && <PodcastRecordControls roomName={roomName} onAudioHandoff={onAudioHandoff} />}
+        {/* OpenPods (conference) rooms: record the show as a podcast episode,
+            audio only, one track per speaker (H23). */}
+        {effectiveIsHost && <PodcastRecordControls roomName={roomName} onAudioHandoff={onAudioHandoff} />}
 
         {effectiveIsHost && (
           <button
