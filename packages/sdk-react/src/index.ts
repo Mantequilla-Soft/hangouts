@@ -105,6 +105,8 @@ export {
   StreamQualityControl,
   useStreamContext, useStreamLive,
 } from './components/room/StandaloneWatch.js';
+export { HlsStreamVideo, type HlsStreamVideoProps } from './components/room/HlsStreamVideo.js';
+export type { Delivery, JoinOptions } from './lib/hlsDelivery.js';
 
 // Hooks — Chat
 export { useChat, type ChatMessage } from './hooks/useChat.js';

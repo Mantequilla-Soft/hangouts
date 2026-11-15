@@ -5392,6 +5392,15 @@
   color: #888;
   font-size: 1rem;
 }
+/* HLS: the <video> is mounted from the start, so "starting" sits over it. */
+.hh-stream-video__placeholder--over {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
 .hh-stream-badge {
   position: absolute;
   top: 10px;
