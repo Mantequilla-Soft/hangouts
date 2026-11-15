@@ -611,6 +611,7 @@ value). Required ones have no default.
 | `DVR_ENABLED` | `true` | DVR egress kill switch. |
 | `DVR_BUFFER_SEC` | `150` (60 to 3600) | DVR window: clip source, and the rewind range when rewind is on (600 for 10 minutes). |
 | `REWIND_ENABLED` | `false` | Rewind during a live stream (`GET /rooms/:name/dvr/rewind` answers `available: false, reason: "off"`). |
+| `CLIPS_NOTIFY_ENABLED` | `false` | Tell the 3Speak checker when a stream's clips are ready (bell + push to `/clips`). Needs `STREAM_STATS_SECRET` too. |
 | `CLIP_KEEP_HOURS`, `CLIPS_DIR_MAX_MB` | `48`, `4096` | How long clips stay, and the disk budget for them. |
 | `HIGHLIGHTS_ENABLED` | `true` | Chat and boost spike detection. |
 | `PODCAST_RECORDING_ENABLED` | `true` | "Record as podcast" in audio rooms. |

@@ -6,7 +6,8 @@ import { readRoomFacts } from './roomInfo.js';
  * Tell the 3Speak checker that a stream's clips are ready (H13), so the host
  * (every clip) and each clipper (their own) get a bell notification and a push
  * that lead to 3speak.tv/clips. Same secret-gated channel as the stream stats
- * (POST /stream-stats/clips-ready, STREAM_STATS_SECRET); off when it is unset.
+ * (POST /stream-stats/clips-ready, STREAM_STATS_SECRET); off when it is unset,
+ * and off unless CLIPS_NOTIFY_ENABLED (the 3Speak frontend needs its /clips page first).
  * Called once the clips exist: at the end of a DVR stream, and after the
  * pending clips were cut from the VOD recording. The checker keeps one row per
  * person and stream, so a second call only updates the counts.
@@ -30,7 +31,7 @@ export function clipsReadyBody(room: string, clips: StreamClip[], title: string 
 }
 
 export async function notifyClipsReady(room: string, fetchFn: Fetch = fetch): Promise<boolean> {
-  if (!config.STREAM_STATS_SECRET) return false;
+  if (!config.CLIPS_NOTIFY_ENABLED || !config.STREAM_STATS_SECRET) return false;
   try {
     const store = await clipStore();
     const clips = await store.listForRoom(room);

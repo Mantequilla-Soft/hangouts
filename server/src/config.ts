@@ -88,6 +88,9 @@ const envSchema = z.object({
   CLIP_KEEP_HOURS: z.coerce.number().positive().max(24 * 14).default(48),
   // Upper bound for all kept clips on disk; the oldest go first past it.
   CLIPS_DIR_MAX_MB: z.coerce.number().int().positive().default(4096),
+  // Tell the 3Speak checker when a stream's clips are ready (bell + push that
+  // open 3speak.tv/clips). Off until the frontend with the /clips page is live.
+  CLIPS_NOTIFY_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   // Chat and boost spike detection (per-room counters in 20 s buckets).
   HIGHLIGHTS_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   // "Record as podcast" in audio rooms: one audio track egress per speaker.

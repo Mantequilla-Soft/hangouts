@@ -20,7 +20,7 @@ async function load(env: Record<string, string>) {
 const keep = (clipper: string | null, extra: Record<string, unknown> = {}) =>
   c.registerClip({ room: ROOM, host: 'badadib', clipper, source: clipper ? 'viewer' : 'auto', file: `${Math.random()}.mp4`, offsetSec: 1, durationSec: 30, ...extra });
 
-beforeEach(async () => { await load({ STREAM_STATS_SECRET: 'test-secret', CHECKER_URL: 'https://checker.test/' }); });
+beforeEach(async () => { await load({ CLIPS_NOTIFY_ENABLED: 'true', STREAM_STATS_SECRET: 'test-secret', CHECKER_URL: 'https://checker.test/' }); });
 afterEach(() => vi.unstubAllEnvs());
 
 describe('clipsReadyBody', () => {
@@ -44,14 +44,18 @@ describe('notifyClipsReady', () => {
     expect(JSON.parse(init.body)).toEqual({ room: ROOM, host: 'badadib', title: 'Friday', total: 1, clippers: [{ user: 'fan', count: 1 }] });
   });
 
-  it('does nothing without clips or without the secret, and swallows failures', async () => {
+  it('does nothing without clips, when switched off (the default) or without the secret, and swallows failures', async () => {
     const f = vi.fn().mockResolvedValue({ ok: true });
     expect(await n.notifyClipsReady(ROOM, f as never)).toBe(false);
     await keep('fan');
     vi.mocked(lk.listRooms).mockResolvedValue([] as never);
     f.mockRejectedValue(new Error('down'));
     expect(await n.notifyClipsReady(ROOM, f as never)).toBe(false);
-    await load({ STREAM_STATS_SECRET: '' });
+    await load({ CLIPS_NOTIFY_ENABLED: 'false', STREAM_STATS_SECRET: 'test-secret' });
+    f.mockReset().mockResolvedValue({ ok: true });
+    expect(await n.notifyClipsReady(ROOM, f as never)).toBe(false);
+    expect(f).not.toHaveBeenCalled();
+    await load({ CLIPS_NOTIFY_ENABLED: 'true', STREAM_STATS_SECRET: '' });
     expect(await n.notifyClipsReady(ROOM, f as never)).toBe(false);
   });
 });
