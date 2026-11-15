@@ -6,6 +6,9 @@ import { sweepEndedRooms } from './lib/guestBans.js';
 import { sweepPublishStates } from './lib/streamVodPublish.js';
 import { startStreamStatsSampler } from './lib/streamStats.js';
 import { reconcileHeadlessRooms } from './lib/headlessStreams.js';
+import { sweepBacklogs, flushBacklog } from './lib/chatBacklog.js';
+import { sweepPolls } from './lib/polls.js';
+import { sweepRaids } from './lib/raids.js';
 
 const server = await buildApp();
 await server.listen({ port: config.PORT, host: '0.0.0.0' });
@@ -30,7 +33,12 @@ setInterval(() => {
   void (async () => {
     try {
       const rooms = await roomService.listRooms();
-      sweepEndedRooms(new Set(rooms.map((r) => r.name)));
+      const names = new Set(rooms.map((r) => r.name));
+      sweepEndedRooms(names);
+      // Chat backlogs, polls and raid countdowns of rooms that are gone.
+      sweepBacklogs(names);
+      sweepPolls(names);
+      sweepRaids(names);
     } catch (err) {
       server.log.warn({ err }, 'room-data sweep failed');
     }
@@ -38,3 +46,12 @@ setInterval(() => {
     await reconcileHeadlessRooms().catch((err) => server.log.warn({ err }, 'headless reconcile failed'));
   })();
 }, 10 * 60 * 1000).unref();
+
+// Write the last few seconds of chat backlog before a clean shutdown.
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(sig, () => {
+    // Never hold a shutdown up for long: three seconds, then exit regardless.
+    setTimeout(() => process.exit(0), 3000).unref();
+    void flushBacklog().finally(() => process.exit(0));
+  });
+}
