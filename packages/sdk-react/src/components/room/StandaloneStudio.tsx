@@ -19,7 +19,7 @@ import { MOBILE_QUERY, useIsMobile } from '../../hooks/useIsMobile.js';
 import { useChat } from '../../hooks/useChat.js';
 import { MobileSheet } from './MobileSheet.js';
 import {
-  IconAspect, IconAudio, IconBattle, IconBoost, IconChat, IconCheck, IconFlipCamera, IconGuest,
+  IconAspect, IconAudio, IconBoost, IconChat, IconCheck, IconFlipCamera, IconGuest,
   IconMirror, IconBroadcast, IconPause, IconPlay, IconPost, IconShare, IconStop, IconZoomIn, IconZoomOut,
 } from './StudioIcons.js';
 import { BoostOverlay } from './BoostOverlay.js';
@@ -31,6 +31,7 @@ import { playBoostChime } from '../../lib/boostChime.js';
 import { StreamBoostGoal } from './StreamBoostGoal.js';
 import { BoostHistoryPanel } from './BoostHistoryPanel.js';
 import { BoostSettingsPanel } from './BoostSettingsPanel.js';
+import { StudioLivePanel, IconLive } from './StudioLivePanel.js';
 import { BattlePanel, BattleInviteCard } from './BattlePanel.js';
 import { StreamBattleBar } from './StreamBattleBar.js';
 import { useStudioBattle } from '../../hooks/useBattle.js';
@@ -1113,7 +1114,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [postModalOpen, setPostModalOpen] = useState(false);
   // Post tab first — hosts set up the stream's post details before going live.
   // Once live the post is locked, so the studio flips to chat (effect below).
-  const [rightTab, setRightTab] = useState<'chat' | 'post' | 'settings'>(() => (streamState === 'standby' ? 'post' : 'chat'));
+  const [rightTab, setRightTab] = useState<'chat' | 'post' | 'settings' | 'live'>(() => (streamState === 'standby' ? 'post' : 'chat'));
   const postLocked = streamState !== 'standby';
 
   // ---- panel sizing ------------------------------------------------------
@@ -1128,7 +1129,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const isMobile = useIsMobile();
   const isMobileRef = useRef(isMobile);
   isMobileRef.current = isMobile;
-  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests' | 'settings';
+  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests' | 'settings' | 'live';
   const [mobileSheet, setMobileSheet] = useState<MobileSheetId | null>(null);
 
   // Going live locks the post, and chat is what the host needs from then on:
@@ -1259,7 +1260,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     return {
       chat: Math.round(vh * 0.62), post: Math.round(vh * 0.92),
       mic: Math.round(vh * 0.5), lens: Math.round(vh * 0.5), share: Math.round(vh * 0.42),
-      guests: Math.round(vh * 0.45), settings: Math.round(vh * 0.75),
+      guests: Math.round(vh * 0.45), settings: Math.round(vh * 0.75), live: Math.round(vh * 0.7),
     };
   });
 
@@ -2672,6 +2673,13 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const battle = useStudioBattle(roomName, localParticipant?.identity || setupUser || '', livekitServerUrl, battleApi);
   battleOnAirRef.current = battle.onAir;
   const [battleOpen, setBattleOpen] = useState(false);
+  // The Live tab (and on phones the Live sheet, which replaced the Battle rail
+  // button) opens the battle panel too.
+  const liveBattle = useMemo(() => ({
+    onAir: battle.onAir,
+    opponent: battle.them?.host ?? null,
+    onOpen: () => { setMobileSheet(null); setBattleOpen(true); },
+  }), [battle.onAir, battle.them?.host]);
   const battleDrawRef = useRef<{ video: HTMLVideoElement | null; waiting: string } | null>(null);
   battleDrawRef.current = battle.onAir
     ? { video: battle.link.video, waiting: `Connecting to @${battle.them?.host ?? ''}…` }
@@ -4746,6 +4754,15 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               )}
               <span className="hh-studio__rbtn-label">Chat</span>
             </button>
+            {/* Polls, predictions, raids and the live battle (StudioLivePanel). */}
+            <button
+              className={`hh-studio__rbtn${mobileSheet === 'live' || battleOpen ? ' hh-studio__rbtn--on' : ''}${battle.onAir ? ' hh-studio__rbtn--live' : ''}`}
+              onClick={() => setMobileSheet((v) => (v === 'live' ? null : 'live'))}
+              title="Polls, predictions, raids and battles"
+            >
+              <IconLive />
+              <span className="hh-studio__rbtn-label">Live</span>
+            </button>
             {/* Unlisted streams are never announced — no post to write. */}
             {!isUnlisted && (
               <button
@@ -4783,14 +4800,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 <span className="hh-studio__rbtn-label">Share</span>
               </button>
             )}
-            <button
-              className={`hh-studio__rbtn${battleOpen ? ' hh-studio__rbtn--on' : ''}${battle.onAir ? ' hh-studio__rbtn--live' : ''}`}
-              onClick={() => setBattleOpen((v) => !v)}
-              title="Live battle"
-            >
-              <IconBattle />
-              <span className="hh-studio__rbtn-label">Battle</span>
-            </button>
             {isPremium && (
               <button
                 className={`hh-studio__rbtn${restreamOpen ? ' hh-studio__rbtn--on' : ''}${restream.isStreaming ? ' hh-studio__rbtn--live' : ''}`}
@@ -4839,7 +4848,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 : mobileSheet === 'lens' ? 'Camera'
                 : mobileSheet === 'share' ? 'Share this stream'
                 : mobileSheet === 'guests' ? 'Requests to join'
-                : mobileSheet === 'settings' ? 'Stream settings' : 'Microphone'}
+                : mobileSheet === 'settings' ? 'Stream settings'
+                : mobileSheet === 'live' ? 'Polls and raids' : 'Microphone'}
               onClose={() => setMobileSheet(null)}
               height={sheetH[mobileSheet]}
               onHeightChange={(h) => setSheetH((prev) => ({ ...prev, [mobileSheet]: h }))}
@@ -4849,6 +4859,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               {mobileSheet === 'chat' && <ChatPanel readOnly readOnlyNotice="" />}
               {mobileSheet === 'post' && renderPostEditor(false)}
               {mobileSheet === 'settings' && renderSettings()}
+              {mobileSheet === 'live' && <StudioLivePanel roomName={roomName} battle={liveBattle} />}
               {mobileSheet === 'guests' && (
                 <div className="hh-guests">
                   {collabError && <p className="hh-guests__error">{collabError}</p>}
@@ -5267,11 +5278,13 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                     the title, community and payout. Mirrors the mobile rail. */}
                 {streamState === 'standby' && <span className="hh-studio__rbtn-dot" aria-hidden="true" />}
               </button>
+              <button className={`hh-studio__tab${rightTab === 'live' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('live')} title="Polls, predictions and raids">📊 Live</button>
               <button className={`hh-studio__tab${rightTab === 'settings' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('settings')}>⚙️ Settings</button>
               <button className="hh-studio__collapse hh-studio__tabs-collapse" onClick={() => setChatCollapsed(true)} title="Collapse">›</button>
             </div>
             <div className="hh-studio__tab-body">
-              {rightTab === 'chat' ? <ChatPanel /> : rightTab === 'settings' ? renderSettings() : renderPostEditor(false)}
+              {rightTab === 'chat' ? <ChatPanel /> : rightTab === 'settings' ? renderSettings()
+                : rightTab === 'live' ? <StudioLivePanel roomName={roomName} battle={liveBattle} /> : renderPostEditor(false)}
             </div>
             <div className="hh-studio__transport">
               {streamState === 'standby' && <button className="hh-studio__go-btn" onClick={() => { void savePost(); setStreamState('live'); }} title="Cut the program and audio over to your viewers"><span className="hh-studio__icon" aria-hidden="true">🔴</span>Start stream</button>}

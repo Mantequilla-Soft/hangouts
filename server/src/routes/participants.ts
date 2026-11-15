@@ -4,6 +4,8 @@ import { mutateRoomMetadata } from '../lib/roomMeta.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { banGuestByIdentity } from '../lib/guestBans.js';
+import { purgeBacklogIdentity } from '../lib/chatBacklog.js';
+import { sendRoomData } from '../lib/liveRoom.js';
 
 type RoomMeta = { host?: string; mode?: string; collabGuest?: string; mods?: string[] };
 
@@ -175,6 +177,9 @@ export const participantRoutes: FastifyPluginAsync = async (fastify) => {
     if (check.error === 'forbidden') return reply.forbidden('Only the host or a moderator can ban participants');
 
     banGuestByIdentity(name, identity);
+    // Their lines leave the chat backlog and everyone's chat list too.
+    await purgeBacklogIdentity(name, identity);
+    await sendRoomData(name, 'chat', { type: 'chat-purge', identity });
     try {
       await roomService.removeParticipant(name, identity);
     } catch {

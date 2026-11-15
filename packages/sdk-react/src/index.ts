@@ -141,6 +141,20 @@ export type { StudioCaptionStatus } from './lib/captionPublisher.js';
 
 // Hooks — Chat
 export { useChat, type ChatMessage } from './hooks/useChat.js';
+export { mergeChatLines, parseBacklog, type BacklogLine, type ChatSystemInfo } from './lib/chatBacklog.js';
+
+// Live interaction: polls and predictions, raids, and their viewer text.
+export { usePolls, type CreatePollInput } from './hooks/usePolls.js';
+export { useRaid, parseRaid, type RaidTargetInfo, type ViewerRaid } from './hooks/useRaid.js';
+export { StreamPollCard, PollCardView, PollHostPanel, type StreamPollCardProps, type PollCardViewProps } from './components/room/StreamPolls.js';
+export { RaidBanner, RaidBannerView, type RaidBannerProps, type RaidBannerViewProps } from './components/room/RaidBanner.js';
+export { RaidHostPanel } from './components/room/RaidHostPanel.js';
+export { StudioLivePanel } from './components/room/StudioLivePanel.js';
+export { DEFAULT_LIVE_LABELS, liveLabels, fillLabel, clockLabel, type LiveLabels } from './lib/liveLabels.js';
+export {
+  parsePoll, isFinished as isPollFinished, optionShare, leaders as pollLeaders, payoutFor,
+  type PollView, type PollOptionView, type PollKind, type PollStatus, type PollStake,
+} from './lib/polls.js';
 
 // Hooks — Recording
 export { useRecording } from './hooks/useRecording.js';

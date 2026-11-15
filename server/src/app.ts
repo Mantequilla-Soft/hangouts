@@ -16,6 +16,9 @@ import { gameRoutes } from './routes/games.js';
 import { premiumRoutes } from './routes/premium.js';
 import { templateRoutes } from './routes/templates.js';
 import { whipRoutes } from './routes/whip.js';
+import { chatRoutes } from './routes/chat.js';
+import { pollRoutes } from './routes/polls.js';
+import { raidRoutes } from './routes/raids.js';
 import { battleRoutes } from './routes/battles.js';
 import { captionRoutes } from './routes/captions.js';
 import { studioToolRoutes } from './routes/studioTools.js';
@@ -50,6 +53,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await server.register(premiumRoutes);
   await server.register(templateRoutes);
   await server.register(whipRoutes);
+  // Live interaction: chat backlog, polls and predictions, raids.
+  await server.register(chatRoutes);
+  await server.register(pollRoutes);
+  await server.register(raidRoutes);
   await server.register(battleRoutes);
   await server.register(captionRoutes);
   await server.register(studioToolRoutes);

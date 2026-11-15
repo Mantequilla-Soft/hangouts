@@ -10,6 +10,8 @@ import { BoostStoreProvider } from '../../hooks/useBoosts.js';
 import { StreamBoostGoal } from './StreamBoostGoal.js';
 import type { BoostLabels } from '../../lib/boostLabels.js';
 import { STUDIO_VERTICAL_TRACK, prefersVertical, readVerticalMeta, type VerticalMeta } from '../../lib/verticalCrop.js';
+import type { LiveLabels } from '../../lib/liveLabels.js';
+import { RaidBanner, type RaidTargetInfo } from './RaidBanner.js';
 import { StreamBattleBar } from './StreamBattleBar.js';
 import type { BattleLabels } from '../../lib/battle.js';
 
@@ -36,6 +38,9 @@ interface StreamCtxValue {
   portrait?: boolean;
   /** The host's phone crop (H19), from the live room metadata, or null. */
   vertical?: VerticalMeta | null;
+  /** This viewer's room token: a guest proves who they are with it when the
+   *  chat posts its copy of a line for the backlog. */
+  livekitToken?: string | null;
   /** 'hls' = this viewer plays the stream from `hlsUrl`; the room connection
    *  carries chat and presence only (see the server's HLS_VIEWER_THRESHOLD). */
   delivery?: 'webrtc' | 'hls';
@@ -56,9 +61,14 @@ export interface StandaloneWatchProps {
   /** Silence the stream's sound without leaving the room, e.g. while the page
    *  plays an ad over it. The picture keeps running underneath. */
   audioMuted?: boolean;
+  /** The host raided another stream and the countdown ran out: move the viewer
+   *  to `target` (the integrator knows its own URLs). Without it, no raid banner. */
+  onRaid?: (target: RaidTargetInfo) => void;
+  /** Translated text for the raid banner (see LiveLabels). */
+  liveLabels?: Partial<LiveLabels>;
 }
 
-export function StandaloneWatch({ roomName, children, connecting, audioMuted = false }: StandaloneWatchProps) {
+export function StandaloneWatch({ roomName, children, connecting, audioMuted = false, onRaid, liveLabels }: StandaloneWatchProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
   const joinedForRef = useRef<string | null>(null);
@@ -135,11 +145,14 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
         hlsUrl={room.hlsUrl}
         audioMuted={audioMuted}
         onHlsUnavailable={onHlsUnavailable}
+        livekitToken={room.livekitToken}
       >
         {/* HLS viewers get their sound from the HLS player. */}
         {!hls && <RoomAudio programOnly muted={audioMuted} />}
         {!hls && <StartAudio label="Click to enable audio" className="hh-start-audio" />}
         {!hls && room.hlsFallback && <WeakConnectionWatcher onWeak={onWeak} />}
+        {/* HLS viewers are in the room for data too, so they get the raid. */}
+        {onRaid && <RaidBanner roomName={roomName} onRaid={onRaid} labels={liveLabels} />}
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
           {children}
         </BoostStoreProvider>
@@ -155,7 +168,7 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
  * stays hidden and they can't ask to join the stage until they refresh. Falls
  * back to the join-time meta until the first metadata sync lands.
  */
-function StreamContextBridge({ roomName, isGuest, joinMeta, delivery, hlsUrl, audioMuted, onHlsUnavailable, children }: {
+function StreamContextBridge({ roomName, isGuest, joinMeta, delivery, hlsUrl, audioMuted, onHlsUnavailable, livekitToken, children }: {
   roomName: string;
   isGuest: boolean;
   joinMeta: unknown;
@@ -163,6 +176,7 @@ function StreamContextBridge({ roomName, isGuest, joinMeta, delivery, hlsUrl, au
   hlsUrl?: string | null;
   audioMuted?: boolean;
   onHlsUnavailable?: () => void;
+  livekitToken?: string | null;
   children: ReactNode;
 }) {
   const roomInfo = useRoomInfo();
@@ -181,6 +195,7 @@ function StreamContextBridge({ roomName, isGuest, joinMeta, delivery, hlsUrl, au
       boostConfig: meta.boost,
       portrait: meta.portrait,
       vertical,
+      livekitToken,
       delivery,
       hlsUrl,
       audioMuted,

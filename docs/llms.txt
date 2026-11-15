@@ -271,6 +271,33 @@ All endpoints on the Fastify server. "Host" auth = Bearer JWT + must be the room
 | GET | `/boosts/config` | No | `{ enabled, platformAccount, feePercent }` |
 | PATCH | `/rooms/:name/boost` | Host | Update room boost config |
 
+### Chat backlog, polls and predictions, raids
+Chat still travels over the LiveKit data channel; the sender also posts its copy so the server can keep the
+last `CHAT_BACKLOG_SIZE` (300) lines per room (memory ring, batched Mongo copy `chat-backlog`, TTL 1 day).
+Live updates reach clients on data topics: `poll` (`{ type: 'poll', poll }`), `raid` (`raid-start` / `raid-go` /
+`raid-cancel`), and on `chat`: `chat-delete { id }`, `chat-purge { identity }`, `system { system: { kind: 'raid', from, viewers } }`.
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| GET | `/rooms/:name/chat` | No (Bearer on Hive-only rooms) | `{ messages }` newest lines, oldest first; `?limit=` |
+| POST | `/rooms/:name/chat` | Bearer, or `livekitToken` in the body for a guest | Body: `{ text, timestamp, identity?, name? }` |
+| DELETE | `/rooms/:name/chat/:id` | Host or mod | Removes the line from the backlog and every client |
+| GET | `/rooms/:name/polls/active` | Optional | `{ poll, myVote?, myStake?, balance? }` |
+| GET | `/rooms/:name/polls` | No | Finished polls of a stream (for its VOD), `offset` = seconds into the stream |
+| POST | `/rooms/:name/polls` | Host | Body: `{ kind: 'poll'\|'prediction', question, options (2-4, prediction 2), durationSec }` |
+| POST | `/rooms/:name/polls/:id/vote` | Bearer | `{ option }`, one vote per Hive account |
+| POST | `/rooms/:name/polls/:id/stake` | Bearer | `{ option, amount }` channel points (not money), not the host |
+| POST | `/rooms/:name/polls/:id/end` \| `resolve` \| `cancel` | Host | `resolve` body `{ winner }`: winners split the pot by stake |
+| GET | `/points/:channel` | Bearer | `{ channel, balance }` (start `POINTS_START`, 1000) |
+| GET | `/rooms/:name/raid/targets` | Host | Public live streams that accept raids, `{ targets, cooldownUntil }` |
+| GET | `/rooms/:name/raid` | No | The raid counting down here, if any |
+| POST | `/rooms/:name/raid` | Host | `{ target }`: `RAID_COUNTDOWN_SEC` (10) countdown, one raid per `RAID_COOLDOWN_MIN` (10) per host |
+| DELETE | `/rooms/:name/raid` | Host | Call it off during the countdown |
+| GET / PUT | `/raids/settings` | Bearer | `{ acceptRaids }` incoming raids on or off |
+
+SDK: `ChatPanel` shows the backlog, the raid line and `<StreamPollCard>` (prop `liveLabels`); `StandaloneWatch`
+takes `onRaid(target)` + `liveLabels` and shows `<RaidBanner>`; the studio has a Live tab (`StudioLivePanel`).
+
 ### Events
 All event endpoints that require auth use `Authorization: Bearer <token>`.
 
