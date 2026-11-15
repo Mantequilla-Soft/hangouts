@@ -209,6 +209,16 @@ describe('choosing WebRTC or HLS', () => {
     expect(egress.startTrackCompositeEgress.mock.calls[0][2].videoTrackId).toBe('TR_land');
   });
 
+  it('prefers the track named studio-program and never takes studio-vertical', async () => {
+    vi.mocked(lk.roomService.listParticipants).mockResolvedValue([host([
+      { sid: 'TR_vert', name: 'studio-vertical', type: TrackType.VIDEO, source: TrackSource.CAMERA, width: 1280, height: 720 },
+      { sid: 'TR_prog', name: 'studio-program', type: TrackType.VIDEO, source: TrackSource.CAMERA, width: 720, height: 1280 },
+    ])] as never);
+    await listen({ delivery: 'hls' });
+    await settle();
+    expect(egress.startTrackCompositeEgress.mock.calls[0][2].videoTrackId).toBe('TR_prog');
+  });
+
   it('concurrent HLS joins share one egress', async () => {
     vi.mocked(lk.roomService.listParticipants).mockResolvedValue([host(), viewer('a'), viewer('b')] as never);
     await Promise.all([listen(), listen(), listen()]);

@@ -165,7 +165,10 @@ async function programTracks(room: string, meta: HlsRoomMeta) {
     const wantPortrait = meta.portrait === true;
     const matches = (t: { width: number; height: number }) => !t.width || !t.height
       || (wantPortrait ? t.height > t.width : t.width >= t.height);
-    const video = videos.find(matches) ?? videos[0];
+    // 'studio-program' is the landscape program track by name (idea H19, the
+    // same rule as DVR and VOD); older studios don't name it, so fall back
+    // to the shape.
+    const video = videos.find((t) => t.name === 'studio-program') ?? videos.find(matches) ?? videos[0];
     videoTrackId = video?.sid ?? '';
     width = video?.width ?? 0;
     height = video?.height ?? 0;
