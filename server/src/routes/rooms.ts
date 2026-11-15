@@ -656,7 +656,9 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       canPublishData: !silent, // obs observers are purely read-only
       premium: false,
       ttl: silent ? '12h' : '6h',
-      name: displayName ?? authedUser ?? undefined,
+      // A Hive account is shown under its account name, never a chosen one
+      // (a signed-in viewer could otherwise appear as another account).
+      name: authedUser ?? displayName ?? undefined,
       canSubscribe: delivery !== 'hls',
     });
 

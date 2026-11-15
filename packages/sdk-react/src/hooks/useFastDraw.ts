@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useDataChannel, useLocalParticipant } from '@livekit/components-react';
 import { useHangoutsContext } from '../context/HangoutsContext.js';
+import { readGamePacket, type DataSender } from '../lib/dataTrust.js';
 
 export interface Stroke {
   id: string;
@@ -258,9 +259,12 @@ export function useFastDraw({ roomName }: UseFastDrawOptions): UseFastDrawResult
     return () => clearTimeout(t);
   }, [active, phase, roundStartedAt, roundDuration, guessPhaseStartedAt, guessDuration, revealEndsAt, serverTimeOffset, api, roomName]);
 
-  const onMessage = useCallback((msg: { payload: Uint8Array }) => {
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
+    // Game messages come from the server only (moves go over HTTP): a packet
+    // a participant published on 'game' is dropped (lib/dataTrust.ts).
+    const parsed = readGamePacket<{ serverTime?: number; [k: string]: unknown }>(msg.payload, msg.from);
+    if (!parsed) return;
     try {
-      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as { type: string; serverTime?: number; [k: string]: unknown };
 
       if (typeof parsed.serverTime === 'number') setServerTimeOffset(parsed.serverTime - Date.now());
 

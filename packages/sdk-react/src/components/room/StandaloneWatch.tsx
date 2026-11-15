@@ -23,9 +23,10 @@ import type { BattleLabels } from '../../lib/battle.js';
  * e.g. drop the video into a watch-page player slot, the viewer count next
  * to the title, and the chat in a sidebar.
  *
- * Auto-joins with NO name prompt: authenticated users join as themselves
- * (can chat); everyone else auto-joins as an anonymous guest (watch-only,
- * chat is read-only).
+ * Auto-joins with NO name prompt: authenticated users join as themselves;
+ * everyone else auto-joins as an anonymous guest. Both can chat (a guest's
+ * token has `canPublishData`); pass `readOnly` to <ChatPanel> to show
+ * guests a "sign in to chat" notice instead.
  */
 interface StreamCtxValue {
   hostIdentity: string | null;

@@ -4,6 +4,7 @@ import { ConnectionState } from 'livekit-client';
 import { HangoutsContext } from '../context/HangoutsContext.js';
 import { useStreamContext } from '../components/room/StandaloneWatch.js';
 import { mergeChatLines, parseBacklog, type ChatSystemInfo } from '../lib/chatBacklog.js';
+import { readChatPacket, type DataSender } from '../lib/dataTrust.js';
 
 export interface ChatMessage {
   id: string;
@@ -134,34 +135,15 @@ export function useChat() {
     return () => { alive = false; };
   }, [state, room, apiBaseUrl, ctx]);
 
-  const onMessage = useCallback((msg: { payload: Uint8Array }) => {
-    try {
-      const text = new TextDecoder().decode(msg.payload);
-      const parsed = JSON.parse(text);
-      // From the server: a moderator took a line down, or banned a chatter.
-      if (parsed.type === 'chat-delete' && typeof parsed.id === 'string') { removeMessage(parsed.id); return; }
-      if (parsed.type === 'chat-purge' && typeof parsed.identity === 'string') { purgeIdentity(parsed.identity); return; }
-      if (parsed.type === 'system' && parsed.system?.kind === 'raid' && typeof parsed.id === 'string') {
-        pushMessage({
-          id: parsed.id,
-          identity: String(parsed.identity ?? parsed.system.from ?? ''),
-          name: String(parsed.name ?? parsed.system.from ?? ''),
-          text: String(parsed.text ?? ''),
-          timestamp: Number(parsed.timestamp) || Date.now(),
-          system: { kind: 'raid', from: String(parsed.system.from ?? ''), viewers: Number(parsed.system.viewers) || 0 },
-        });
-        return;
-      }
-      if (parsed.type !== 'chat') return;
-
-      pushMessage({
-        id: `${parsed.identity}-${parsed.timestamp}`,
-        identity: parsed.identity,
-        name: parsed.name || parsed.identity,
-        text: parsed.text,
-        timestamp: parsed.timestamp,
-      });
-    } catch { /* ignore malformed */ }
+  // Who sent it comes from LiveKit, never from the payload: anyone in the room
+  // can publish on this topic (lib/dataTrust.ts). Deletes, purges and system
+  // lines count only when the server sent them.
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
+    const packet = readChatPacket(msg.payload, msg.from);
+    if (!packet) return;
+    if (packet.kind === 'delete') removeMessage(packet.id);
+    else if (packet.kind === 'purge') purgeIdentity(packet.identity);
+    else pushMessage(packet.line);
   }, []);
 
   const { send } = useDataChannel(TOPIC, onMessage);

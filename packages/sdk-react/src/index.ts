@@ -149,6 +149,14 @@ export type { StudioCaptionStatus } from './lib/captionPublisher.js';
 // Hooks — Chat
 export { useChat, type ChatMessage } from './hooks/useChat.js';
 export { mergeChatLines, parseBacklog, type BacklogLine, type ChatSystemInfo } from './lib/chatBacklog.js';
+// Who may send what on the data channel, for integrators reading topics themselves.
+export {
+  DATA_TOPIC_TRUST, isServerSent, isSentBy, hostFromMetadata, decodeData,
+  readChatPacket, readBoostPacket, readPollPacket, readRaidPacket, readGamePacket,
+  readCaptionPacket, readViewStatePacket, readVolumePacket, readHandRaisePacket, readDrawPacket,
+  type DataSender, type TopicTrust, type ChatPacket, type RaidPacketType,
+  type ViewStatePacket, type VolumePacket, type DrawPacket,
+} from './lib/dataTrust.js';
 
 // Live interaction: polls and predictions, raids, and their viewer text.
 export { usePolls, type CreatePollInput } from './hooks/usePolls.js';

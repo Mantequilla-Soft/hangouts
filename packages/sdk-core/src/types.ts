@@ -96,10 +96,11 @@ export interface JoinRoomResponse {
   isHost: boolean;
   isPremium?: boolean;
   /**
-   * True when the participant is an unauthenticated listener-only
-   * guest. The server stamps `guest-{random}` identities; clients
-   * must treat them as listen-only (no chat, no hand-raise, can't be
-   * promoted to speaker).
+   * True when the participant is an unauthenticated guest. The server
+   * stamps `guest-{random}` identities. A guest joins without media
+   * publishing, but its token has `canPublishData`, so it can chat and
+   * raise a hand (and could publish anything on any data topic: the SDK's
+   * listeners check the LiveKit sender, see the integrator guide).
    */
   isGuest?: boolean;
   /**

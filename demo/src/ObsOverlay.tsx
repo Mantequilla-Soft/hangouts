@@ -85,7 +85,8 @@ function ObsRoomContent({ roomName, show }: { roomName: string; show: Set<string
 
   // Listen for game lifecycle events on the 'game' data channel
   useDataChannel('game', (msg) => {
-    if (!show.has('game')) return;
+    // Game messages come from the server only (no participant sender).
+    if (!show.has('game') || msg.from) return;
     try {
       const data = JSON.parse(new TextDecoder().decode(msg.payload)) as { type?: string; gameId?: string };
       if (data.type === 'game:started') setActiveGameId(data.gameId ?? null);

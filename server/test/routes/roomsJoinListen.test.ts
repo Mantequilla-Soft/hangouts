@@ -165,6 +165,13 @@ describe('POST /rooms/:name/listen', () => {
     expect(vi.mocked(createLivekitToken).mock.calls[0][2]).toMatchObject({ name: 'Zed' });
   });
 
+  it('a signed-in viewer keeps their account name even when they send a display name', async () => {
+    const { roomService, createLivekitToken } = await import('../../src/lib/livekit.js');
+    vi.mocked(roomService.listRooms).mockResolvedValue(room({ mode: 'conference' }) as never);
+    await listen({ who: 'bob', payload: { displayName: 'badadib' } });
+    expect(vi.mocked(createLivekitToken).mock.calls[0][2]).toMatchObject({ name: 'bob' });
+  });
+
   it('a signed-in viewer listens as themselves, is not a guest, and their IP is not recorded', async () => {
     const { roomService, createLivekitToken } = await import('../../src/lib/livekit.js');
     vi.mocked(roomService.listRooms).mockResolvedValue(room({ mode: 'conference' }) as never);
