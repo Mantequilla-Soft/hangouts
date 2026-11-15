@@ -12,6 +12,8 @@ import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { isUserPremium } from '../lib/users.js';
+import { registerClip, clipView, cropFromMeta } from '../lib/streamClips.js';
+import { readRoomFacts, optionalUser } from '../lib/roomInfo.js';
 
 /**
  * DVR: a segmented-HLS egress that records a rolling on-disk buffer while a Pro
@@ -36,12 +38,23 @@ const egressClient = new EgressClient(
 const DVR_DIR = '/tmp/livekit-recordings/dvr';
 const CLIP_DIR = '/tmp/livekit-dvr-clips';
 const SEGMENT_SEC = 2;                 // HLS segment length
-const BUFFER_SEC = 150;                // keep ~2.5min of segments on disk
+// How much is kept on disk: the rewind window (H14) and the range a highlight
+// clip can come from (H13). DVR_BUFFER_SEC, 10 minutes by default.
+const BUFFER_SEC = config.DVR_BUFFER_SEC;
 const CLIP_SEC = 30;                   // clip window
-const CLIP_TTL_MS = 60 * 60 * 1000;    // serve a clip for 1h, then sweep
+// Clips are kept so they can be posted as Shorts after the stream (H13).
+const CLIP_TTL_MS = config.CLIP_KEEP_HOURS * 60 * 60 * 1000;
+const CLIPS_MAX_BYTES = config.CLIPS_DIR_MAX_MB * 1024 * 1024;
 
 // roomName -> active DVR session.
 const active = new Map<string, { egressId: string; dir: string; janitor: NodeJS.Timeout }>();
+
+/** The segment dir of a running DVR session (rewind reads it), or null. */
+export function dvrDirOf(name: string): string | null {
+  return active.get(name)?.dir ?? null;
+}
+export const DVR_SEGMENT_SEC = SEGMENT_SEC;
+export const DVR_BUFFER_SECONDS = BUFFER_SEC;
 
 const safeName = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '_');
 
@@ -175,6 +188,43 @@ export async function stopDvrSession(name: string): Promise<void> {
   if (entry) await teardown(name, entry);
 }
 
+export type DvrCut =
+  | { error: null; file: string; durationSec: number; cause?: undefined }
+  | { error: 'no_session' | 'empty'; cause?: undefined }
+  | { error: 'ffmpeg'; cause: unknown };
+
+/**
+ * Concat the most recent ~30 s of DVR segments into an MP4 in the clip dir.
+ * Shared by POST /dvr/clip and the automatic highlight clips (H13). Stream copy,
+ * no re-encode: disk I/O only.
+ */
+export async function cutDvrClip(name: string): Promise<DvrCut> {
+  const entry = active.get(name);
+  if (!entry) return { error: 'no_session' };
+
+  // Most-recent segments within the clip window, in chronological order. Pad
+  // by two segment durations so we never lose the tail to timing.
+  const now = Date.now();
+  const withMtime: Array<{ f: string; m: number }> = [];
+  for (const f of (await readdir(entry.dir).catch(() => [] as string[])).filter((x) => x.endsWith('.ts'))) {
+    const s = await stat(join(entry.dir, f)).catch(() => null);
+    if (s) withMtime.push({ f, m: s.mtimeMs });
+  }
+  withMtime.sort((a, b) => a.m - b.m);
+  const cutoff = now - (CLIP_SEC + SEGMENT_SEC * 2) * 1000;
+  const recent = withMtime.filter((x) => x.m >= cutoff).map((x) => join(entry.dir, x.f));
+  if (recent.length === 0) return { error: 'empty' };
+
+  await mkdir(CLIP_DIR, { recursive: true });
+  const outName = `${safeName(name)}-${Date.now()}-${randomBytes(4).toString('hex')}.mp4`;
+  try {
+    await ffmpegConcat(recent, join(CLIP_DIR, outName));
+  } catch (e) {
+    return { error: 'ffmpeg', cause: e };
+  }
+  return { error: null, file: outName, durationSec: recent.length * SEGMENT_SEC };
+}
+
 export const dvrRoutes: FastifyPluginAsync = async (fastify) => {
   // Serve a finished clip. No auth: the filename carries a random token, same
   // trust model as the VOD download link. TTL-swept.
@@ -206,38 +256,37 @@ export const dvrRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Clip the last ~30s into a shareable MP4. VIEWER-facing: any watcher can
-  // clip while the (Pro) host has DVR running, so no host/auth check — just a
-  // per-IP rate limit against ffmpeg abuse.
+  // clip while the (Pro) host has DVR running, so no host/auth check, just a
+  // per-IP rate limit against ffmpeg abuse. A signed-in clipper is credited
+  // (H13): the clip is kept and they can post it as a Short.
   fastify.post('/rooms/:name/dvr/clip', {
     config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
     schema: paramsSchema,
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
-    const entry = active.get(name);
-    if (!entry) return reply.badRequest('This stream is not recording — clips are not available.');
-
-    // Most-recent segments within the clip window, in chronological order. Pad
-    // by two segment durations so we never lose the tail to timing.
-    const now = Date.now();
-    const withMtime: Array<{ f: string; m: number }> = [];
-    for (const f of (await readdir(entry.dir)).filter((x) => x.endsWith('.ts'))) {
-      const s = await stat(join(entry.dir, f)).catch(() => null);
-      if (s) withMtime.push({ f, m: s.mtimeMs });
-    }
-    withMtime.sort((a, b) => a.m - b.m);
-    const cutoff = now - (CLIP_SEC + SEGMENT_SEC * 2) * 1000;
-    const recent = withMtime.filter((x) => x.m >= cutoff).map((x) => join(entry.dir, x.f));
-    if (recent.length === 0) return reply.badRequest('Nothing recorded yet — give it a few seconds.');
-
-    await mkdir(CLIP_DIR, { recursive: true });
-    const outName = `${safeName(name)}-${Date.now()}-${randomBytes(4).toString('hex')}.mp4`;
-    try {
-      await ffmpegConcat(recent, join(CLIP_DIR, outName));
-    } catch (e) {
-      request.log.error({ err: e }, '[dvr] clip failed');
+    const cut = await cutDvrClip(name);
+    if (cut.error === 'no_session') return reply.badRequest('This stream is not recording: clips are not available.');
+    if (cut.error === 'empty') return reply.badRequest('Nothing recorded yet, give it a few seconds.');
+    if (cut.error) {
+      request.log.error({ err: cut.cause }, '[dvr] clip failed');
       return reply.code(500).send({ message: 'Could not build the clip.' });
     }
-    return reply.send({ path: `/dvr/clips/${outName}` });
+    const user = await optionalUser(request);
+    const facts = await readRoomFacts(name);
+    const host = facts?.host ?? null;
+    const kept = await registerClip({
+      room: name,
+      host,
+      clipper: user,
+      source: user && host && user === host ? 'host' : 'viewer',
+      file: cut.file,
+      offsetSec: facts?.liveAt ? Math.max(0, Math.round((Date.now() - facts.liveAt) / 1000)) : null,
+      durationSec: cut.durationSec,
+      crop: cropFromMeta(facts?.meta),
+    }).catch(() => null);
+    // Past the per-stream caps the MP4 still works for the hour-old download
+    // flow; it just is not offered for posting.
+    return reply.send({ path: `/dvr/clips/${cut.file}`, ...(kept && 'clip' in kept ? { clip: clipView(kept.clip) } : {}) });
   });
 
   // Stop DVR.
@@ -262,15 +311,24 @@ export const dvrRoutes: FastifyPluginAsync = async (fastify) => {
   });
 };
 
-// Sweep clips older than the TTL.
+// Sweep clips older than the TTL, and the oldest ones past the disk budget.
 setInterval(() => {
   void (async () => {
     try {
       const now = Date.now();
+      const kept: Array<{ p: string; m: number; size: number }> = [];
       for (const f of await readdir(CLIP_DIR)) {
         const p = join(CLIP_DIR, f);
         const s = await stat(p).catch(() => null);
-        if (s && now - s.mtimeMs > CLIP_TTL_MS) await unlink(p).catch(() => { /* raced */ });
+        if (!s) continue;
+        if (now - s.mtimeMs > CLIP_TTL_MS) await unlink(p).catch(() => { /* raced */ });
+        else kept.push({ p, m: s.mtimeMs, size: s.size ?? 0 });
+      }
+      let total = kept.reduce((sum, k) => sum + k.size, 0);
+      for (const k of kept.sort((a, b) => a.m - b.m)) {
+        if (total <= CLIPS_MAX_BYTES) break;
+        await unlink(k.p).catch(() => { /* raced */ });
+        total -= k.size;
       }
     } catch { /* dir not created yet */ }
   })();

@@ -74,17 +74,32 @@ const envSchema = z.object({
   // still apply. Empty = nobody is exempt.
   STREAM_LIMIT_EXEMPT: z.string().default('')
     .transform((v) => new Set(v.split(',').map((s) => s.trim().replace(/^@/, '').toLowerCase()).filter(Boolean))),
+  // --- Highlights, clips, rewind, podcast recording (H13, H14, H23) ----------
+  // How far back the DVR keeps segments: the rewind window viewers can seek in
+  // and the range a highlight clip can come from. About 225 MB per stream at
+  // the DVR's 3 Mbps for the default 10 minutes, pruned every 30 s.
+  DVR_BUFFER_SEC: z.coerce.number().int().min(60).max(3600).default(600),
+  // DVR clips (viewer, host and automatic highlight clips) are kept this long so
+  // they can still be posted as Shorts after the stream, then swept.
+  CLIP_KEEP_HOURS: z.coerce.number().positive().max(24 * 14).default(48),
+  // Upper bound for all kept clips on disk; the oldest go first past it.
+  CLIPS_DIR_MAX_MB: z.coerce.number().int().positive().default(4096),
+  // Chat and boost spike detection (per-room counters in 20 s buckets).
+  HIGHLIGHTS_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // "Record as podcast" in audio rooms: one audio track egress per speaker.
+  PODCAST_RECORDING_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   // --- HLS for large audiences (backlog idea H1) ------------------------------
   // How many viewers of ONE stream watch over WebRTC before the rest get the
-  // stream over HLS. Unset/empty = HLS off: every viewer is on WebRTC and the
-  // guest cap (MAX_GUESTS_PER_ROOM) refuses extra anonymous viewers, as before.
-  // 50 = the first 50 viewers on WebRTC, viewer 51 on gets HLS. 0 = every viewer
-  // on HLS. HLS viewers stay connected to the room for chat, boosts and the
+  // stream over HLS. Default 50, from the 2026-11-05 stress test (clean at 50
+  // viewers, broken at 100): viewer 51 on gets HLS. 0 = every viewer on HLS.
+  // Set it EMPTY (HLS_VIEWER_THRESHOLD=) to switch HLS off: every viewer on
+  // WebRTC and the guest cap (MAX_GUESTS_PER_ROOM) refuses extra anonymous
+  // viewers, as before. HLS viewers stay connected to the room for chat, boosts and the
   // viewer count, but receive no media from LiveKit (canSubscribe=false), so
   // they cost the SFU almost nothing. The HLS egress for a stream starts when
   // its first HLS viewer arrives and stops when the stream ends or nobody has
   // watched over HLS for a few minutes.
-  HLS_VIEWER_THRESHOLD: z.string().default('')
+  HLS_VIEWER_THRESHOLD: z.string().default('50')
     .transform((v) => (v.trim() === '' ? null : Number(v.trim())))
     .pipe(z.number().int().min(0).nullable()),
   // Where players fetch the playlist and segments. Empty = this API's own

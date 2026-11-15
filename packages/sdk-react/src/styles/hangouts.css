@@ -7976,6 +7976,64 @@
 }
 .hh-boost-settings__try { align-self: flex-start; }
 
+/* === Record as podcast (audio rooms) === */
+
+.hh-podcast {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.hh-podcast--mixing {
+  font-size: 0.8rem;
+  color: var(--hh-text-secondary);
+}
+
+.hh-podcast--done {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0.75rem;
+  border: 1px solid var(--hh-border);
+  border-radius: 8px;
+  background: var(--hh-bg-secondary);
+  max-width: 100%;
+}
+
+.hh-podcast__info {
+  font-size: 0.85rem;
+  color: var(--hh-text-secondary);
+}
+
+.hh-podcast__actions,
+.hh-podcast__mark {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.hh-podcast__actions a {
+  text-decoration: none;
+}
+
+.hh-podcast__mark-input {
+  min-width: 0;
+  width: 12rem;
+  max-width: 100%;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--hh-input-border);
+  border-radius: 6px;
+  background: var(--hh-bg);
+  color: var(--hh-text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.hh-podcast__error {
+  font-size: 0.75rem;
+  color: var(--hh-danger);
+
 /* ── Live battles (H16): meter, invite card, studio panel ─────────── */
 .hh-battle-bar {
   display: flex;

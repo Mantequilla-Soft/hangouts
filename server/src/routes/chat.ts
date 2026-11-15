@@ -6,6 +6,7 @@ import {
   addBacklogMessage, clampTimestamp, getBacklog, removeBacklogMessage, CHAT_TEXT_MAX,
 } from '../lib/chatBacklog.js';
 import { isHostOrMod, livekitIdentity, readRoomMeta, sendRoomData, sessionUser } from '../lib/liveRoom.js';
+import { noteChat } from '../lib/streamHighlights.js';
 
 /** Rooms seen to exist recently, so a busy chat is not one LiveKit lookup per line. */
 const KNOWN_TTL_MS = 15_000;
@@ -118,6 +119,9 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
       text,
       timestamp,
     });
+    // Highlight moments (H13): a new line counts for its verified sender (the
+    // host's second device is the same person). Map lookup + Set add, no I/O.
+    if (added) noteChat(name, `u:${identity.replace(/~watch$/, '')}`);
     return reply.code(added ? 201 : 200).send({ ok: true });
   });
 

@@ -16,6 +16,9 @@ import { gameRoutes } from './routes/games.js';
 import { premiumRoutes } from './routes/premium.js';
 import { templateRoutes } from './routes/templates.js';
 import { whipRoutes } from './routes/whip.js';
+import { highlightRoutes } from './routes/highlights.js';
+import { dvrRewindRoutes } from './routes/dvrRewind.js';
+import { podcastRoutes } from './routes/podcast.js';
 import { chatRoutes } from './routes/chat.js';
 import { pollRoutes } from './routes/polls.js';
 import { raidRoutes } from './routes/raids.js';
@@ -61,6 +64,10 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await server.register(premiumRoutes);
   await server.register(templateRoutes);
   await server.register(whipRoutes);
+  // Highlight clips (H13), rewind (H14), record as podcast (H23).
+  await server.register(highlightRoutes);
+  await server.register(dvrRewindRoutes);
+  await server.register(podcastRoutes);
   // Live interaction: chat backlog, polls and predictions, raids.
   await server.register(chatRoutes);
   await server.register(pollRoutes);

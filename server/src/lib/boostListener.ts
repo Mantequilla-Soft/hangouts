@@ -26,6 +26,7 @@ import {
 import { sendBoostPayout, sendBoostRefund } from './boostPayout.js';
 import { recordBoost } from './streamStats.js';
 import { recordBoostTally } from './boostGoals.js';
+import { noteBoost } from './streamHighlights.js';
 import { recordBattleBoost } from './battles.js';
 
 interface BoostTransferInput {
@@ -265,6 +266,8 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
     markBoostBroadcasted(id);
     // Leaderboard: log the boost against its stream (sender + recipient + amount).
     recordBoost(event.room, event.recipient, event.sender, event.usdAmount, event.message);
+    // Highlight moments (H13): a boost spike suggests a clip.
+    noteBoost(event.room, event.usdAmount);
   } catch (err) {
     await handleRejected(id, 'internal_error', log, err);
     return;

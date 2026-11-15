@@ -221,11 +221,12 @@ describe('DVR start', () => {
 });
 
 describe('DVR segment janitor', () => {
-  it('every 30 s deletes only .ts segments older than the 150 s buffer', async () => {
+  it('every 30 s deletes only .ts segments older than the 10 min buffer (DVR_BUFFER_SEC, the rewind window)', async () => {
     await post('start');
     const now = Date.now();
     disk[SEG_DIR] = {
-      'seg_old.ts': now - 200_000,
+      'seg_old.ts': now - 700_000,
+      'seg_rewindable.ts': now - 500_000,
       'seg_new.ts': now - 1_000,
       'index.m3u8': now - 999_999,
     };
@@ -281,6 +282,29 @@ describe('DVR clip', () => {
     expect(args).toContain(`concat:${SEG_DIR}/seg_a.ts|${SEG_DIR}/seg_b.ts|${SEG_DIR}/seg_c.ts`);
     expect(args).toEqual(expect.arrayContaining(['-c', 'copy']));
     expect(args[args.length - 1]).toBe(`${CLIP_DIR}/${path.split('/').pop()}`);
+  });
+
+  it('keeps the clip for posting: a signed-in viewer is credited as the clipper, with the offset since go-live', async () => {
+    vi.mocked(lk.listRooms).mockResolvedValue([{ name: ROOM, metadata: JSON.stringify({ host: 'alice', mode: 'standalone', liveAt: new Date(Date.now() - 125_000).toISOString(), vertical: { on: true, x: 0.6, w: 0.316 } }) }] as never);
+    await post('start');
+    disk[SEG_DIR] = { 's1.ts': Date.now() - 1000, 's2.ts': Date.now() };
+    const res = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip`, headers: { authorization: `Bearer ${await makeToken('fan')}` } });
+    expect(res.statusCode).toBe(200);
+    const { path, clip } = res.json();
+    expect(clip).toMatchObject({ room: ROOM, host: 'alice', clipper: 'fan', source: 'viewer', path, durationSec: 4 });
+    // The host's phone crop is on: a vertical copy can be made (POST /clips/:id/vertical).
+    expect(clip.vertical).toEqual({ available: true, path: null });
+    expect(clip.offsetSec).toBeGreaterThanOrEqual(124);
+    expect(clip.offsetSec).toBeLessThanOrEqual(126);
+  });
+
+  it('a clip by the host is marked as the host\'s, a guest clip has no clipper', async () => {
+    await post('start');
+    disk[SEG_DIR] = { 's.ts': Date.now() };
+    const mine = (await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip`, headers: auth })).json();
+    expect(mine.clip).toMatchObject({ clipper: 'alice', source: 'host', offsetSec: null, vertical: { available: false, path: null } });
+    const guest = (await app.inject({ method: 'POST', url: `/rooms/${ROOM}/dvr/clip`, headers: { authorization: 'Bearer nonsense' } })).json();
+    expect(guest.clip).toMatchObject({ clipper: null, source: 'viewer' });
   });
 
   it('returns 500 when ffmpeg exits non-zero', async () => {
@@ -411,12 +435,28 @@ describe('DVR background sweeps', () => {
     expect(await dvrStatus()).toEqual({ recording: true });
   });
 
-  it('every 10 min deletes clips older than 1 h and keeps newer ones', async () => {
+  it('every 10 min deletes clips older than 48 h (CLIP_KEEP_HOURS, kept for posting as Shorts) and keeps newer ones', async () => {
     const now = Date.now();
-    disk[CLIP_DIR] = { 'old.mp4': now - 2 * 3600_000, 'fresh.mp4': now };
+    disk[CLIP_DIR] = { 'old.mp4': now - 49 * 3600_000, 'yesterday.mp4': now - 24 * 3600_000, 'fresh.mp4': now };
     await vi.advanceTimersByTimeAsync(10 * 60_000);
     expect(fsp.unlink).toHaveBeenCalledTimes(1);
     expect(fsp.unlink).toHaveBeenCalledWith(`${CLIP_DIR}/old.mp4`);
+  });
+
+  it('past the clip disk budget (CLIPS_DIR_MAX_MB) the oldest clips go first', async () => {
+    await app.close();
+    await setup({ CLIPS_DIR_MAX_MB: '1' });
+    const now = Date.now();
+    disk[CLIP_DIR] = { 'a.mp4': now - 3000, 'b.mp4': now - 2000, 'c.mp4': now - 1000 };
+    fsp.stat.mockImplementation(async (p: string) => {
+      const i = p.lastIndexOf('/');
+      const m = disk[p.slice(0, i)]?.[p.slice(i + 1)];
+      if (m === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return { mtimeMs: m, size: 400 * 1024 };
+    });
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(fsp.unlink).toHaveBeenCalledTimes(1);
+    expect(fsp.unlink).toHaveBeenCalledWith(`${CLIP_DIR}/a.mp4`);
   });
 
   it('the clip sweep tolerates a missing clip dir', async () => {

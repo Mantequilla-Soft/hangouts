@@ -72,6 +72,17 @@ describe('POST /rooms/:name/chat', () => {
     expect(await getBacklog(ROOM)).toHaveLength(1);
   });
 
+  it('counts each new line once towards the highlight moments (H13), the second device as the host', async () => {
+    const hl = await import('../../src/lib/streamHighlights.js');
+    const spy = vi.spyOn(hl, 'noteChat');
+    const ts = Date.now();
+    await post({ text: 'one', timestamp: ts }, auth.fan);
+    await post({ text: 'one', timestamp: ts }, auth.fan);
+    await post({ text: 'from my phone', identity: 'badadib~watch' }, auth.badadib);
+    expect(spy.mock.calls.map((c) => c.slice(0, 2))).toEqual([[ROOM, 'u:fan'], [ROOM, 'u:badadib']]);
+    spy.mockRestore();
+  });
+
   it('lets the host chat as their second-device identity but not as someone else', async () => {
     expect((await post({ text: 'from my phone', identity: 'badadib~watch' }, auth.badadib)).statusCode).toBe(201);
     expect((await post({ text: 'spoof', identity: 'fan' }, auth.badadib)).statusCode).toBe(403);

@@ -234,6 +234,9 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         live,
         // Live viewer count for the discovery cards.
         viewers,
+        // An audio room being recorded as a podcast episode (H23): the checker
+        // announces it in the host's podcast feed as <podcast:liveItem>.
+        ...((meta as { podcastLive?: unknown }).podcastLive ? { podcast: true } : {}),
       };
     }));
 
