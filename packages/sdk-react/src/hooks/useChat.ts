@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useContext, useEffect, useSyncExternalStore } from 'react';
 import { useDataChannel, useLocalParticipant, useRoomContext } from '@livekit/components-react';
+import { HangoutsContext } from '../context/HangoutsContext.js';
+import { sendChatTick } from '../lib/hangoutsHttp.js';
 
 export interface ChatMessage {
   id: string;
@@ -52,6 +54,8 @@ const getSnapshot = () => messages;
 export function useChat() {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
+  // Null outside a provider (an egress template): then no highlight counting.
+  const hangouts = useContext(HangoutsContext);
 
   // Clear the log when the room changes — messages must not leak between rooms.
   //
@@ -103,6 +107,8 @@ export function useChat() {
 
     const payload = new TextEncoder().encode(JSON.stringify(event));
     send(payload, { reliable: true });
+    // Counts towards the stream's highlight moments (one tiny request, not awaited).
+    sendChatTick(hangouts?.apiBaseUrl, room?.name, hangouts?.apiClient.getSessionToken());
 
     // Echo locally — LiveKit doesn't loop your own data messages back.
     pushMessage({
@@ -112,7 +118,7 @@ export function useChat() {
       text: event.text,
       timestamp: event.timestamp,
     });
-  }, [localParticipant, send]);
+  }, [localParticipant, send, hangouts, room]);
 
   return { messages: current, sendMessage };
 }

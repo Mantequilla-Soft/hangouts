@@ -76,6 +76,13 @@ export { ParticipantTile, type ParticipantTileProps } from './components/room/Pa
 export { HostControlsPanel, type HostControlsPanelProps } from './components/room/HostControlsPanel.js';
 export { RoomHeader, type RoomHeaderProps } from './components/room/RoomHeader.js';
 export { ChatPanel } from './components/room/ChatPanel.js';
+// Record an audio room as a podcast episode (H23), and the helpers behind the
+// highlight clips (H13), rewind (H14) and podcast endpoints.
+export { PodcastRecordControls, type PodcastRecordControlsProps, type PodcastHandoff } from './components/room/PodcastRecordControls.js';
+export {
+  sendChatTick, podcastApi, waitForEpisode, chapterTitle,
+  type PodcastEpisode, type PodcastChapter, type PodcastChapterKind, type PodcastStatus,
+} from './lib/hangoutsHttp.js';
 export { BoostOverlay } from './components/room/BoostOverlay.js';
 export { SendBoostDialog } from './components/room/SendBoostDialog.js';
 export {

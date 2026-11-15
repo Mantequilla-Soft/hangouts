@@ -8,6 +8,7 @@ import { usePttPreference } from '../../hooks/usePttPreference.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useStreaming } from '../../hooks/useStreaming.js';
 import { RecordingControls } from './RecordingControls.js';
+import { PodcastRecordControls } from './PodcastRecordControls.js';
 import { SendBoostDialog } from './SendBoostDialog.js';
 import { BoostHistoryPanel } from './BoostHistoryPanel.js';
 import { BoostSettingsPanel } from './BoostSettingsPanel.js';
@@ -312,6 +313,8 @@ export function RoomControls({ isHost, isGuest = false, roomName, onLeave, onEnd
           row stays balanced for non-hosts who only see Leave on the right) */}
       <div className="hh-controls__group hh-controls__group--right">
         {effectiveIsHost && <RecordingControls roomName={roomName} onVideoHandoff={onVideoHandoff} onAudioHandoff={onAudioHandoff} />}
+        {/* Audio rooms: record the show as a podcast episode (H23). */}
+        {effectiveIsHost && !roomVideoEnabled && <PodcastRecordControls roomName={roomName} onAudioHandoff={onAudioHandoff} />}
 
         {effectiveIsHost && (
           <button
