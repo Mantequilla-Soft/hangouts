@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDataChannel, useRoomInfo } from '@livekit/components-react';
+import { readCaptionPacket, type DataSender } from '../lib/dataTrust.js';
 import {
   CAPTIONS_TOPIC,
   applyCaption,
-  decodeCaption,
   pruneCaptions,
   type CaptionLine,
 } from '../lib/liveCaptions.js';
@@ -33,10 +33,8 @@ export function useLiveCaptions(): LiveCaptionsState {
   const [lines, setLines] = useState<CaptionLine[]>([]);
   const [lastLang, setLastLang] = useState('');
 
-  const onMessage = useCallback((msg: { payload: Uint8Array; from?: { identity?: string } }) => {
-    const host = hostRef.current;
-    if (!host || msg.from?.identity !== host) return;
-    const cap = decodeCaption(msg.payload);
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
+    const cap = readCaptionPacket(msg.payload, msg.from, hostRef.current);
     if (!cap) return;
     setLastLang(cap.lang);
     setLines((l) => applyCaption(l, cap, Date.now()));

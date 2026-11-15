@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { useDataChannel } from '@livekit/components-react';
 import { HangoutsContext } from '../context/HangoutsContext.js';
+import { readRaidPacket, type DataSender } from '../lib/dataTrust.js';
 
 /** Where a raid goes. */
 export interface RaidTargetInfo {
@@ -60,15 +61,15 @@ export function useRaid(roomName: string) {
     return () => { alive = false; };
   }, [roomName, apiBaseUrl]);
 
-  const onMessage = useCallback((msg: { payload: Uint8Array }) => {
-    try {
-      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as { type?: string; raid?: unknown };
-      const r = parseRaid(parsed.raid);
-      if (!r) return;
-      if (parsed.type === 'raid-start') setRaid({ ...r, go: false });
-      else if (parsed.type === 'raid-go') setRaid((cur) => ({ ...(cur && cur.id === r.id ? cur : r), go: true }));
-      else if (parsed.type === 'raid-cancel') setRaid((cur) => (cur && cur.id === r.id ? null : cur));
-    } catch { /* ignore malformed */ }
+  // Server only: raid-go sends every viewer to the target room, so a packet a
+  // participant published (a fake raid to a page of their choosing) is dropped.
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
+    const packet = readRaidPacket(msg.payload, msg.from);
+    const r = packet ? parseRaid(packet.raid) : null;
+    if (!packet || !r) return;
+    if (packet.type === 'raid-start') setRaid({ ...r, go: false });
+    else if (packet.type === 'raid-go') setRaid((cur) => ({ ...(cur && cur.id === r.id ? cur : r), go: true }));
+    else setRaid((cur) => (cur && cur.id === r.id ? null : cur));
   }, []);
   useDataChannel('raid', onMessage);
 

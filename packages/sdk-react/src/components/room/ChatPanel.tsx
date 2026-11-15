@@ -21,9 +21,10 @@ function parseMentions(text: string): Array<{ type: 'text' | 'mention'; value: s
 export interface ChatPanelProps {
   /** Called when the user clicks the collapse button in the chat header. */
   onClose?: () => void;
-  /** Listen-only guest — render the chat in read-only mode. Server
-   *  blocks data publishing for guest identities anyway, but hiding
-   *  the input keeps the UI honest. */
+  /** Anonymous guest. Only a fallback until LiveKit reports this
+   *  participant's permissions: guests hold `canPublishData` and CAN chat
+   *  (under the name they picked; who sent a line is always the LiveKit
+   *  sender, see lib/dataTrust.ts). Use `readOnly` to keep them out. */
   isGuest?: boolean;
   /** Force read-only regardless of the LiveKit publish permission. Use for
    *  watch-page embeds where anonymous viewers may hold a chat-capable guest

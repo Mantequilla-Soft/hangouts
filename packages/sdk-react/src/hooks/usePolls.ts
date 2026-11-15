@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useDataChannel } from '@livekit/components-react';
 import { HangoutsContext } from '../context/HangoutsContext.js';
+import { readPollPacket, type DataSender } from '../lib/dataTrust.js';
 import { isFinished, parsePoll, type PollKind, type PollStake, type PollView } from '../lib/polls.js';
 
 export interface CreatePollInput {
@@ -61,13 +62,10 @@ export function usePolls(roomName: string) {
   // `isAuthenticated` too: signing in mid-stream brings back "you voted".
   useEffect(() => { void refresh(); }, [refresh, ctx?.isAuthenticated]);
 
-  const onMessage = useCallback((msg: { payload: Uint8Array }) => {
-    try {
-      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as { type?: string; poll?: unknown };
-      if (parsed.type !== 'poll') return;
-      const p = parsePoll(parsed.poll);
-      if (p) take(p);
-    } catch { /* ignore malformed */ }
+  // Server only: a poll card a participant published (fake results) is dropped.
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
+    const p = parsePoll(readPollPacket(msg.payload, msg.from));
+    if (p) take(p);
   }, [take]);
   useDataChannel('poll', onMessage);
 

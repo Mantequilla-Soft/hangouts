@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { RoomAudio } from './RoomAudio.js';
 import { LiveKitRoom,  StartAudio } from '@livekit/components-react';
 import { useDataChannel } from '@livekit/components-react';
+import { readGamePacket } from '../../lib/dataTrust.js';
 import { DisconnectReason } from 'livekit-client';
 import type { GameResultPayload } from '@snapie/hangouts-core';
 import { useHangoutsRoom } from '../../hooks/useHangoutsRoom.js';
@@ -77,29 +78,28 @@ function GameNotificationListener({
   onGameEnded: (payload?: GameResultPayload) => void;
 }) {
   useDataChannel('game', (msg) => {
-    try {
-      const parsed = JSON.parse(new TextDecoder().decode(msg.payload)) as {
-        type: string;
-        gameId?: string;
-        players?: string[];
-        startedAt?: number;
-        endedAt?: number;
-        duration?: number;
-        result?: unknown;
-      };
-      if (parsed.type === 'game:started') onGameStarted(parsed.gameId ?? '');
-      if (parsed.type === 'game:ended') {
-        const payload: GameResultPayload | undefined = parsed.gameId ? {
-          gameId: parsed.gameId,
-          players: parsed.players ?? [],
-          startedAt: parsed.startedAt ?? 0,
-          endedAt: parsed.endedAt ?? Date.now(),
-          duration: parsed.duration ?? 0,
-          result: parsed.result ?? null,
-        } : undefined;
-        onGameEnded(payload);
-      }
-    } catch { /* ignore malformed */ }
+    // Server only, like every game message (lib/dataTrust.ts).
+    const parsed = readGamePacket<{
+      gameId?: string;
+      players?: string[];
+      startedAt?: number;
+      endedAt?: number;
+      duration?: number;
+      result?: unknown;
+    }>(msg.payload, msg.from);
+    if (!parsed) return;
+    if (parsed.type === 'game:started') onGameStarted(parsed.gameId ?? '');
+    if (parsed.type === 'game:ended') {
+      const payload: GameResultPayload | undefined = parsed.gameId ? {
+        gameId: parsed.gameId,
+        players: parsed.players ?? [],
+        startedAt: parsed.startedAt ?? 0,
+        endedAt: parsed.endedAt ?? Date.now(),
+        duration: parsed.duration ?? 0,
+        result: parsed.result ?? null,
+      } : undefined;
+      onGameEnded(payload);
+    }
   });
   return null;
 }

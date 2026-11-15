@@ -32,8 +32,8 @@ const setRoom = (meta: Record<string, unknown> = {}) => lk.rooms.set(ROOM, {
   name: ROOM, metadata: JSON.stringify({ host: 'badadib', mode: 'standalone', visibility: 'public', mods: ['mod1'], ...meta }),
 });
 
-async function guestToken(room = ROOM, identity = 'guest-abc', canPublishData = true) {
-  const at = new AccessToken('test-key', 'test-secret', { identity });
+async function guestToken(room = ROOM, identity = 'guest-abc', canPublishData = true, name?: string) {
+  const at = new AccessToken('test-key', 'test-secret', { identity, name });
   at.addGrant({ roomJoin: true, room, canPublishData });
   return at.toJwt();
 }
@@ -61,10 +61,10 @@ const post = (payload: Record<string, unknown>, headers: Record<string, string> 
 
 describe('POST /rooms/:name/chat', () => {
   it('keeps a signed-in viewer line under the id the clients use', async () => {
-    const res = await post({ text: ' hi there ', timestamp: Date.now(), name: 'Fan' }, auth.fan);
+    const res = await post({ text: ' hi there ', timestamp: Date.now() }, auth.fan);
     expect(res.statusCode).toBe(201);
     const [line] = await getBacklog(ROOM);
-    expect(line).toMatchObject({ identity: 'fan', name: 'Fan', text: 'hi there' });
+    expect(line).toMatchObject({ identity: 'fan', name: 'fan', text: 'hi there' });
     expect(line.id).toMatch(/^fan-\d+$/);
     // The same line posted twice is kept once.
     const again = await post({ text: 'hi there', timestamp: Number(line.id.split('-')[1]) }, auth.fan);
@@ -86,6 +86,15 @@ describe('POST /rooms/:name/chat', () => {
   it('lets the host chat as their second-device identity but not as someone else', async () => {
     expect((await post({ text: 'from my phone', identity: 'badadib~watch' }, auth.badadib)).statusCode).toBe(201);
     expect((await post({ text: 'spoof', identity: 'fan' }, auth.badadib)).statusCode).toBe(403);
+  });
+
+  it('never takes the name from the body: the account, or the name in the guest token', async () => {
+    await post({ text: 'i am the host', name: 'badadib', timestamp: 1 }, auth.fan);
+    await post({ text: 'phone', identity: 'badadib~watch', name: 'Someone Else', timestamp: 2 }, auth.badadib);
+    await post({ text: 'guest', name: 'badadib', timestamp: 3, livekitToken: await guestToken(ROOM, 'guest-abc', true, 'Zed') });
+    await post({ text: 'nameless', name: 'badadib', timestamp: 4, livekitToken: await guestToken(ROOM, 'guest-def') });
+    const names = (await getBacklog(ROOM)).map((m) => [m.identity, m.name]);
+    expect(names).toEqual([['fan', 'fan'], ['badadib~watch', 'badadib'], ['guest-abc', 'Zed'], ['guest-def', 'guest-def']]);
   });
 
   it('refuses a suspended account', async () => {

@@ -1,5 +1,7 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDataChannel, useLocalParticipant } from '@livekit/components-react';
+import { readHandRaisePacket, type DataSender } from '../lib/dataTrust.js';
+import { useLiveHost } from './useLiveHost.js';
 import type { HandRaiseEvent } from '@snapie/hangouts-core';
 
 const TOPIC = 'hand-raise';
@@ -12,26 +14,27 @@ export function useHandRaise() {
     ? raisedHands.has(localParticipant.identity)
     : false;
 
-  const onMessage = useCallback((msg: { payload: Uint8Array }) => {
-    try {
-      const text = new TextDecoder().decode(msg.payload);
-      const event: HandRaiseEvent = JSON.parse(text);
-      if (event.type !== 'hand_raise') return;
+  // Your own hand is the LiveKit sender's; only the host lowers someone else's.
+  const { hostIdentity } = useLiveHost();
+  const hostRef = useRef(hostIdentity);
+  hostRef.current = hostIdentity;
 
-      setRaisedHands((prev) => {
-        const next = new Map(prev);
-        const existing = next.get(event.identity);
-        // Only accept newer events
-        if (existing && existing > event.timestamp) return prev;
+  const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
+    const event = readHandRaisePacket(msg.payload, msg.from, hostRef.current);
+    if (!event) return;
+    setRaisedHands((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(event.identity);
+      // Only accept newer events
+      if (existing && existing > event.timestamp) return prev;
 
-        if (event.raised) {
-          next.set(event.identity, event.timestamp);
-        } else {
-          next.delete(event.identity);
-        }
-        return next;
-      });
-    } catch { /* ignore malformed messages */ }
+      if (event.raised) {
+        next.set(event.identity, event.timestamp);
+      } else {
+        next.delete(event.identity);
+      }
+      return next;
+    });
   }, []);
 
   const { send } = useDataChannel(TOPIC, onMessage);

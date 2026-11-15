@@ -45,11 +45,22 @@ const verifier = new TokenVerifier(config.LIVEKIT_API_KEY, config.LIVEKIT_API_SE
  * that may publish data (a chatting guest). Null for anything else.
  */
 export async function livekitIdentity(token: unknown, roomName: string): Promise<string | null> {
+  return (await livekitParticipant(token, roomName))?.identity ?? null;
+}
+
+/**
+ * Like livekitIdentity, plus the display name the server put in that token
+ * (the name everyone sees on the data channel), so a line's name can come
+ * from the token instead of the request body.
+ */
+export async function livekitParticipant(token: unknown, roomName: string): Promise<{ identity: string; name: string } | null> {
   if (typeof token !== 'string' || token.length < 20 || token.length > 4096) return null;
   try {
     const claims = await verifier.verify(token);
     if (claims.video?.room !== roomName || claims.video?.canPublishData === false) return null;
-    return typeof claims.sub === 'string' && claims.sub ? claims.sub : null;
+    if (typeof claims.sub !== 'string' || !claims.sub) return null;
+    const name = typeof claims.name === 'string' && claims.name.trim() ? claims.name.trim() : claims.sub;
+    return { identity: claims.sub, name };
   } catch {
     return null;
   }
