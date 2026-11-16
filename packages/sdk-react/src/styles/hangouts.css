@@ -8261,7 +8261,8 @@
     max-height: 85vh;
     border-radius: 14px 14px 0 0;
   }
-  z-index: 5;
+}
+.hh-captions {
   display: flex;
   flex-direction: column;
   align-items: center;
