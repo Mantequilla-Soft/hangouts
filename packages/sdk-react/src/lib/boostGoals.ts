@@ -136,6 +136,16 @@ export function readBoostStats(meta: Record<string, unknown>): BoostStats {
   };
 }
 
+/**
+ * A goal from what the host typed (the create form's Boosts step), or null: an
+ * amount above 0 makes a goal, a title alone does not, and no boosts no goal.
+ */
+export function goalFromInput(boostsOn: boolean, title: string, amount: string): BoostGoal | null {
+  const target = parseFloat(amount);
+  if (!boostsOn || !Number.isFinite(target) || target <= 0) return null;
+  return { title: title.replace(/\s+/g, ' ').trim().slice(0, 80), targetHbd: target };
+}
+
 export interface GoalProgress {
   title: string;
   targetHbd: number;

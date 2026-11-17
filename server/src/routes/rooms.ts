@@ -385,6 +385,15 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
               enabled: { type: 'boolean' },
               minBoostUsd: { type: 'number', minimum: 0 },
               creatorPayoutAccount: { type: 'string', minLength: 3, maxLength: 16 },
+              // The goal bar, set before going live (create form, Boosts step)
+              goal: {
+                type: 'object',
+                required: ['targetHbd'],
+                properties: {
+                  title: { type: 'string', maxLength: 200 },
+                  targetHbd: { type: 'number' },
+                },
+              },
             },
           },
         },
@@ -398,10 +407,15 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         backgroundImage?: string;
         visibility?: string;
         language?: string;
-        boost?: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string };
+        boost?: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string; goal?: { title?: string; targetHbd?: number } };
         mode?: string;
         tags?: string[];
       };
+    // A goal is checked like the studio's (PATCH /rooms/:name/boost), before a room exists
+    if (rawBoost?.goal) {
+      const goal = parseBoostExtras({ goal: rawBoost.goal });
+      if (!goal.ok) return reply.badRequest(goal.error);
+    }
     const host = request.username;
     const { premium } = await getUserStatus(host);
 

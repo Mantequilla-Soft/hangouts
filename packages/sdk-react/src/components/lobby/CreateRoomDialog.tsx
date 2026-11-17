@@ -9,6 +9,7 @@ import { AUTO_VOD_KEY, AUTO_VOD_DEFAULT, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref,
 import { isInAppBrowser, canBroadcast } from '../../lib/browser.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { FREE_STREAM_CAP_LABEL, PRO_STREAM_CAP_LABEL } from '../../lib/streamLimits.js';
+import { goalFromInput } from '../../lib/boostGoals.js';
 
 /** How the host wants to announce the session on Hive. */
 export type AnnounceType = 'snap' | 'post';
@@ -25,7 +26,7 @@ export interface CreateRoomDraft {
   tags: string[];
   language: string;
   visibility: RoomVisibility;
-  boost: { enabled: boolean; minBoostUsd: number; creatorPayoutAccount: string };
+  boost: { enabled: boolean; minBoostUsd: number; creatorPayoutAccount: string; goal: { title: string; targetHbd: number } | null };
   /** Announce on Hive (always false for an unlisted room). */
   notifyOnHive: boolean;
   announceType: AnnounceType;
@@ -155,6 +156,12 @@ export interface CreateRoomLabels extends StepLabels {
   minBoost: string;
   payoutAccount: string;
   payoutPlaceholder: string;
+  /** The boost goal bar (optional): heading, its hint, the two fields. */
+  goalLabel: string;
+  goalHint: string;
+  goalFor: string;
+  goalForPlaceholder: string;
+  goalAmount: string;
   announceStream: string;
   announceSession: string;
   announceTypeLabel: string;
@@ -259,6 +266,11 @@ export const DEFAULT_CREATE_ROOM_LABELS: CreateRoomLabels = {
   minBoost: 'Minimum boost (USD)',
   payoutAccount: 'Payout account',
   payoutPlaceholder: 'defaults to you',
+  goalLabel: 'Boost goal',
+  goalHint: 'Viewers see a bar filling up with the boosts paid to you. Leave the amount empty for no goal.',
+  goalFor: "What it's for",
+  goalForPlaceholder: 'A new mic',
+  goalAmount: 'Goal amount (HBD)',
   announceStream: 'Share this stream on Hive and 3Speak',
   announceSession: 'Announce this session on Hive',
   announceTypeLabel: 'Announcement type',
@@ -446,6 +458,8 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
   // $1 priced out most of the audience for a quick 'nice stream' boost.
   const [minBoostUsd, setMinBoostUsd] = useState(draft.minBoostUsd ?? '0.1');
   const [creatorPayoutAccount, setCreatorPayoutAccount] = useState(draft.creatorPayoutAccount ?? '');
+  const [goalTitle, setGoalTitle] = useState(draft.goalTitle ?? '');
+  const [goalTarget, setGoalTarget] = useState(draft.goalTarget ?? '');
   const [notifyOnHive, setNotifyOnHive] = useState(draft.notifyOnHive ?? true);
   const [announceType, setAnnounceType] = useState<AnnounceType>((draft.announceType as AnnounceType) ?? 'snap');
   // Shared with the studio's post tab — see streamRecordingPrefs. Set here so
@@ -573,6 +587,8 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
     setBoostEnabled(d.boostEnabled ?? true);
     setMinBoostUsd(d.minBoostUsd ?? '0.1');
     setCreatorPayoutAccount(d.creatorPayoutAccount ?? '');
+    setGoalTitle(d.goalTitle ?? '');
+    setGoalTarget(d.goalTarget ?? '');
     setNotifyOnHive(d.notifyOnHive ?? true);
     setAnnounceType((d.announceType as AnnounceType) ?? 'snap');
   }, [mode, initialMode]);
@@ -582,12 +598,15 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
   useEffect(() => {
     writePostDraft({
       title, description, thumbnail: backgroundImageUrl, tags, language, mode, visibility,
-      boostEnabled, minBoostUsd, creatorPayoutAccount, notifyOnHive, announceType,
+      boostEnabled, minBoostUsd, creatorPayoutAccount, goalTitle, goalTarget, notifyOnHive, announceType,
     }, mode);
   }, [
     title, description, backgroundImageUrl, tags, language, mode, visibility,
-    boostEnabled, minBoostUsd, creatorPayoutAccount, notifyOnHive, announceType,
+    boostEnabled, minBoostUsd, creatorPayoutAccount, goalTitle, goalTarget, notifyOnHive, announceType,
   ]);
+
+  // The goal as the server takes it, or null (the studio's Boost settings work the same way)
+  const goal = useMemo(() => goalFromInput(boostEnabled, goalTitle, goalTarget), [boostEnabled, goalTitle, goalTarget]);
 
   // Why the last create failed, shown above the actions. A free host's daily
   // stream limit gets its own wording, with the local time they can go again.
@@ -609,6 +628,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
         enabled: boostEnabled,
         minBoostUsd: Number.isFinite(minUsd) ? Math.max(0, minUsd) : 0,
         creatorPayoutAccount: creatorPayoutAccount.trim() || undefined,
+        ...(goal ? { goal } : {}),
       },
       mode,
       tags,
@@ -943,6 +963,26 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
           </div>
         )}
 
+        {/* 9b · Boost goal: the bar viewers fill, set before going live */}
+        {boostEnabled && (
+          <div className="hh-cd__section">
+            <span className="hh-cd__label">🎯 {L.goalLabel}</span>
+            <p className="hh-cd__limit-hint">{L.goalHint}</p>
+            <div className="hh-cd__row2">
+              <label className="hh-cd__field">
+                <span className="hh-cd__label">{L.goalFor}</span>
+                <input className="hh-cd__input" type="text" value={goalTitle} maxLength={80}
+                  placeholder={L.goalForPlaceholder} onChange={(e) => setGoalTitle(e.target.value)} />
+              </label>
+              <label className="hh-cd__field">
+                <span className="hh-cd__label">{L.goalAmount}</span>
+                <input className="hh-cd__input" type="number" min="0" step="0.001" value={goalTarget}
+                  placeholder="50" onChange={(e) => setGoalTarget(e.target.value)} />
+              </label>
+            </div>
+          </div>
+        )}
+
         {/* 10 · Announce */}
         {visibility !== 'unlisted' && (
           <div className="hh-cd__section">
@@ -1100,6 +1140,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
             enabled: boostEnabled,
             minBoostUsd: Number.isFinite(Number(minBoostUsd)) ? Math.max(0, Number(minBoostUsd)) : 0,
             creatorPayoutAccount: creatorPayoutAccount.trim(),
+            goal,
           },
           notifyOnHive: visibility === 'unlisted' ? false : notifyOnHive,
           announceType: effectiveAnnounceType,

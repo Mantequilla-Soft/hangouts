@@ -28,6 +28,8 @@ interface BoostConfigInput {
   enabled: boolean;
   minBoostUsd: number;
   creatorPayoutAccount?: string;
+  /** The goal bar from the start (the create form's Boosts step). */
+  goal?: { title: string; targetHbd: number };
 }
 
 export function useHangoutsRoom() {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  goalFromInput,
   ALERT_FRESH_MS,
   BOOST_BASE_DISPLAY_MS,
   BOOST_TIERS,
@@ -195,5 +196,19 @@ describe('small helpers', () => {
     expect(goalJustReached(undefined, new Date(now - GOAL_NEWS_MS - 1).toISOString(), false, now)).toBe(false);
     expect(goalJustReached(undefined, 'not a date', false, now)).toBe(true);
     expect(goalJustReached(undefined, fresh, false)).toBe(true);
+  });
+});
+
+describe('a goal typed in the create form', () => {
+  it('an amount above 0 makes a goal, with the title tidied', () => {
+    expect(goalFromInput(true, '  A new   mic ', '50')).toEqual({ title: 'A new mic', targetHbd: 50 });
+    expect(goalFromInput(true, '', '12.5')).toEqual({ title: '', targetHbd: 12.5 });
+  });
+
+  it('no amount, zero, nonsense or boosts off: no goal', () => {
+    expect(goalFromInput(true, 'Mic', '')).toBeNull();
+    expect(goalFromInput(true, 'Mic', '0')).toBeNull();
+    expect(goalFromInput(true, 'Mic', 'abc')).toBeNull();
+    expect(goalFromInput(false, 'Mic', '50')).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { roomService, generateRoomName } from './livekit.js';
 import { clearRoomBans } from './guestBans.js';
+import { parseBoostExtras, type BoostGoal } from './boostGoals.js';
 
 /**
  * Room creation + teardown shared by the browser studio (POST /rooms,
@@ -29,6 +30,8 @@ export interface BoostConfig {
   enabled: boolean;
   minBoostUsd: number;
   creatorPayoutAccount?: string;
+  /** Set in the create form's Boosts step; later changes go through PATCH /rooms/:name/boost. */
+  goal?: BoostGoal;
 }
 
 export interface RoomMetadata {
@@ -127,7 +130,7 @@ export interface CreateStreamRoomInput {
   language?: string;
   mode?: string;
   tags?: string[];
-  boost?: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string };
+  boost?: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string; goal?: { title?: string; targetHbd?: number } };
   origin?: string;
   /** Extra metadata fields (headless streams) merged over the defaults. */
   extra?: Partial<RoomMetadata>;
@@ -148,7 +151,7 @@ export function buildRoomMetadata(input: CreateStreamRoomInput): RoomMetadata {
   // PATCH /rooms/:name/boost without needing to recreate the room.
   // Old clients that don't send boost are given sensible defaults.
   const rawBoost = input.boost;
-  const boost: BoostConfig = rawBoost
+  let boost: BoostConfig = rawBoost
     ? {
         enabled: rawBoost.enabled !== false,
         minBoostUsd: Number.isFinite(rawBoost.minBoostUsd) ? Math.max(0, Number(rawBoost.minBoostUsd ?? 0)) : 0,
@@ -159,6 +162,12 @@ export function buildRoomMetadata(input: CreateStreamRoomInput): RoomMetadata {
         minBoostUsd: 0,
         creatorPayoutAccount: host,
       };
+  // A goal set before going live (the create form's Boosts step), checked like
+  // the studio's: the route already refused a bad one, here it is just dropped.
+  if (rawBoost?.goal) {
+    const goal = parseBoostExtras({ goal: rawBoost.goal });
+    if (goal.ok) boost = goal.apply({ ...boost }) as unknown as BoostConfig;
+  }
 
   return {
     title,
