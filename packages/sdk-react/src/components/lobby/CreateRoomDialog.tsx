@@ -967,7 +967,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
         {boostEnabled && (
           <div className="hh-cd__section">
             <span className="hh-cd__label">🎯 {L.goalLabel}</span>
-            <p className="hh-cd__limit-hint">{L.goalHint}</p>
+            <p className="hh-cd__goal-hint">{L.goalHint}</p>
             <div className="hh-cd__row2">
               <label className="hh-cd__field">
                 <span className="hh-cd__label">{L.goalFor}</span>
