@@ -297,7 +297,7 @@ recording template you build (OBS overlay, egress) needs the same checks: the de
 | Package | Version | Use |
 |---|---|---|
 | `@snapie/hangouts-core` | 0.16.0 | No dependencies. `HangoutsApiClient`, `HangoutsApiError`, login helpers, types, track names. Use it without React or on a server. |
-| `@snapie/hangouts-react` | 0.27.1 | Peer deps: `react` 18 or 19, `livekit-client` 2, `@livekit/components-react` 2. Re-exports most of core. |
+| `@snapie/hangouts-react` | 0.27.2 | Peer deps: `react` 18 or 19, `livekit-client` 2, `@livekit/components-react` 2. Re-exports most of core. |
 
 Styles: `import '@snapie/hangouts-react/src/styles/hangouts.css'` (one file, it
 imports the rest). Classes use the `hh-` prefix, colours the `--hh-*` variables.
@@ -354,7 +354,7 @@ Track names (`tracks.ts`): `studio-program` (the composited video), `studio-mix`
 | `useRoomBattle()`, `useStudioBattle()` | battle state for viewers; invite/respond/end for the studio |
 | `useLiveCaptions()`, `useStudioCaptions()` | captions for viewers; the studio's caption session |
 | `useWhipIngress(room)` | `start({ transcode, source: 'obs'\|'phone' })`, `stop()`, `info` |
-| `useRecording(room)`, `useStreaming(room)` | conference recording; restream to YouTube/Twitch |
+| `useRecording(room)`, `useStreaming(room)` | conference recording; restream to YouTube/Twitch/a custom server |
 | `usePremiumStatus(user?)`, `useProTrial()` | Pro status; the one-time trial |
 | `useEventList()`, `useUserPresence(user)` | events; is a user in a room now |
 | `useStreamContext()`, `useStreamLive()`, `useStreamFormats()` | inside `StandaloneWatch` |
@@ -416,7 +416,7 @@ track, so whatever the host sees is what everyone gets.
 | Raids | Host picks a live stream; viewers get a countdown and `onRaid(target)` moves them. | `/rooms/:name/raid*` |
 | Battles | Invite another live studio for 3, 5 or 10 minutes; boosts decide. Each studio links into the other room and draws both halves. Not for OBS streams or with a guest on air. | `/battles/*` |
 | Boosts | Cards, goal bar, tiers (0, 1, 5, 20 HBD shown 15, 30, 60, 120 s), sound and TTS alerts, preset amounts, changeable mid-stream. | `PATCH /rooms/:name/boost` |
-| Restream, OBS output | Restream to YouTube or Twitch (Pro). "OBS output" makes a browser-source URL for `StandaloneObsOverlay`. | `/stream/*`, `/listen { silent }` |
+| Restream, OBS output | Restream to YouTube, Twitch or any RTMP server such as Restream.io or Kick (Pro). "OBS output" makes a browser-source URL for `StandaloneObsOverlay`. | `/stream/*`, `/listen { silent }` |
 | DVR, clips, rewind | Pro: started automatically while live when the host allows clips. | `/dvr/*` |
 | Free watermark | Non-Pro streams carry a watermark drawn into the canvas (`watermarkLogoUrl`). | |
 
@@ -553,7 +553,7 @@ checker from a subscription, by the trial, or by hand). The SDK reads it from
 | Conference recording, podcast recording | no | yes |
 | Clips and highlights (from the VOD, after the stream) | yes, first 30 min | yes |
 | DVR (instant clips), rewind | no | yes |
-| Restream to YouTube/Twitch | no (402) | yes |
+| Restream to YouTube, Twitch or a custom server | no (402) | yes |
 | Watermark | yes | no |
 
 The one-time trial (`POST /premium/start-testing`) gives Pro for `PRO_TESTING_HOURS`

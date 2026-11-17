@@ -58,7 +58,7 @@ Rooms close 300 s after the last participant leaves.
 | `GET /streams` | none | | Standalone streams for discovery cards: `name, title, host, description, thumbnail, tags, visibility, mode, createdAt, live, viewers`. Live first. `no-store`. |
 | `GET /health` | none | | `{ ok, uptime, sessions: { total, conference, standalone, live }, viewers }`, counts only. 503 when LiveKit is down. |
 | `GET /rooms/:name` | none | | One room: the `/rooms` fields plus `broadcasting`, `headless`, `watermark` and `boostSummary`. 404 when gone. |
-| `POST /rooms` | session+ban, 12/5 min | `{ title*, description, backgroundImage, visibility, language, mode, tags, boost: { enabled, minBoostUsd, creatorPayoutAccount } }` | 201 `{ room, token, isPremium }`. The caller is the host and gets a publish token. A free host creating a `standalone` room who already went live in the last 24 h gets 429 `{ error: 'daily_stream_limit', message, retryAt }`. |
+| `POST /rooms` | session+ban, 12/5 min | `{ title*, description, backgroundImage, visibility, language, mode, tags, boost: { enabled, minBoostUsd, creatorPayoutAccount, goal?: { title, targetHbd* } } }` | 201 `{ room, token, isPremium }`. A `goal` (the create form's Boosts step) is checked like `PATCH /rooms/:name/boost`'s, a bad one is 400 before any room exists. The caller is the host and gets a publish token. A free host creating a `standalone` room who already went live in the last 24 h gets 429 `{ error: 'daily_stream_limit', message, retryAt }`. |
 | `POST /rooms/:name/join` | session+ban | `{ delivery?: 'webrtc'\|'hls', hlsCapable? }` | `{ token, roomName, identity, isHost, isPremium, delivery, hlsUrl?, hlsFallback?, liveElsewhere? }`. The host and the approved collab guest get publish rights. A host already connected from another device gets the identity `<user>~watch` and `liveElsewhere: true`. |
 | `POST /rooms/:name/listen` | optional session, 60/5 min | `{ displayName?, silent?, delivery?, hlsCapable? }` | `{ token, roomName, identity, isHost: false, isGuest, isPremium: false, delivery, hlsUrl?, hlsFallback? }`. Without a session the identity is `guest-<12 chars>` and the participant name is `displayName`; with a valid session it is the Hive account, and the name is the account too (`displayName` is ignored). `silent: true` gives a read-only `obs-*` identity (OBS browser source). 403 for `hive-internal` rooms and banned guest IPs. 409 when the WebRTC guest cap (`MAX_GUESTS_PER_ROOM`, default 50) is full and HLS is not possible. Token TTL 6 h (12 h for `silent`). |
 | `PATCH /rooms/:name/layout` | session+ban, host | `{ layout?, focusedIdentity?, suppressScreenAutoFocus?, chatOpen? }` | `{ layout, focusedIdentity, suppressScreenAutoFocus, chatOpen }`. Stored in metadata (`recordLayout` and the view fields) so the recorder shows what the host sees. |
@@ -180,11 +180,11 @@ hands out slots (at most `CAPTIONS_MAX_STREAMS` at once).
 | `GET /podcast/recordings` | session | | `{ recordings }`, the caller's episodes of the last day. |
 | `GET /podcast/files/:token/:file` | token in path, 60/min | | The mix or a speaker file. Kept one day. |
 
-## Restream to YouTube or Twitch
+## Restream to YouTube, Twitch or a custom server
 
 | Route | Auth | Body | Answer |
 |---|---|---|---|
-| `POST /rooms/:name/stream/start` | session+ban, host, Pro | `{ platform*: 'youtube'\|'twitch', streamKey*, backgroundImageUrl?, videoEnabled? }` | `{ egressId, status: 'streaming', platform }`. 402 for non-Pro, 409 already streaming. |
+| `POST /rooms/:name/stream/start` | session+ban, host, Pro | `{ platform*: 'youtube'\|'twitch'\|'custom', streamKey*, backgroundImageUrl?, videoEnabled? }` | `{ egressId, status: 'streaming', platform }`. For `custom` the stream key is the whole `rtmp://` or `rtmps://` URL, the platform's server address and key (Restream.io, Kick, ...); it must resolve to a public address, else 400. 402 for non-Pro, 409 already streaming. |
 | `POST /rooms/:name/stream/stop` | session+ban, host | | `{ egressId, status }` |
 | `GET /rooms/:name/stream/status` | session+ban | | `{ streaming, egressId }` |
 
@@ -410,7 +410,7 @@ inside the handlers and are described above.
 | GET | `/rooms/:name/record/status` | requireAuth, checkBan | none |  |  |
 | POST | `/rooms/:name/record/stop` | requireAuth, checkBan | none |  |  |
 | POST | `/rooms/:name/record/upload` | requireAuth, checkBan | none |  | filePath*: string, duration: number, title: string, tags: string[] |
-| POST | `/rooms/:name/stream/start` | requireAuth, checkBan | none |  | platform*: youtube\|twitch, streamKey*: string, backgroundImageUrl: string, videoEnabled: boolean |
+| POST | `/rooms/:name/stream/start` | requireAuth, checkBan | none |  | platform*: youtube\|twitch\|custom, streamKey*: string, backgroundImageUrl: string, videoEnabled: boolean |
 | GET | `/rooms/:name/stream/status` | requireAuth, checkBan | none |  |  |
 | POST | `/rooms/:name/stream/stop` | requireAuth, checkBan | none |  |  |
 | PATCH | `/rooms/:name/vertical` | requireAuth | 40 / 1 minute |  | on: boolean, x: number, w: number, follow: string, track: boolean |

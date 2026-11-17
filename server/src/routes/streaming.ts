@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { isUserPremium } from '../lib/users.js';
+import { customRestreamUrl } from '../lib/restreamUrl.js';
 
 const egressClient = new EgressClient(
   config.LIVEKIT_HOST,
@@ -33,7 +34,7 @@ function buildRtmpUrl(platform: string, streamKey: string): string {
 }
 
 export const streamingRoutes: FastifyPluginAsync = async (fastify) => {
-  // Start streaming to YouTube/Twitch (host only)
+  // Start restreaming to YouTube, Twitch or the host's own RTMP server (host only)
   fastify.post('/rooms/:name/stream/start', {
     preHandler: [requireAuth, checkBan],
     schema: {
@@ -46,7 +47,8 @@ export const streamingRoutes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         required: ['platform', 'streamKey'],
         properties: {
-          platform:          { type: 'string', enum: ['youtube', 'twitch'] },
+          platform:          { type: 'string', enum: ['youtube', 'twitch', 'custom'] },
+          // custom: the whole rtmp(s) URL, server and key (Restream.io, Kick, ...)
           streamKey:         { type: 'string', minLength: 1 },
           backgroundImageUrl: { type: 'string' },
           videoEnabled:      { type: 'boolean' },
@@ -67,17 +69,24 @@ export const streamingRoutes: FastifyPluginAsync = async (fastify) => {
     if (check.error === 'not_found') return reply.notFound('Room not found');
     if (check.error === 'forbidden') return reply.forbidden('Only the host can start streaming');
 
-    // Restreaming to YouTube/Twitch is a Pro perk: it spins up a dedicated
-    // transcoding egress per stream, so it stays gated on premium.
+    // Restreaming is a Pro perk: it spins up a dedicated transcoding egress
+    // per stream, so it stays gated on premium.
     if (!(await isUserPremium(request.username))) {
-      return reply.code(402).send({ message: 'Restreaming to YouTube/Twitch is a 3Speak Pro feature.' });
+      return reply.code(402).send({ message: 'Restreaming to other platforms is a 3Speak Pro feature.' });
     }
 
     if (activeStreams.has(name)) {
       return reply.conflict('Room is already streaming');
     }
 
-    const rtmpUrl = buildRtmpUrl(platform, streamKey);
+    let rtmpUrl: string;
+    if (platform === 'custom') {
+      const target = await customRestreamUrl(streamKey);
+      if ('error' in target) return reply.badRequest(target.error);
+      rtmpUrl = target.url;
+    } else {
+      rtmpUrl = buildRtmpUrl(platform, streamKey.trim());
+    }
     const streamOutput = new StreamOutput({
       protocol: StreamProtocol.RTMP,
       urls: [rtmpUrl],

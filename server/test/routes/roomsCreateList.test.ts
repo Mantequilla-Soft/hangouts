@@ -98,6 +98,21 @@ describe('POST /rooms (create)', () => {
     expect((await createdMetadata()).boost).toEqual({ enabled: false, minBoostUsd: 2.5, creatorPayoutAccount: 'treasury' });
   });
 
+  it('stores a boost goal set before going live, trimmed and rounded like the studio\'s', async () => {
+    await create({ title: 'T', boost: { enabled: true, minBoostUsd: 0.1, goal: { title: '  A new   mic ', targetHbd: 50.12345 } } });
+    expect((await createdMetadata()).boost).toEqual({
+      enabled: true, minBoostUsd: 0.1, creatorPayoutAccount: 'alice', goal: { title: 'A new mic', targetHbd: 50.123 },
+    });
+  });
+
+  it('refuses a goal without a real amount or with a too long title (400), before any room exists', async () => {
+    const { roomService } = await import('../../src/lib/livekit.js');
+    expect((await create({ title: 'T', boost: { goal: { title: 'Mic', targetHbd: 0 } } })).statusCode).toBe(400);
+    expect((await create({ title: 'T', boost: { goal: { title: 'x'.repeat(81), targetHbd: 5 } } })).statusCode).toBe(400);
+    expect((await create({ title: 'T', boost: { goal: { title: 'Mic' } } })).statusCode).toBe(400);
+    expect(roomService.createRoom).not.toHaveBeenCalled();
+  });
+
   it('records only the hostname of the Origin header', async () => {
     const res = await create({ title: 'T' }, { origin: 'https://3speak.tv/some/path?session=secret' });
     expect(res.json().room.origin).toBe('3speak.tv');

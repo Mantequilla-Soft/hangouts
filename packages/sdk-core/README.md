@@ -276,7 +276,7 @@ type BoostRejectReason =
   | 'internal_error'
 
 // Streaming
-type StreamPlatform = 'youtube' | 'twitch'
+type StreamPlatform = 'youtube' | 'twitch' | 'custom'  // custom: streamKey is the whole rtmp(s):// URL
 ```
 
 ---

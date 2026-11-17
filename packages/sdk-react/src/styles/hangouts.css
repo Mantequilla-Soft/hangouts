@@ -2753,6 +2753,12 @@
   letter-spacing: 0;
 }
 
+.hh-streaming-panel__note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--hh-text-secondary);
+}
+
 .hh-streaming-panel__input {
   width: 100%;
   padding: 0.45rem 0.6rem;
@@ -7163,6 +7169,14 @@
 .hh-optsheet__opt-label { font-size: 0.92rem; font-weight: 600; }
 .hh-optsheet__opt-desc { font-size: 0.78rem; line-height: 1.35; color: var(--st-muted); }
 
+
+/* The boost goal's explanation, under its heading (plain text, not a warning) */
+.hh-cd__goal-hint {
+  margin: 0.15rem 0 0.4rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  opacity: 0.7;
+}
 
 .hh-cd__limit-hint {
   margin: 0.2rem 0 0.4rem;

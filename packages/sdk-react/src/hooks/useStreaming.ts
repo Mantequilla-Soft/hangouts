@@ -1,6 +1,11 @@
 import { useState, useCallback } from 'react';
-import type { StreamPlatform } from '@snapie/hangouts-core';
+import type { StreamPlatform as CorePlatform } from '@snapie/hangouts-core';
 import { useHangoutsContext } from '../context/HangoutsContext.js';
+
+// `custom` (the host's own RTMP server: Restream.io, Kick, ...) is newer than the
+// published core's type; the server takes it with the whole rtmp(s) URL, server
+// and key, as the stream key.
+export type StreamPlatform = CorePlatform | 'custom';
 
 interface StreamingState {
   isStreaming: boolean;
@@ -28,7 +33,7 @@ export function useStreaming(roomName: string | null) {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await apiClient.startStream(roomName, platform, streamKey, backgroundImageUrl, videoEnabled);
+      const result = await apiClient.startStream(roomName, platform as CorePlatform, streamKey, backgroundImageUrl, videoEnabled);
       setState({ isStreaming: true, egressId: result.egressId, platform });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start stream');

@@ -175,7 +175,7 @@ export {
 export { useRecording } from './hooks/useRecording.js';
 
 // Hooks — Streaming
-export { useStreaming } from './hooks/useStreaming.js';
+export { useStreaming, type StreamPlatform as RestreamPlatform } from './hooks/useStreaming.js';
 
 // Hooks — Events & Presence
 export { useEventList } from './hooks/useEventList.js';
