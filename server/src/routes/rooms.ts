@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import {
   IngressClient, IngressInput, IngressVideoOptions, IngressVideoEncodingOptions,
-  VideoCodec, TrackSource,
+  VideoCodec, TrackSource, type IngressInfo,
 } from 'livekit-server-sdk';
 import { config } from '../config.js';
 import { roomService, createLivekitToken } from '../lib/livekit.js';
@@ -16,7 +16,7 @@ import { recordViewerJoin } from '../lib/streamStats.js';
 import {
   type RoomMetadata, ROOM_VISIBILITIES, ROOM_MODES, createStreamRoom, closeStreamRoom,
 } from '../lib/streamRoom.js';
-import { ParticipantInfo_State } from '@livekit/protocol';
+import { IngressState_Status, ParticipantInfo_State } from '@livekit/protocol';
 import { endHeadlessStreamForRoom, headlessViewerIdentity } from '../lib/headlessStreams.js';
 import { nextFreeStreamAt, recordGoLive, dailyLimitBody, obsProRequiredBody } from '../lib/streamQuota.js';
 import {
@@ -66,19 +66,70 @@ const ingressClient = new IngressClient(
 );
 
 /**
- * Delete the studio's OBS / phone ingress of a room that is closing. LiveKit
- * keeps an ingress after its room is gone, and a publisher still holding the
- * old address (Larix keeps the connection between streams) was then accepted
- * and published into a fresh, empty room of the same name: the app said
- * "connected" while the host's new studio never saw the feed. Without the
- * ingress the stale address fails at once, visibly. Best effort.
+ * The phone / tablet screen source: ONE ingress per host (named `phone-<host>`),
+ * so its address and key never change and the app on the phone (Larix,
+ * VDO.Ninja, any WHIP sender) is set up once. It is moved into each new room
+ * of the host (at room creation and when the studio asks for it) as that
+ * room's external feed, `obs-ingress-<room>`, the same identity the studio
+ * watches for OBS. When the room closes it is parked in a room nobody joins.
+ *
+ * OBS keeps a per-room ingress, deleted with its room: LiveKit keeps an
+ * ingress after its room is gone, and a sender still holding the old address
+ * was accepted and published into a fresh, empty room of the old name (the
+ * app said "connected", the new studio never saw the feed).
  */
+const phoneIngressName = (host: string) => `phone-${host}`;
+const isPhoneIngress = (i: IngressInfo) => (i.name ?? '').startsWith('phone-');
+const phoneParkingRoom = (host: string) => `phone-parked-${host}`;
+const isPublishing = (i: IngressInfo) =>
+  i.state?.status === IngressState_Status.ENDPOINT_PUBLISHING || i.state?.status === IngressState_Status.ENDPOINT_BUFFERING;
+/** Sending into another real room of the host right now (not just parked):
+ *  moving it would pull the picture out of that stream. */
+const sendingElsewhere = (i: IngressInfo) => isPublishing(i) && !i.roomName.startsWith('phone-parked-');
+
+/** VP8 out of the ingress: every built-in preset is H.264, which plenty of
+ *  Firefox builds can't receive. One layer, not simulcast: the studio
+ *  composites the feed into its own canvas and re-encodes. No explicit layers
+ *  either: pinning a hand-rolled 720p layer made the pipeline fail to start
+ *  ("source encoder not ready") and publish nothing. */
+function vp8VideoOptions(): IngressVideoOptions {
+  return new IngressVideoOptions({
+    source: TrackSource.CAMERA,
+    encodingOptions: {
+      case: 'options',
+      value: new IngressVideoEncodingOptions({ videoCodec: VideoCodec.VP8, frameRate: 30 }),
+    },
+  });
+}
+
+async function findPhoneIngress(host: string): Promise<IngressInfo | undefined> {
+  return (await ingressClient.listIngress({})).find((i) => i.name === phoneIngressName(host));
+}
+
+function movePhoneIngress(i: IngressInfo, roomName: string, identity = `obs-ingress-${roomName}`): Promise<IngressInfo> {
+  return ingressClient.updateIngress(i.ingressId, {
+    name: i.name, roomName, participantIdentity: identity, participantName: 'Phone',
+  });
+}
+
+/** A new room of the host: bring their phone ingress along, unless it is
+ *  sending into another room right now. Best effort. */
+async function followHostIntoRoom(host: string, roomName: string): Promise<void> {
+  try {
+    const phone = await findPhoneIngress(host);
+    if (phone && phone.roomName !== roomName && !sendingElsewhere(phone)) await movePhoneIngress(phone, roomName);
+  } catch { /* the studio asks again when the host opens the phone source */ }
+}
+
+/** A studio room is closing: delete its OBS ingress, park the host's phone
+ *  ingress. Best effort; the room closes either way. */
 async function dropStudioIngress(roomName: string): Promise<void> {
   try {
-    const list = await ingressClient.listIngress({ roomName });
-    await Promise.all(list
-      .filter((i) => i.participantIdentity === `obs-ingress-${roomName}`)
-      .map((i) => ingressClient.deleteIngress(i.ingressId).catch(() => undefined)));
+    const list = (await ingressClient.listIngress({ roomName }))
+      .filter((i) => i.participantIdentity === `obs-ingress-${roomName}`);
+    await Promise.all(list.map((i) => (isPhoneIngress(i)
+      ? movePhoneIngress(i, phoneParkingRoom(i.name.slice('phone-'.length)), `phone-parked-${i.name.slice('phone-'.length)}`)
+      : ingressClient.deleteIngress(i.ingressId)).catch(() => undefined)));
   } catch { /* the room still closes */ }
 }
 
@@ -463,6 +514,8 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       tags: rawTags, boost: rawBoost,
     });
     const room = { name: roomName };
+    // The host's phone screen source (set up once) comes along to the new room.
+    void followHostIntoRoom(host, roomName);
 
     // Issue a host token — premium gets video, non-premium gets audio only
     const token = await createLivekitToken(roomName, host, {
@@ -985,6 +1038,40 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
 
     const identity = `obs-ingress-${name}`;
 
+    if (source === 'phone') {
+      try {
+        // One outside feed per room: an OBS ingress here gives way.
+        const here = (await ingressClient.listIngress({ roomName: name }))
+          .filter((i) => i.participantIdentity === identity && !isPhoneIngress(i));
+        await Promise.all(here.map((i) => ingressClient.deleteIngress(i.ingressId).catch(() => undefined)));
+        let phone = await findPhoneIngress(request.username!);
+        if (phone && phone.roomName !== name) {
+          if (sendingElsewhere(phone)) {
+            return reply.code(409).send({ message: 'Your phone is sending into another of your streams. Stop it in the app, then try again.' });
+          }
+          phone = await movePhoneIngress(phone, name);
+        }
+        const info = phone ?? await ingressClient.createIngress(IngressInput.WHIP_INPUT, {
+          name: phoneIngressName(request.username!),
+          roomName: name,
+          participantIdentity: identity,
+          participantName: 'Phone',
+          enableTranscoding: true,
+          video: vp8VideoOptions(),
+        });
+        return reply.send({
+          ingressId: info.ingressId,
+          // The same address and key for every stream of this host.
+          whipUrl: `${config.INGRESS_WHIP_URL}/${info.streamKey}`,
+          streamKey: info.streamKey,
+          participantIdentity: identity,
+        });
+      } catch (err) {
+        request.log.error({ err }, 'phone ingress failed');
+        return reply.code(503).send({ message: 'Could not set up the phone source' });
+      }
+    }
+
     try {
       // Reuse an existing ingress for this room so repeated clicks don't pile
       // up stale endpoints (and the host keeps the same key).
@@ -993,8 +1080,14 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       // can be changed on a live one.
       const desiredName = transcode ? `obs-${name}-vp8` : `obs-${name}`;
 
-      let existing = (await ingressClient.listIngress({ roomName: name }))
-        .find((i) => i.participantIdentity === identity);
+      const here = (await ingressClient.listIngress({ roomName: name }))
+        .filter((i) => i.participantIdentity === identity);
+      // One outside feed per room: the host's phone gives way (parked, so its
+      // address keeps working for the next stream).
+      await Promise.all(here.filter(isPhoneIngress).map((i) => movePhoneIngress(
+        i, phoneParkingRoom(request.username!), `phone-parked-${request.username}`,
+      ).catch(() => undefined)));
+      let existing = here.find((i) => !isPhoneIngress(i));
 
       if (existing && existing.name !== desiredName) {
         try { await ingressClient.deleteIngress(existing.ingressId); } catch { /* already gone */ }
@@ -1014,22 +1107,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
           // Every built-in preset is H.264, so VP8 needs explicit options.
           // One layer, not simulcast: the studio composites this into its own
           // canvas and re-encodes, so extra ingress layers would be waste.
-          ...(transcode ? {
-            video: new IngressVideoOptions({
-              source: TrackSource.CAMERA,
-              encodingOptions: {
-                case: 'options',
-                value: new IngressVideoEncodingOptions({
-                  videoCodec: VideoCodec.VP8,
-                  frameRate: 30,
-                  // No explicit layers: let the ingress derive them from the
-                  // input. Pinning a single hand-rolled 720p layer made the
-                  // pipeline fail to start ("source encoder not ready") and
-                  // publish nothing at all.
-                }),
-              },
-            }),
-          } : {}),
+          ...(transcode ? { video: vp8VideoOptions() } : {}),
         },
       );
 
@@ -1063,10 +1141,14 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
 
     try {
       const list = await ingressClient.listIngress({ roomName: name });
+      // OBS's per-room ingress is deleted; the host's phone ingress is parked,
+      // so its address keeps working for the next stream.
       await Promise.all(
         list
           .filter((i) => i.participantIdentity === `obs-ingress-${name}`)
-          .map((i) => ingressClient.deleteIngress(i.ingressId)),
+          .map((i) => (isPhoneIngress(i)
+            ? movePhoneIngress(i, phoneParkingRoom(meta.host!), `phone-parked-${meta.host}`)
+            : ingressClient.deleteIngress(i.ingressId))),
       );
       return reply.send({ ok: true });
     } catch (err) {

@@ -13,6 +13,7 @@ const ingress = vi.hoisted(() => ({
   listIngress: vi.fn(),
   createIngress: vi.fn(),
   deleteIngress: vi.fn(),
+  updateIngress: vi.fn(),
 }));
 
 vi.mock('livekit-server-sdk', async (importOriginal) => {
@@ -21,6 +22,7 @@ vi.mock('livekit-server-sdk', async (importOriginal) => {
     listIngress = ingress.listIngress;
     createIngress = ingress.createIngress;
     deleteIngress = ingress.deleteIngress;
+    updateIngress = ingress.updateIngress;
   }
   return { ...orig, IngressClient: FakeIngressClient };
 });
@@ -86,6 +88,7 @@ beforeEach(async () => {
   ingress.listIngress.mockResolvedValue([]);
   ingress.createIngress.mockResolvedValue({ ingressId: 'IN_new', streamKey: 'newkey' });
   ingress.deleteIngress.mockResolvedValue(undefined);
+  ingress.updateIngress.mockResolvedValue({});
 });
 
 const req = (method: 'PATCH' | 'POST' | 'DELETE', path: string, who: string | null, payload?: unknown) => app.inject({
@@ -322,16 +325,18 @@ describe('PATCH /rooms/:name/broadcast', () => {
 });
 
 describe('DELETE /rooms/:name (closing the studio room)', () => {
-  it("deletes the room's OBS / phone ingress too, so a stale address can't stream into an empty room", async () => {
+  it("deletes the room's OBS ingress (a stale address can't stream into an empty room) and parks the phone's", async () => {
     const { roomService } = await import('../../src/lib/livekit.js');
     setRoom({ mode: 'standalone' });
     ingress.listIngress.mockResolvedValue([
-      { ingressId: 'IN_studio', participantIdentity: `obs-ingress-${ROOM}` },
-      { ingressId: 'IN_other', participantIdentity: 'someone-else' },
+      { ingressId: 'IN_studio', name: `obs-${ROOM}-vp8`, participantIdentity: `obs-ingress-${ROOM}` },
+      { ingressId: 'IN_phone', name: 'phone-alice', participantIdentity: `obs-ingress-${ROOM}` },
+      { ingressId: 'IN_other', name: 'x', participantIdentity: 'someone-else' },
     ]);
     expect((await req('DELETE', '', 'alice')).statusCode).toBe(204);
     expect(ingress.deleteIngress).toHaveBeenCalledTimes(1);
     expect(ingress.deleteIngress).toHaveBeenCalledWith('IN_studio');
+    expect(ingress.updateIngress).toHaveBeenCalledWith('IN_phone', expect.objectContaining({ roomName: 'phone-parked-alice' }));
     expect(roomService.deleteRoom).toHaveBeenCalledWith(ROOM);
   });
 

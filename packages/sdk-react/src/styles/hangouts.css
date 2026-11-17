@@ -4649,19 +4649,24 @@
   overflow: hidden;
 }
 
-/* The rail: the panel plus a vertical tab strip along the right edge.
+/* The side panel (not .hh-studio__rail: that is the phone layout's floating
+   button columns, absolutely positioned): the panel plus a vertical tab strip along the right edge.
    Pinned, the panel sits in the row beside the preview. Unpinned
    (--floating; going live unpins it) it slides off to the right behind the
    strip and slides back over the preview while the pointer is over the strip
    or the panel (--peek). */
-.hh-studio__rail {
+.hh-studio__side {
   position: relative;
   display: flex;
   flex-shrink: 0;
   gap: 0.5rem;
   min-height: 0;
+  max-width: 45%;
 }
-.hh-studio__rail-head {
+/* The width cap moved from the panel (34% of the row) to the side; inside it
+   the panel takes its own width (resizable), down to a usable minimum. */
+.hh-studio__side .hh-studio__chat { max-width: none; min-width: 230px; flex-shrink: 1; }
+.hh-studio__side-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4671,7 +4676,7 @@
   color: var(--st-text);
   padding: 0 0.1rem;
 }
-.hh-studio__rail-pin {
+.hh-studio__side-pin {
   border: 1px solid transparent;
   background: transparent;
   border-radius: 8px;
@@ -4684,9 +4689,9 @@
   transform: rotate(35deg);
   transition: opacity 0.15s, transform 0.15s, filter 0.15s;
 }
-.hh-studio__rail-pin:hover { opacity: 0.85; background: var(--st-panel-strong); }
-.hh-studio__rail-pin--on { opacity: 1; filter: none; transform: none; border-color: var(--st-border); }
-.hh-studio__rail--floating .hh-studio__chat {
+.hh-studio__side-pin:hover { opacity: 0.85; background: var(--st-panel-strong); }
+.hh-studio__side-pin--on { opacity: 1; filter: none; transform: none; border-color: var(--st-border); }
+.hh-studio__side--floating .hh-studio__chat {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -4705,7 +4710,7 @@
   pointer-events: none;
   transition: transform 0.28s cubic-bezier(.2, .7, .3, 1), opacity 0.2s ease, visibility 0s linear 0.28s;
 }
-.hh-studio__rail--floating.hh-studio__rail--peek .hh-studio__chat {
+.hh-studio__side--floating.hh-studio__side--peek .hh-studio__chat {
   transform: none;
   opacity: 1;
   visibility: visible;
@@ -4742,8 +4747,8 @@
 .hh-studio__tab-body > .hh-overlays,
 .hh-studio__tab-body > .hh-boost-settings { flex: 1; min-height: 0; }
 @media (prefers-reduced-motion: reduce) {
-  .hh-studio__rail--floating .hh-studio__chat,
-  .hh-studio__rail--floating.hh-studio__rail--peek .hh-studio__chat { transition: none; }
+  .hh-studio__side--floating .hh-studio__chat,
+  .hh-studio__side--floating.hh-studio__side--peek .hh-studio__chat { transition: none; }
 }
 
 /* Transport: the stream lifecycle lives under the chat. */
@@ -6094,6 +6099,19 @@
   .hh-studio__phone-qr { flex-direction: column; align-items: flex-start; }
 }
 .hh-studio__phone-open { display: block; margin-top: 0.4rem; font-weight: 600; }
+.hh-studio__phone-tabs { display: flex; gap: 0.3rem; margin: 0 0.9rem 0.6rem; }
+.hh-studio__phone-tab {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--st-border, rgba(255, 255, 255, 0.12));
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  font-weight: 700;
+  cursor: pointer;
+}
+.hh-studio__phone-tab--active { opacity: 1; border-color: var(--st-accent, var(--hh-primary)); }
 .hh-studio__phone-field { display: block; margin: 0 0.9rem 0.2rem; font-size: 0.78rem; opacity: 0.75; }
 
 /* The OBS ingest <video>. Must be a real, laid-out element in the document —
@@ -7895,8 +7913,8 @@
   color: #fff;
   pointer-events: none;
 }
-/* Where the host put it (goal.position). Bottom is the default above; top is
-   the same band along the top; the corners are a small card. */
+/* Where the host put it (goal.position; top right when unset). Bottom is the
+   band above; top is the same band along the top; the corners are a small card. */
 .hh-boost-goal--pos-top { top: 12px; bottom: auto; }
 .hh-boost-goal--pos-top-right,
 .hh-boost-goal--pos-bottom-right,

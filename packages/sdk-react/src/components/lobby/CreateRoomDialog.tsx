@@ -9,7 +9,7 @@ import { AUTO_VOD_KEY, AUTO_VOD_DEFAULT, ALLOW_CLIPS_KEY, readPref, writePref } 
 import { isInAppBrowser, canBroadcast } from '../../lib/browser.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { FREE_STREAM_CAP_LABEL, PRO_STREAM_CAP_LABEL } from '../../lib/streamLimits.js';
-import { GOAL_POSITIONS, goalFromInput, isGoalPosition, type GoalPosition } from '../../lib/boostGoals.js';
+import { DEFAULT_GOAL_POSITION, GOAL_POSITIONS, goalFromInput, isGoalPosition, type GoalPosition } from '../../lib/boostGoals.js';
 
 /** How the host wants to announce the session on Hive. */
 export type AnnounceType = 'snap' | 'post';
@@ -475,7 +475,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
   const [creatorPayoutAccount, setCreatorPayoutAccount] = useState(draft.creatorPayoutAccount ?? '');
   const [goalTitle, setGoalTitle] = useState(draft.goalTitle ?? '');
   const [goalTarget, setGoalTarget] = useState(draft.goalTarget ?? '');
-  const [goalPosition, setGoalPosition] = useState<GoalPosition>(isGoalPosition(draft.goalPosition) ? draft.goalPosition : 'bottom');
+  const [goalPosition, setGoalPosition] = useState<GoalPosition>(isGoalPosition(draft.goalPosition) ? draft.goalPosition : DEFAULT_GOAL_POSITION);
   const [notifyOnHive, setNotifyOnHive] = useState(draft.notifyOnHive ?? true);
   const [announceType, setAnnounceType] = useState<AnnounceType>((draft.announceType as AnnounceType) ?? 'snap');
   // Shared with the studio's post tab — see streamRecordingPrefs. Set here so
@@ -603,7 +603,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
     setCreatorPayoutAccount(d.creatorPayoutAccount ?? '');
     setGoalTitle(d.goalTitle ?? '');
     setGoalTarget(d.goalTarget ?? '');
-    setGoalPosition(isGoalPosition(d.goalPosition) ? d.goalPosition : 'bottom');
+    setGoalPosition(isGoalPosition(d.goalPosition) ? d.goalPosition : DEFAULT_GOAL_POSITION);
     setNotifyOnHive(d.notifyOnHive ?? true);
     setAnnounceType((d.announceType as AnnounceType) ?? 'snap');
   }, [mode, initialMode]);

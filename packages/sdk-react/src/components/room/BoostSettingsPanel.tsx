@@ -7,6 +7,7 @@ import {
   boostPresets,
   boostSpeechText,
   DEFAULT_BOOST_PRESETS,
+  DEFAULT_GOAL_POSITION,
   GOAL_POSITIONS,
   MAX_BOOST_PRESETS,
   parsePresetsInput,
@@ -87,7 +88,7 @@ export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, 
   const [payoutAccount, setPayoutAccount] = useState(currentConfig?.creatorPayoutAccount ?? '');
   const [goalTitle, setGoalTitle] = useState(goal?.title ?? '');
   const [goalTarget, setGoalTarget] = useState(goal ? String(goal.targetHbd) : '');
-  const [goalPosition, setGoalPosition] = useState<GoalPosition>(goal?.position ?? 'bottom');
+  const [goalPosition, setGoalPosition] = useState<GoalPosition>(goal?.position ?? DEFAULT_GOAL_POSITION);
   const [tiers, setTiers] = useState(tiersEnabled(currentConfig));
   const [sound, setSound] = useState(alerts.sound);
   const [tts, setTts] = useState(alerts.tts);

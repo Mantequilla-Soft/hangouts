@@ -6,8 +6,8 @@ import { playBoostChime } from '../../lib/boostChime.js';
 import { boostLabels, type BoostLabels } from '../../lib/boostLabels.js';
 
 export interface StreamBoostGoalProps {
-  /** `overlay`: over the video where the host put it (goal.position: a band
-   *  along the bottom or top, or a small card in a corner). `inline`: a block
+  /** `overlay`: over the video where the host put it (goal.position: a small
+   *  card in a corner, top right by default, or a band along the top or bottom). `inline`: a block
    *  in a panel or dialog. */
   variant?: 'overlay' | 'inline';
   labels?: Partial<BoostLabels>;

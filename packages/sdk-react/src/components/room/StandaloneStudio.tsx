@@ -2839,7 +2839,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     // live/standby gate (preMaster → master), so it can't leak over the
     // "Starting soon" slate. RoomAudio drops `obs-` identities so nobody hears
     // it twice.
-    const externalLabel = externalKindRef.current === 'phone' ? phoneLabels.sourceName : 'OBS';
+    // The host's phone ingress joins as "Phone" (it follows them into each new
+    // room, so it can arrive without the phone dialog having been opened).
+    const externalLabel = externalKindRef.current === 'phone' || obsVideo.participant.name === 'Phone'
+      ? phoneLabels.sourceName : 'OBS';
     const entry: ShareEntry = {
       id: OBS_SOURCE_ID,
       label: externalLabel,
@@ -5258,18 +5261,18 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             unpins it) it slides away and slides back in while the pointer is
             over the strip or the panel. */}
         <div
-          className={`hh-studio__rail${chatCollapsed ? ' hh-studio__rail--floating' : ''}${chatCollapsed && railPeek ? ' hh-studio__rail--peek' : ''}`}
+          className={`hh-studio__side${chatCollapsed ? ' hh-studio__side--floating' : ''}${chatCollapsed && railPeek ? ' hh-studio__side--peek' : ''}`}
           onMouseEnter={() => peekRail(true)}
           onMouseLeave={() => peekRail(false)}
           onFocus={() => peekRail(true)}
           onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) peekRail(false); }}
         >
           <aside className="hh-studio__chat" style={{ width: chatW }} aria-hidden={chatCollapsed && !railPeek ? true : undefined}>
-            <div className="hh-studio__rail-head">
+            <div className="hh-studio__side-head">
               <span>{RAIL_TABS.find((t) => t.id === rightTab)?.label}</span>
               <button
                 type="button"
-                className={`hh-studio__rail-pin${chatCollapsed ? '' : ' hh-studio__rail-pin--on'}`}
+                className={`hh-studio__side-pin${chatCollapsed ? '' : ' hh-studio__side-pin--on'}`}
                 onClick={() => { setChatCollapsed((v) => !v); setRailPeek(false); }}
                 aria-pressed={!chatCollapsed}
                 title={chatCollapsed ? 'Pin the panel open' : 'Unpin: the panel slides away and opens when you point at the tabs'}

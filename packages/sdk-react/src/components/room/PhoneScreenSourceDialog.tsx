@@ -10,8 +10,11 @@ import { QRCodeSVG } from 'qrcode.react';
  * one the OBS source uses) receives it, and the feed shows up as a normal
  * source, usable in any scene. WHIP only, by design: no RTMP anywhere.
  *
- * The recommended app is Larix Screencaster (free, iOS and Android), which
- * sends WebRTC over WHIP. Any app that can send WHIP works the same way.
+ * Two apps, one tab each: VDO.Ninja (free, iOS and Android; the default) and
+ * Larix Screencaster (its QR is a Grove link that sets the connection up).
+ * Any app that can send WHIP works the same way. The address is the host's
+ * own and the same for every stream (the server moves it into each new room),
+ * so the app is set up once.
  *
  * The stream key is shown twice: at the end of the URL (OBS-style, needs no
  * token) and as the token on its own. Larix's WebRTC connection wants
@@ -48,6 +51,16 @@ export interface PhoneScreenSourceLabels {
   step2: string;
   step3: string;
   step4: string;
+  /** The two app tabs, and the VDO.Ninja steps (step1-3 and qrHint are Larix's;
+   *  step4 is shared). */
+  tabVdoNinja: string;
+  tabLarix: string;
+  vdoStep1: string;
+  vdoStep2: string;
+  vdoStep3: string;
+  vdoQrHint: string;
+  /** The address does not change between streams. */
+  sameEveryStream: string;
   /** The connection's name in Larix, set by the QR code. */
   connectionName: string;
   openInLarix: string;
@@ -76,6 +89,13 @@ export const DEFAULT_PHONE_SCREEN_LABELS: PhoneScreenSourceLabels = {
   step2: 'Scan the QR code with the phone or tablet and let Larix add the connection. Or add it by hand in Larix (Settings, Connections): paste the URL below, set Authentication to WHIP and paste the token into Token.',
   step3: 'Start the broadcast from Larix. On an iPhone or iPad, confirm "Start Broadcast" in the screen-recording dialog.',
   step4: 'The screen appears here as a source within a few seconds. Use it in any scene.',
+  tabVdoNinja: 'VDO.Ninja',
+  tabLarix: 'Larix',
+  vdoStep1: 'On the phone or tablet, install the free VDO.Ninja app (App Store or Google Play).',
+  vdoStep2: 'In VDO.Ninja, share the screen and send it to a WHIP server: paste the URL below. If the app asks for a token, paste the token below.',
+  vdoStep3: 'Start sharing. On an iPhone or iPad, confirm "Start Broadcast" in the screen-recording dialog.',
+  vdoQrHint: 'Scan with the camera of the phone or tablet to get the URL there, then copy it.',
+  sameEveryStream: 'This address is yours and stays the same for every stream: set the app up once.',
   connectionName: '3Speak Live',
   openInLarix: 'Open in Larix',
   urlLabel: 'URL',
@@ -105,8 +125,20 @@ export interface PhoneScreenSourceDialogProps {
   labels?: Partial<PhoneScreenSourceLabels>;
 }
 
+const APP_KEY = 'hh-phone-source-app';
+type PhoneApp = 'vdo' | 'larix';
+const readApp = (): PhoneApp => {
+  try { return window.localStorage.getItem(APP_KEY) === 'larix' ? 'larix' : 'vdo'; } catch { return 'vdo'; }
+};
+
 export function PhoneScreenSourceDialog({ whipUrl, connected, error, onClose, labels }: PhoneScreenSourceDialogProps) {
   const l = { ...DEFAULT_PHONE_SCREEN_LABELS, ...labels };
+  // The app tab, remembered: the host sets one app up and keeps using it.
+  const [app, setAppState] = useState<PhoneApp>(readApp);
+  const setApp = (a: PhoneApp) => {
+    setAppState(a);
+    try { window.localStorage.setItem(APP_KEY, a); } catch { /* not remembered */ }
+  };
   // The stream key is the URL's last path segment.
   const token = whipUrl ? whipUrl.replace(/\/+$/, '').split('/').pop() ?? '' : '';
   const grove = whipUrl && token ? larixGroveUrl(whipUrl, token, l.connectionName) : '';
@@ -131,13 +163,33 @@ export function PhoneScreenSourceDialog({ whipUrl, connected, error, onClose, la
         ) : (
           <>
             <p className="hh-studio__obs-lead">{l.lead}</p>
+            <div className="hh-studio__phone-tabs" role="tablist">
+              {(['vdo', 'larix'] as PhoneApp[]).map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  role="tab"
+                  aria-selected={app === a}
+                  className={`hh-studio__phone-tab${app === a ? ' hh-studio__phone-tab--active' : ''}`}
+                  onClick={() => setApp(a)}
+                >{a === 'vdo' ? l.tabVdoNinja : l.tabLarix}</button>
+              ))}
+            </div>
             <ol className="hh-studio__phone-steps">
-              <li>{l.step1}</li>
-              <li>{l.step2}</li>
-              <li>{l.step3}</li>
+              {app === 'vdo' ? (
+                <><li>{l.vdoStep1}</li><li>{l.vdoStep2}</li><li>{l.vdoStep3}</li></>
+              ) : (
+                <><li>{l.step1}</li><li>{l.step2}</li><li>{l.step3}</li></>
+              )}
               <li>{l.step4}</li>
             </ol>
-            {grove && (
+            {app === 'vdo' && whipUrl && (
+              <div className="hh-studio__phone-qr">
+                <QRCodeSVG value={whipUrl} size={168} marginSize={2} bgColor="#ffffff" fgColor="#000000" />
+                <span>{l.vdoQrHint}</span>
+              </div>
+            )}
+            {app === 'larix' && grove && (
               <div className="hh-studio__phone-qr">
                 <QRCodeSVG value={grove} size={168} marginSize={2} bgColor="#ffffff" fgColor="#000000" />
                 <span>
@@ -162,10 +214,11 @@ export function PhoneScreenSourceDialog({ whipUrl, connected, error, onClose, la
               </button>
             </div>
             <ul className="hh-studio__obs-hints">
+              <li>{l.sameEveryStream}</li>
               <li>{l.keepPrivate}</li>
               <li>{l.sharedSlot}</li>
               <li>{l.soundNote}</li>
-              <li>{l.androidNote}</li>
+              {app === 'larix' && <li>{l.androidNote}</li>}
               <li>{l.delayNote}</li>
             </ul>
             <p className="hh-studio__obs-status">{connected ? `✅ ${l.connected}` : `⏳ ${l.waiting}`}</p>

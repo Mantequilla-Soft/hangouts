@@ -14,9 +14,12 @@
  */
 
 /** Where the goal bar sits over the video (mirrors the server's GOAL_POSITIONS):
- *  a full-width band along the bottom or top, or a small card in a corner. */
-export const GOAL_POSITIONS = ['bottom', 'top', 'top-right', 'bottom-right', 'bottom-left'] as const;
+ *  a small card in a corner, or a full-width band along the top or bottom.
+ *  The default first. */
+export const GOAL_POSITIONS = ['top-right', 'bottom-right', 'bottom-left', 'top', 'bottom'] as const;
 export type GoalPosition = typeof GOAL_POSITIONS[number];
+/** Also what a goal saved without a position (before positions existed) shows. */
+export const DEFAULT_GOAL_POSITION: GoalPosition = 'top-right';
 
 export const isGoalPosition = (v: unknown): v is GoalPosition =>
   typeof v === 'string' && (GOAL_POSITIONS as readonly string[]).includes(v);
@@ -24,7 +27,7 @@ export const isGoalPosition = (v: unknown): v is GoalPosition =>
 export interface BoostGoal {
   title: string;
   targetHbd: number;
-  /** Absent = bottom. */
+  /** Absent = DEFAULT_GOAL_POSITION. */
   position?: GoalPosition;
 }
 
@@ -154,13 +157,14 @@ export function readBoostStats(meta: Record<string, unknown>): BoostStats {
  * A goal from what the host typed (the create form's Boosts step), or null: an
  * amount above 0 makes a goal, a title alone does not, and no boosts no goal.
  */
-export function goalFromInput(boostsOn: boolean, title: string, amount: string, position: GoalPosition = 'bottom'): BoostGoal | null {
+export function goalFromInput(boostsOn: boolean, title: string, amount: string, position: GoalPosition = DEFAULT_GOAL_POSITION): BoostGoal | null {
   const target = parseFloat(amount);
   if (!boostsOn || !Number.isFinite(target) || target <= 0) return null;
   return {
     title: title.replace(/\s+/g, ' ').trim().slice(0, 80),
     targetHbd: target,
-    ...(position !== 'bottom' ? { position } : {}),
+    // Always stored, so the choice can't change meaning if the default does.
+    position,
   };
 }
 
@@ -180,7 +184,7 @@ export function goalProgress(goal: BoostGoal | null, stats: BoostStats): GoalPro
   return {
     title: goal.title,
     targetHbd: goal.targetHbd,
-    position: goal.position ?? 'bottom',
+    position: goal.position ?? DEFAULT_GOAL_POSITION,
     progressHbd: progress,
     fraction: Math.max(0, Math.min(1, progress / goal.targetHbd)),
     reached: progress >= goal.targetHbd,
