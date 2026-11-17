@@ -4649,6 +4649,103 @@
   overflow: hidden;
 }
 
+/* The rail: the panel plus a vertical tab strip along the right edge.
+   Pinned, the panel sits in the row beside the preview. Unpinned
+   (--floating; going live unpins it) it slides off to the right behind the
+   strip and slides back over the preview while the pointer is over the strip
+   or the panel (--peek). */
+.hh-studio__rail {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.5rem;
+  min-height: 0;
+}
+.hh-studio__rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--st-text);
+  padding: 0 0.1rem;
+}
+.hh-studio__rail-pin {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.45;
+  filter: grayscale(1);
+  transform: rotate(35deg);
+  transition: opacity 0.15s, transform 0.15s, filter 0.15s;
+}
+.hh-studio__rail-pin:hover { opacity: 0.85; background: var(--st-panel-strong); }
+.hh-studio__rail-pin--on { opacity: 1; filter: none; transform: none; border-color: var(--st-border); }
+.hh-studio__rail--floating .hh-studio__chat {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: calc(100% + 0.5rem);
+  z-index: 30;
+  max-width: none;
+  padding: 0.6rem;
+  box-sizing: border-box;
+  background: var(--st-bg);
+  border: 1px solid var(--st-border-strong);
+  border-radius: var(--st-radius);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.45);
+  transform: translateX(calc(100% + 4.5rem));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform 0.28s cubic-bezier(.2, .7, .3, 1), opacity 0.2s ease, visibility 0s linear 0.28s;
+}
+.hh-studio__rail--floating.hh-studio__rail--peek .hh-studio__chat {
+  transform: none;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: transform 0.28s cubic-bezier(.2, .7, .3, 1), opacity 0.2s ease, visibility 0s;
+}
+.hh-studio__vtabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  width: 3.6rem;
+  overflow-y: auto;
+}
+.hh-studio__vtab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.5rem 0.2rem;
+  border: 1px solid var(--st-border);
+  border-radius: 10px;
+  background: var(--st-panel);
+  color: var(--st-muted);
+  cursor: pointer;
+}
+.hh-studio__vtab:hover { color: var(--st-text); border-color: var(--st-border-strong); }
+.hh-studio__vtab--active { color: var(--st-text); border-color: var(--st-accent); background: var(--st-panel-strong); }
+.hh-studio__vtab-icon { font-size: 1.05rem; line-height: 1; font-weight: 800; }
+.hh-studio__vtab-label { font-size: 0.62rem; font-weight: 700; line-height: 1.1; text-align: center; overflow-wrap: anywhere; }
+.hh-studio__vtab-lock { position: absolute; top: 0.2rem; left: 0.25rem; font-size: 0.55rem; }
+.hh-studio__vtab .hh-studio__rbtn-dot { top: 0.3rem; right: 0.3rem; }
+.hh-studio__tab-body > .hh-overlays,
+.hh-studio__tab-body > .hh-boost-settings { flex: 1; min-height: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .hh-studio__rail--floating .hh-studio__chat,
+  .hh-studio__rail--floating.hh-studio__rail--peek .hh-studio__chat { transition: none; }
+}
+
 /* Transport: the stream lifecycle lives under the chat. */
 .hh-studio__transport {
   display: flex;
@@ -5996,6 +6093,8 @@
 @media (max-width: 480px) {
   .hh-studio__phone-qr { flex-direction: column; align-items: flex-start; }
 }
+.hh-studio__phone-open { display: block; margin-top: 0.4rem; font-weight: 600; }
+.hh-studio__phone-field { display: block; margin: 0 0.9rem 0.2rem; font-size: 0.78rem; opacity: 0.75; }
 
 /* The OBS ingest <video>. Must be a real, laid-out element in the document —
    Firefox won't decode a detached one — so it's hidden with opacity rather
@@ -7796,6 +7895,27 @@
   color: #fff;
   pointer-events: none;
 }
+/* Where the host put it (goal.position). Bottom is the default above; top is
+   the same band along the top; the corners are a small card. */
+.hh-boost-goal--pos-top { top: 12px; bottom: auto; }
+.hh-boost-goal--pos-top-right,
+.hh-boost-goal--pos-bottom-right,
+.hh-boost-goal--pos-bottom-left {
+  width: min(220px, calc(100% - 24px));
+  max-width: none;
+  margin: 0;
+  padding: 0.3rem 0.5rem 0.4rem;
+  gap: 0.2rem;
+}
+.hh-boost-goal--pos-top-right { top: 12px; right: 12px; bottom: auto; left: auto; }
+.hh-boost-goal--pos-bottom-right { right: 12px; left: auto; }
+.hh-boost-goal--pos-bottom-left { left: 12px; right: auto; }
+.hh-boost-goal--pos-top-right .hh-boost-goal__row,
+.hh-boost-goal--pos-bottom-right .hh-boost-goal__row,
+.hh-boost-goal--pos-bottom-left .hh-boost-goal__row { font-size: 0.7rem; gap: 0.5rem; }
+.hh-boost-goal--pos-top-right .hh-boost-goal__track,
+.hh-boost-goal--pos-bottom-right .hh-boost-goal__track,
+.hh-boost-goal--pos-bottom-left .hh-boost-goal__track { height: 4px; }
 .hh-boost-goal--inline {
   padding: 0.6rem 0.75rem;
   border-radius: 10px;
@@ -7976,6 +8096,21 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* In the studio's Boosts tab: fills the tab, the body scrolls, Save stays at
+   the bottom. */
+.hh-boost-settings.hh-boost-settings--embedded {
+  position: static;
+  transform: none;
+  width: auto;
+  height: 100%;
+  min-height: 0;
+  z-index: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.hh-boost-settings--embedded .hh-boost-settings__body { flex: 1; min-height: 0; max-height: none; }
 .hh-boost-settings__section {
   display: flex;
   flex-direction: column;

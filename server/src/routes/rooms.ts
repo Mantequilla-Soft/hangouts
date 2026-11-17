@@ -65,6 +65,23 @@ const ingressClient = new IngressClient(
   config.LIVEKIT_API_SECRET,
 );
 
+/**
+ * Delete the studio's OBS / phone ingress of a room that is closing. LiveKit
+ * keeps an ingress after its room is gone, and a publisher still holding the
+ * old address (Larix keeps the connection between streams) was then accepted
+ * and published into a fresh, empty room of the same name: the app said
+ * "connected" while the host's new studio never saw the feed. Without the
+ * ingress the stale address fails at once, visibly. Best effort.
+ */
+async function dropStudioIngress(roomName: string): Promise<void> {
+  try {
+    const list = await ingressClient.listIngress({ roomName });
+    await Promise.all(list
+      .filter((i) => i.participantIdentity === `obs-ingress-${roomName}`)
+      .map((i) => ingressClient.deleteIngress(i.ingressId).catch(() => undefined)));
+  } catch { /* the room still closes */ }
+}
+
 /** Identity prefix used for unauthenticated guest listeners. */
 const GUEST_PREFIX = 'guest-';
 /** Identity prefix used for silent OBS overlay observers. */
@@ -392,6 +409,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
                 properties: {
                   title: { type: 'string', maxLength: 200 },
                   targetHbd: { type: 'number' },
+                  position: { type: 'string', maxLength: 20 },
                 },
               },
             },
@@ -407,7 +425,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         backgroundImage?: string;
         visibility?: string;
         language?: string;
-        boost?: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string; goal?: { title?: string; targetHbd?: number } };
+        boost?: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string; goal?: { title?: string; targetHbd?: number; position?: string } };
         mode?: string;
         tags?: string[];
       };
@@ -782,6 +800,8 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
             properties: {
               title: { type: 'string', maxLength: 200 },
               targetHbd: { type: 'number' },
+              // Where viewers see the bar (GOAL_POSITIONS); default bottom.
+              position: { type: 'string', maxLength: 20 },
             },
             required: ['targetHbd'],
           },
@@ -1120,6 +1140,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     if (!hostPremium) {
       const next = await nextFreeStreamAt(request.username, name);
       if (next) {
+        await dropStudioIngress(name);
         await closeStreamRoom(name).catch(() => { /* already gone */ });
         return reply.code(429).send(dailyLimitBody(next));
       }
@@ -1248,6 +1269,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(204).send();
     }
 
+    await dropStudioIngress(name);
     await closeStreamRoom(name);
     return reply.code(204).send();
   });

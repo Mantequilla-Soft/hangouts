@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { StudioOverlaysApi } from '../../hooks/useStudioOverlays.js';
 import { BUILTIN_TRACKS } from '../../lib/brbMusic.js';
-import { editText, formatCountdown, type BrbMusic, type TickerSpeed } from '../../lib/studioOverlays.js';
+import { editText, formatCountdown, type BrbMusic, type TickerPosition, type TickerSpeed } from '../../lib/studioOverlays.js';
 
 /** Lower-third "show for" choices, in seconds (null = until hidden). */
 const SHOW_FOR: Array<{ s: number | null; label: string }> = [
@@ -16,10 +16,13 @@ const SHOW_FOR: Array<{ s: number | null; label: string }> = [
  * and clips see it. Portalled to <body> like the Boost settings, so it opens
  * the same way on a phone (a bottom sheet in the integrator's skin).
  */
-export function StudioOverlaysPanel({ api, onClose, streamState }: {
+export function StudioOverlaysPanel({ api, onClose, streamState, embedded = false }: {
   api: StudioOverlaysApi;
   onClose: () => void;
   streamState: 'standby' | 'live' | 'paused';
+  /** In the studio's right rail (the Overlays tab) instead of a sheet: no
+   *  header or close button, not portalled. */
+  embedded?: boolean;
 }) {
   const { config, update, live, defaults } = api;
   const [showFor, setShowFor] = useState<number | null>(8);
@@ -48,11 +51,13 @@ export function StudioOverlaysPanel({ api, onClose, streamState }: {
   };
 
   const panel = (
-    <div className="hh-overlays" role="dialog" aria-label="Overlays">
-      <div className="hh-overlays__header">
-        <span>Overlays</span>
-        <button type="button" className="hh-overlays__close" onClick={onClose} aria-label="Close">×</button>
-      </div>
+    <div className={`hh-overlays${embedded ? ' hh-overlays--embedded' : ''}`} role={embedded ? 'region' : 'dialog'} aria-label="Overlays">
+      {!embedded && (
+        <div className="hh-overlays__header">
+          <span>Overlays</span>
+          <button type="button" className="hh-overlays__close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+      )}
       <div className="hh-overlays__body">
         <p className="hh-overlays__intro">Drawn into your stream, so viewers, the replay and clips all see them.</p>
 
@@ -113,8 +118,16 @@ export function StudioOverlaysPanel({ api, onClose, streamState }: {
         <section className="hh-overlays__section">
           <div className="hh-overlays__section-title">Ticker</div>
           <textarea className="hh-overlays__input hh-overlays__textarea" maxLength={300} rows={2} value={config.ticker.text}
-            placeholder="A line that scrolls along the bottom: links, topics, thanks to supporters"
+            placeholder="A line that scrolls across the picture: links, topics, thanks to supporters"
             onChange={(e) => set('ticker', { text: editText(e.target.value, 300) })} />
+          <div className="hh-overlays__row">
+            <div className="hh-overlays__seg" role="group" aria-label="Position">
+              {(['bottom', 'top'] as TickerPosition[]).map((p) => (
+                <button key={p} type="button" className={config.ticker.position === p ? 'is-active' : ''}
+                  onClick={() => set('ticker', { position: p })}>{p === 'bottom' ? 'Bottom' : 'Top'}</button>
+              ))}
+            </div>
+          </div>
           <div className="hh-overlays__row">
             <div className="hh-overlays__seg" role="group" aria-label="Speed">
               {(['slow', 'normal', 'fast'] as TickerSpeed[]).map((s) => (
@@ -208,5 +221,5 @@ export function StudioOverlaysPanel({ api, onClose, streamState }: {
       </div>
     </div>
   );
-  return typeof document === 'undefined' ? panel : createPortal(panel, document.body);
+  return embedded || typeof document === 'undefined' ? panel : createPortal(panel, document.body);
 }

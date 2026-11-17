@@ -18,12 +18,14 @@
 export const MAX_OVERLAY_TEMPLATES = 12;
 export const BRB_MUSIC = ['off', 'calm', 'lofi', 'bright', 'file'] as const;
 export const TICKER_SPEEDS = ['slow', 'normal', 'fast'] as const;
+export const TICKER_POSITIONS = ['bottom', 'top'] as const;
 export type BrbMusic = typeof BRB_MUSIC[number];
 export type TickerSpeed = typeof TICKER_SPEEDS[number];
+export type TickerPosition = typeof TICKER_POSITIONS[number];
 
 export interface OverlayConfig {
   lowerThird: { name: string; title: string };
-  ticker: { text: string; speed: TickerSpeed };
+  ticker: { text: string; speed: TickerSpeed; position: TickerPosition };
   countdown: { label: string; minutes: number };
   brb: { message: string; music: BrbMusic; volume: number };
   /** Fade between scenes, and in and out of the slates. */
@@ -47,7 +49,7 @@ export interface OverlayLive {
 
 export const DEFAULT_OVERLAY_CONFIG: OverlayConfig = {
   lowerThird: { name: '', title: '' },
-  ticker: { text: '', speed: 'normal' },
+  ticker: { text: '', speed: 'normal', position: 'bottom' },
   countdown: { label: '', minutes: 5 },
   brb: { message: '', music: 'off', volume: 0.5 },
   fade: true,
@@ -86,7 +88,11 @@ export function cleanOverlayConfig(raw: unknown): OverlayConfig {
   const brb = obj(r.brb);
   return {
     lowerThird: { name: cleanText(lt.name, 60), title: cleanText(lt.title, 80) },
-    ticker: { text: cleanText(tk.text, 300), speed: pick(tk.speed, TICKER_SPEEDS, 'normal') },
+    ticker: {
+      text: cleanText(tk.text, 300),
+      speed: pick(tk.speed, TICKER_SPEEDS, 'normal'),
+      position: pick(tk.position, TICKER_POSITIONS, 'bottom'),
+    },
     countdown: { label: cleanText(cd.label, 40), minutes: Math.round(clamp(cd.minutes, 1, 180, 5)) },
     brb: {
       message: cleanText(brb.message, 80),
@@ -220,21 +226,23 @@ export function tickerHeight(w: number, h: number): number {
 
 const TICKER_PX_PER_S: Record<TickerSpeed, number> = { slow: 60, normal: 110, fast: 170 };
 
-/** The scrolling ticker band along the bottom. `elapsedMs` since it came on. */
+/** The scrolling ticker band along the bottom or the top. `elapsedMs` since it
+ *  came on. The accent edge faces the picture. */
 export function drawTicker(
   ctx: CanvasRenderingContext2D, w: number, h: number,
-  text: string, speed: TickerSpeed, elapsedMs: number, accent = '',
+  text: string, speed: TickerSpeed, elapsedMs: number, accent = '', position: TickerPosition = 'bottom',
 ): void {
   if (!text) return;
   const k = overlayScale(w, h);
   const bandH = tickerHeight(w, h);
-  const y = h - bandH;
+  const y = position === 'top' ? 0 : h - bandH;
+  const edgeH = Math.max(2, Math.round(3 * k));
   const appear = easeOut(Math.min(1, elapsedMs / 350));
   ctx.globalAlpha = appear;
   ctx.fillStyle = PANEL;
   ctx.fillRect(0, y, w, bandH);
   ctx.fillStyle = accent || DEFAULT_ACCENT;
-  ctx.fillRect(0, y, w, Math.max(2, Math.round(3 * k)));
+  ctx.fillRect(0, position === 'top' ? bandH - edgeH : y, w, edgeH);
   ctx.font = `600 ${Math.round(19 * k)}px ${FONT}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
@@ -309,7 +317,7 @@ export function drawLowerThird(
  */
 export function drawCountdown(
   ctx: CanvasRenderingContext2D, w: number, h: number,
-  label: string, remainingMs: number, onSlate: boolean, accent = '',
+  label: string, remainingMs: number, onSlate: boolean, accent = '', topInset = 0,
 ): void {
   const k = overlayScale(w, h);
   const time = formatCountdown(remainingMs);
@@ -337,7 +345,7 @@ export function drawCountdown(
   const labelW = labelLine ? ctx.measureText(labelLine).width + 10 * k : 0;
   const chipW = padX * 2 + labelW + timeW;
   const x = w - margin - chipW;
-  const y = margin;
+  const y = topInset + margin;
   ctx.fillStyle = PANEL;
   if (typeof ctx.roundRect === 'function') { ctx.beginPath(); ctx.roundRect(x, y, chipW, chipH, chipH / 2); ctx.fill(); }
   else ctx.fillRect(x, y, chipW, chipH);
@@ -371,7 +379,7 @@ export function createTextOverlayLayers(
       const c = getConfig();
       const live = getLive();
       if (!live.tickerOn || !c.ticker.text) return false;
-      drawTicker(ctx, w, h, c.ticker.text, c.ticker.speed, info.now - live.tickerAt, info.accent);
+      drawTicker(ctx, w, h, c.ticker.text, c.ticker.speed, info.now - live.tickerAt, info.accent, c.ticker.position);
       return true;
     },
   };
@@ -385,7 +393,7 @@ export function createTextOverlayLayers(
       const live = getLive();
       const progress = lowerThirdProgress(live, info.now);
       if (progress <= 0) return false;
-      const inset = live.tickerOn && c.ticker.text ? tickerHeight(w, h) : 0;
+      const inset = live.tickerOn && c.ticker.text && c.ticker.position === 'bottom' ? tickerHeight(w, h) : 0;
       drawLowerThird(ctx, w, h, c.lowerThird.name, c.lowerThird.title, progress, info.accent, inset);
       return true;
     },
@@ -398,7 +406,10 @@ export function createTextOverlayLayers(
       if (live.countdownEndsAt == null) return false;
       const remaining = live.countdownEndsAt - info.wall;
       if (remaining < -COUNTDOWN_LINGER_MS) return false;
-      drawCountdown(ctx, w, h, getConfig().countdown.label, remaining, info.state !== 'live', info.accent);
+      const c = getConfig();
+      // Over the picture the chip sits top right: under a ticker that runs along the top.
+      const inset = live.tickerOn && c.ticker.text && c.ticker.position === 'top' ? tickerHeight(w, h) : 0;
+      drawCountdown(ctx, w, h, c.countdown.label, remaining, info.state !== 'live', info.accent, inset);
       return true;
     },
   };

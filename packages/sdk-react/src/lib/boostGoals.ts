@@ -13,9 +13,19 @@
  * runtime code in core would not reach them until core is published.
  */
 
+/** Where the goal bar sits over the video (mirrors the server's GOAL_POSITIONS):
+ *  a full-width band along the bottom or top, or a small card in a corner. */
+export const GOAL_POSITIONS = ['bottom', 'top', 'top-right', 'bottom-right', 'bottom-left'] as const;
+export type GoalPosition = typeof GOAL_POSITIONS[number];
+
+export const isGoalPosition = (v: unknown): v is GoalPosition =>
+  typeof v === 'string' && (GOAL_POSITIONS as readonly string[]).includes(v);
+
 export interface BoostGoal {
   title: string;
   targetHbd: number;
+  /** Absent = bottom. */
+  position?: GoalPosition;
 }
 
 export interface BoostAlertSettings {
@@ -109,7 +119,11 @@ export function readBoostGoal(config: BoostRoomConfig | undefined): BoostGoal | 
   if (!goal) return null;
   const target = typeof goal.targetHbd === 'number' && Number.isFinite(goal.targetHbd) && goal.targetHbd > 0 ? goal.targetHbd : null;
   if (target === null) return null;
-  return { title: typeof goal.title === 'string' ? goal.title : '', targetHbd: target };
+  return {
+    title: typeof goal.title === 'string' ? goal.title : '',
+    targetHbd: target,
+    ...(isGoalPosition(goal.position) ? { position: goal.position } : {}),
+  };
 }
 
 export function readBoostStats(meta: Record<string, unknown>): BoostStats {
@@ -140,15 +154,20 @@ export function readBoostStats(meta: Record<string, unknown>): BoostStats {
  * A goal from what the host typed (the create form's Boosts step), or null: an
  * amount above 0 makes a goal, a title alone does not, and no boosts no goal.
  */
-export function goalFromInput(boostsOn: boolean, title: string, amount: string): BoostGoal | null {
+export function goalFromInput(boostsOn: boolean, title: string, amount: string, position: GoalPosition = 'bottom'): BoostGoal | null {
   const target = parseFloat(amount);
   if (!boostsOn || !Number.isFinite(target) || target <= 0) return null;
-  return { title: title.replace(/\s+/g, ' ').trim().slice(0, 80), targetHbd: target };
+  return {
+    title: title.replace(/\s+/g, ' ').trim().slice(0, 80),
+    targetHbd: target,
+    ...(position !== 'bottom' ? { position } : {}),
+  };
 }
 
 export interface GoalProgress {
   title: string;
   targetHbd: number;
+  position: GoalPosition;
   progressHbd: number;
   /** 0..1, for the bar width. */
   fraction: number;
@@ -161,6 +180,7 @@ export function goalProgress(goal: BoostGoal | null, stats: BoostStats): GoalPro
   return {
     title: goal.title,
     targetHbd: goal.targetHbd,
+    position: goal.position ?? 'bottom',
     progressHbd: progress,
     fraction: Math.max(0, Math.min(1, progress / goal.targetHbd)),
     reached: progress >= goal.targetHbd,

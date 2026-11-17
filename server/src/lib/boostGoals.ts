@@ -15,10 +15,20 @@ import { mutateRoomMetadata, type RoomMetaRecord } from './roomMeta.js';
  * covers both currencies, and a HIVE boost counts for what it was worth then.
  */
 
+/** Where the bar sits over the video: a full-width band along the bottom or
+ *  the top, or a small card in a corner. */
+export const GOAL_POSITIONS = ['bottom', 'top', 'top-right', 'bottom-right', 'bottom-left'] as const;
+export type GoalPosition = typeof GOAL_POSITIONS[number];
+
 export interface BoostGoal {
   title: string;
   targetHbd: number;
+  /** Absent = bottom (goals set before positions existed). */
+  position?: GoalPosition;
 }
+
+const isGoalPosition = (v: unknown): v is GoalPosition =>
+  typeof v === 'string' && (GOAL_POSITIONS as readonly string[]).includes(v);
 
 export interface BoostAlertSettings {
   /** Play a short chime in the studio for each boost. */
@@ -81,7 +91,7 @@ function finitePositive(value: unknown): number | null {
 
 /** The body fields PATCH /rooms/:name/boost accepts on top of the old ones. */
 export interface BoostExtrasInput {
-  goal?: { title?: string; targetHbd?: number } | null;
+  goal?: { title?: string; targetHbd?: number; position?: string } | null;
   tiers?: boolean;
   alerts?: BoostAlertSettings;
   presets?: number[];
@@ -108,7 +118,9 @@ export function parseBoostExtras(body: BoostExtrasInput): BoostExtrasResult {
     const target = finitePositive(body.goal.targetHbd);
     if (title.length > MAX_GOAL_TITLE) return { ok: false, error: `Goal title is longer than ${MAX_GOAL_TITLE} characters` };
     if (target === null || target > MAX_GOAL_HBD) return { ok: false, error: 'Enter a goal amount above 0' };
-    const goal: BoostGoal = { title, targetHbd: round3(target) };
+    const position = body.goal.position;
+    if (position !== undefined && !isGoalPosition(position)) return { ok: false, error: 'Unknown goal position' };
+    const goal: BoostGoal = { title, targetHbd: round3(target), ...(position ? { position } : {}) };
     steps.push((b) => { b.goal = goal; });
   }
 
@@ -163,7 +175,11 @@ export function readGoal(meta: RoomMetaRecord): BoostGoal | null {
   if (!goal) return null;
   const target = finitePositive(goal.targetHbd);
   if (target === null) return null;
-  return { title: typeof goal.title === 'string' ? goal.title : '', targetHbd: target };
+  return {
+    title: typeof goal.title === 'string' ? goal.title : '',
+    targetHbd: target,
+    ...(isGoalPosition(goal.position) ? { position: goal.position } : {}),
+  };
 }
 
 export function emptyStats(): BoostStats {

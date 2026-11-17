@@ -51,6 +51,22 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+/* In the studio's right rail (the Overlays tab): part of the panel. */
+.hh-overlays.hh-overlays--embedded {
+  position: static;
+  transform: none;
+  z-index: auto;
+  width: auto;
+  max-height: none;
+  min-height: 0;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-bottom: 0;
+}
+.hh-overlays--embedded .hh-overlays__body { flex: 1; min-height: 0; }
 .hh-overlays__header {
   display: flex;
   align-items: center;

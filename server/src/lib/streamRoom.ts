@@ -130,7 +130,7 @@ export interface CreateStreamRoomInput {
   language?: string;
   mode?: string;
   tags?: string[];
-  boost?: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string; goal?: { title?: string; targetHbd?: number } };
+  boost?: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string; goal?: { title?: string; targetHbd?: number; position?: string } };
   origin?: string;
   /** Extra metadata fields (headless streams) merged over the defaults. */
   extra?: Partial<RoomMetadata>;

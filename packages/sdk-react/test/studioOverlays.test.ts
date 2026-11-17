@@ -149,7 +149,7 @@ describe('createTextOverlayLayers', () => {
   const cfg: OverlayConfig = {
     ...DEFAULT_OVERLAY_CONFIG,
     lowerThird: { name: '@badadib', title: 'Host' },
-    ticker: { text: 'Boost the stream', speed: 'normal' },
+    ticker: { text: 'Boost the stream', speed: 'normal', position: 'bottom' },
     countdown: { label: 'Back in', minutes: 5 },
   };
   const layers = (live: OverlayLive, c = cfg) => {
@@ -179,9 +179,27 @@ describe('createTextOverlayLayers', () => {
     const ctx = fakeCtx();
     expect(layers(live).draw(ctx, 1280, 720, info())).toBe(false);
   });
+  it('a ticker along the top: band at y 0, the lower third drops to the bottom edge, the countdown chip moves under it', () => {
+    const live: OverlayLive = { ...OFF_LIVE, lowerThirdOn: true, lowerThirdAt: 1, tickerOn: true, tickerAt: 0, countdownEndsAt: 1_000_000 + 60_000 };
+    const draw = (c: OverlayConfig) => {
+      const ctx = fakeCtx();
+      layers(live, c).draw(ctx, 1280, 720, info());
+      return ctx.calls;
+    };
+    const rects = (c: OverlayConfig) => draw(c).filter((x) => x.op === 'fillRect').map((x) => x.args as number[]);
+    const chipY = (c: OverlayConfig) => (draw(c).find((x) => x.op === 'roundRect')!.args as number[])[1];
+    const band = 40; // tickerHeight at 1280x720
+    const bottom = rects(cfg);
+    const top = rects({ ...cfg, ticker: { ...cfg.ticker, position: 'top' } });
+    expect(bottom[0]).toEqual([0, 720 - band, 1280, band]);
+    expect(top[0]).toEqual([0, 0, 1280, band]);
+    // the lower third panel (3rd rect) sits a ticker band lower without a bottom ticker
+    expect(top[2][1] - bottom[2][1]).toBe(band);
+    expect(chipY({ ...cfg, ticker: { ...cfg.ticker, position: 'top' } }) - chipY(cfg)).toBe(band);
+  });
   it('a ticker without text stays off', () => {
     const ctx = fakeCtx();
-    expect(layers({ ...OFF_LIVE, tickerOn: true }, { ...cfg, ticker: { text: '', speed: 'slow' } }).draw(ctx, 1280, 720, info())).toBe(false);
+    expect(layers({ ...OFF_LIVE, tickerOn: true }, { ...cfg, ticker: { text: '', speed: 'slow', position: 'bottom' } }).draw(ctx, 1280, 720, info())).toBe(false);
   });
 });
 

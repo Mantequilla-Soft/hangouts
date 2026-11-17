@@ -42,6 +42,7 @@ export interface PostDraft {
   /** The boost goal: what it is for, and the amount in HBD as typed ('' = none). */
   goalTitle?: string;
   goalTarget?: string;
+  goalPosition?: string;
   /** Create-dialog Hive announcement choice: whether to announce at all, and
    *  as a short snap or a full post. */
   notifyOnHive?: boolean;

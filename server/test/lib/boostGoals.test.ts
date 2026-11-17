@@ -26,6 +26,11 @@ describe('parseBoostExtras', () => {
     expect(apply({ goal: { title: '  a   new  mic ', targetHbd: 50.12345 } })).toEqual({ goal: { title: 'a new mic', targetHbd: 50.123 } });
   });
 
+  it('stores where the bar goes, and refuses an unknown place', () => {
+    expect(apply({ goal: { title: 'mic', targetHbd: 5, position: 'top-right' } })).toEqual({ goal: { title: 'mic', targetHbd: 5, position: 'top-right' } });
+    expect(parseBoostExtras({ goal: { targetHbd: 5, position: 'middle' } })).toEqual({ ok: false, error: 'Unknown goal position' });
+  });
+
   it('a goal without a title is fine, null removes the goal', () => {
     expect(apply({ goal: { targetHbd: 10 } })).toEqual({ goal: { title: '', targetHbd: 10 } });
     expect(apply({ goal: null }, { goal: { title: 'x', targetHbd: 5 }, enabled: true })).toEqual({ enabled: true });
@@ -74,6 +79,8 @@ describe('readGoal / readStats', () => {
   it('reads a stored goal and ignores a broken one', () => {
     expect(readGoal({ boost: { goal: { title: 'mic', targetHbd: 50 } } })).toEqual({ title: 'mic', targetHbd: 50 });
     expect(readGoal({ boost: { goal: { targetHbd: 50 } } })).toEqual({ title: '', targetHbd: 50 });
+    expect(readGoal({ boost: { goal: { targetHbd: 50, position: 'top' } } })).toEqual({ title: '', targetHbd: 50, position: 'top' });
+    expect(readGoal({ boost: { goal: { targetHbd: 50, position: 'nowhere' } } })).toEqual({ title: '', targetHbd: 50 });
     expect(readGoal({ boost: { goal: { title: 'mic', targetHbd: 'lots' } } })).toBeNull();
     expect(readGoal({ boost: ['x'] })).toBeNull();
     expect(readGoal({})).toBeNull();

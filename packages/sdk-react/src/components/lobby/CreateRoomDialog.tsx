@@ -5,11 +5,11 @@ import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { usePremiumStatus } from '../../hooks/usePremiumStatus.js';
 import { ProUpsellDialog, type ProPerk } from '../pro/ProUpsellDialog.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
-import { AUTO_VOD_KEY, AUTO_VOD_DEFAULT, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
+import { AUTO_VOD_KEY, AUTO_VOD_DEFAULT, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
 import { isInAppBrowser, canBroadcast } from '../../lib/browser.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { FREE_STREAM_CAP_LABEL, PRO_STREAM_CAP_LABEL } from '../../lib/streamLimits.js';
-import { goalFromInput } from '../../lib/boostGoals.js';
+import { GOAL_POSITIONS, goalFromInput, isGoalPosition, type GoalPosition } from '../../lib/boostGoals.js';
 
 /** How the host wants to announce the session on Hive. */
 export type AnnounceType = 'snap' | 'post';
@@ -26,11 +26,11 @@ export interface CreateRoomDraft {
   tags: string[];
   language: string;
   visibility: RoomVisibility;
-  boost: { enabled: boolean; minBoostUsd: number; creatorPayoutAccount: string; goal: { title: string; targetHbd: number } | null };
+  boost: { enabled: boolean; minBoostUsd: number; creatorPayoutAccount: string; goal: { title: string; targetHbd: number; position?: GoalPosition } | null };
   /** Announce on Hive (always false for an unlisted room). */
   notifyOnHive: boolean;
   announceType: AnnounceType;
-  recording: { autoVod: boolean; autoDownload: boolean; allowClips: boolean };
+  recording: { autoVod: boolean; allowClips: boolean };
   isPremium: boolean;
 }
 
@@ -114,6 +114,14 @@ export interface StepLabels {
 }
 
 /** All of the create form's text (see `labels`). */
+const GOAL_POSITION_LABEL: Record<GoalPosition, 'goalPosBottom' | 'goalPosTop' | 'goalPosTopRight' | 'goalPosBottomRight' | 'goalPosBottomLeft'> = {
+  bottom: 'goalPosBottom',
+  top: 'goalPosTop',
+  'top-right': 'goalPosTopRight',
+  'bottom-right': 'goalPosBottomRight',
+  'bottom-left': 'goalPosBottomLeft',
+};
+
 export interface CreateRoomLabels extends StepLabels {
   beta: string;
   introPhoneTitle: string;
@@ -162,6 +170,13 @@ export interface CreateRoomLabels extends StepLabels {
   goalFor: string;
   goalForPlaceholder: string;
   goalAmount: string;
+  /** Where viewers see the goal bar, and the five choices. */
+  goalWhere: string;
+  goalPosBottom: string;
+  goalPosTop: string;
+  goalPosTopRight: string;
+  goalPosBottomRight: string;
+  goalPosBottomLeft: string;
   announceStream: string;
   announceSession: string;
   announceTypeLabel: string;
@@ -178,9 +193,6 @@ export interface CreateRoomLabels extends StepLabels {
   autoVodPro: string;
   /** `{cap}` */
   autoVodFree: string;
-  autoDownload: string;
-  autoDownloadPro: string;
-  autoDownloadFree: string;
   clips: string;
   clipsPro: string;
   clipsFree: string;
@@ -271,6 +283,12 @@ export const DEFAULT_CREATE_ROOM_LABELS: CreateRoomLabels = {
   goalFor: "What it's for",
   goalForPlaceholder: 'A new mic',
   goalAmount: 'Goal amount (HBD)',
+  goalWhere: 'Where viewers see it',
+  goalPosBottom: 'Bottom',
+  goalPosTop: 'Top',
+  goalPosTopRight: 'Small, top right',
+  goalPosBottomRight: 'Small, bottom right',
+  goalPosBottomLeft: 'Small, bottom left',
   announceStream: 'Share this stream on Hive and 3Speak',
   announceSession: 'Announce this session on Hive',
   announceTypeLabel: 'Announcement type',
@@ -286,9 +304,6 @@ export const DEFAULT_CREATE_ROOM_LABELS: CreateRoomLabels = {
   autoVod: 'Replace the stream with a video when it ends',
   autoVodPro: 'Records the whole broadcast and adds it as the VOD on your announcement post, so the same link plays the replay afterwards.',
   autoVodFree: 'Records the broadcast (up to {cap}) and adds it as the VOD on your announcement post, so the same link plays the replay afterwards.',
-  autoDownload: 'Record the session and download it when it ends',
-  autoDownloadPro: 'Saves a copy to your computer when you end the stream.',
-  autoDownloadFree: 'Only available with 3Speak Pro — records the broadcast to a file on your computer.',
   clips: 'Let viewers clip the last 30 seconds',
   clipsPro: 'Viewers get a \u201c30 sec\u201d button to save and share a clip of your live stream.',
   clipsFree: 'Only available with 3Speak Pro — viewers can save and share a 30-second clip.',
@@ -460,16 +475,15 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
   const [creatorPayoutAccount, setCreatorPayoutAccount] = useState(draft.creatorPayoutAccount ?? '');
   const [goalTitle, setGoalTitle] = useState(draft.goalTitle ?? '');
   const [goalTarget, setGoalTarget] = useState(draft.goalTarget ?? '');
+  const [goalPosition, setGoalPosition] = useState<GoalPosition>(isGoalPosition(draft.goalPosition) ? draft.goalPosition : 'bottom');
   const [notifyOnHive, setNotifyOnHive] = useState(draft.notifyOnHive ?? true);
   const [announceType, setAnnounceType] = useState<AnnounceType>((draft.announceType as AnnounceType) ?? 'snap');
   // Shared with the studio's post tab — see streamRecordingPrefs. Set here so
   // the host decides before opening the studio, and changed there if they
   // change their mind before hitting Start.
   const [autoVod, setAutoVod] = useState(() => readPref(AUTO_VOD_KEY, AUTO_VOD_DEFAULT));
-  const [autoDownload, setAutoDownload] = useState(() => readPref(AUTO_DL_KEY));
   const [allowClips, setAllowClips] = useState(() => readPref(ALLOW_CLIPS_KEY, true));
   useEffect(() => { writePref(AUTO_VOD_KEY, autoVod); }, [autoVod]);
-  useEffect(() => { writePref(AUTO_DL_KEY, autoDownload); }, [autoDownload]);
   useEffect(() => { writePref(ALLOW_CLIPS_KEY, allowClips); }, [allowClips]);
 
   // A standalone stream is always announced as a full post — a snap can't carry
@@ -589,6 +603,7 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
     setCreatorPayoutAccount(d.creatorPayoutAccount ?? '');
     setGoalTitle(d.goalTitle ?? '');
     setGoalTarget(d.goalTarget ?? '');
+    setGoalPosition(isGoalPosition(d.goalPosition) ? d.goalPosition : 'bottom');
     setNotifyOnHive(d.notifyOnHive ?? true);
     setAnnounceType((d.announceType as AnnounceType) ?? 'snap');
   }, [mode, initialMode]);
@@ -598,15 +613,18 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
   useEffect(() => {
     writePostDraft({
       title, description, thumbnail: backgroundImageUrl, tags, language, mode, visibility,
-      boostEnabled, minBoostUsd, creatorPayoutAccount, goalTitle, goalTarget, notifyOnHive, announceType,
+      boostEnabled, minBoostUsd, creatorPayoutAccount, goalTitle, goalTarget, goalPosition, notifyOnHive, announceType,
     }, mode);
   }, [
     title, description, backgroundImageUrl, tags, language, mode, visibility,
-    boostEnabled, minBoostUsd, creatorPayoutAccount, goalTitle, goalTarget, notifyOnHive, announceType,
+    boostEnabled, minBoostUsd, creatorPayoutAccount, goalTitle, goalTarget, goalPosition, notifyOnHive, announceType,
   ]);
 
   // The goal as the server takes it, or null (the studio's Boost settings work the same way)
-  const goal = useMemo(() => goalFromInput(boostEnabled, goalTitle, goalTarget), [boostEnabled, goalTitle, goalTarget]);
+  const goal = useMemo(
+    () => goalFromInput(boostEnabled, goalTitle, goalTarget, goalPosition),
+    [boostEnabled, goalTitle, goalTarget, goalPosition],
+  );
 
   // Why the last create failed, shown above the actions. A free host's daily
   // stream limit gets its own wording, with the local time they can go again.
@@ -980,6 +998,14 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
                   placeholder="50" onChange={(e) => setGoalTarget(e.target.value)} />
               </label>
             </div>
+            <label className="hh-cd__field">
+              <span className="hh-cd__label">{L.goalWhere}</span>
+              <select className="hh-cd__input" value={goalPosition} onChange={(e) => setGoalPosition(e.target.value as GoalPosition)}>
+                {GOAL_POSITIONS.map((p) => (
+                  <option key={p} value={p}>{L[GOAL_POSITION_LABEL[p]]}</option>
+                ))}
+              </select>
+            </label>
           </div>
         )}
 
@@ -1075,22 +1101,6 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
             <label className={`hh-cd__reccheck${isPremium ? '' : ' hh-cd__reccheck--locked'}`}>
               <input
                 type="checkbox"
-                checked={autoDownload && isPremium}
-                disabled={!isPremium}
-                onChange={(e) => setAutoDownload(e.target.checked)}
-              />
-              <span>
-                💾 {L.autoDownload}
-                {!isPremium && ' 🔒'}
-                <em>
-                  {isPremium ? L.autoDownloadPro : L.autoDownloadFree}
-                </em>
-              </span>
-            </label>
-
-            <label className={`hh-cd__reccheck${isPremium ? '' : ' hh-cd__reccheck--locked'}`}>
-              <input
-                type="checkbox"
                 checked={allowClips && isPremium}
                 disabled={!isPremium}
                 onChange={(e) => setAllowClips(e.target.checked)}
@@ -1147,7 +1157,6 @@ export function CreateRoomDialog({ onCreated, onCancel, allowStandalone = false,
           recording: {
             // Everyone may publish the replay (a free one is as long as a free stream).
             autoVod,
-            autoDownload: isPremium && autoDownload,
             allowClips: isPremium && allowClips,
           },
           isPremium,
