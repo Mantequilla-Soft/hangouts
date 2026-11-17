@@ -69,7 +69,8 @@ describe('goalProgress and topSupporters', () => {
   const stats = { count: 3, totalHbd: 30, goalHbd: 25, supporters: [] };
 
   it('fraction is clamped and reached flips at the target', () => {
-    expect(goalProgress({ title: 'mic', targetHbd: 50 }, stats)).toEqual({ title: 'mic', targetHbd: 50, position: 'bottom', progressHbd: 25, fraction: 0.5, reached: false });
+    // A goal saved before positions existed shows at the default, top right.
+    expect(goalProgress({ title: 'mic', targetHbd: 50 }, stats)).toEqual({ title: 'mic', targetHbd: 50, position: 'top-right', progressHbd: 25, fraction: 0.5, reached: false });
     expect(goalProgress({ title: 'mic', targetHbd: 50, position: 'top-right' }, stats)?.position).toBe('top-right');
     expect(goalProgress({ title: '', targetHbd: 20 }, stats)).toMatchObject({ fraction: 1, reached: true });
     expect(goalProgress({ title: '', targetHbd: 25 }, stats)?.reached).toBe(true);
@@ -204,13 +205,13 @@ describe('small helpers', () => {
 
 describe('a goal typed in the create form', () => {
   it('an amount above 0 makes a goal, with the title tidied', () => {
-    expect(goalFromInput(true, '  A new   mic ', '50')).toEqual({ title: 'A new mic', targetHbd: 50 });
-    expect(goalFromInput(true, '', '12.5')).toEqual({ title: '', targetHbd: 12.5 });
+    expect(goalFromInput(true, '  A new   mic ', '50')).toEqual({ title: 'A new mic', targetHbd: 50, position: 'top-right' });
+    expect(goalFromInput(true, '', '12.5')).toEqual({ title: '', targetHbd: 12.5, position: 'top-right' });
   });
 
-  it('carries a position other than the default bottom', () => {
+  it('carries the chosen position, always stored', () => {
     expect(goalFromInput(true, 'Mic', '50', 'top')).toEqual({ title: 'Mic', targetHbd: 50, position: 'top' });
-    expect(goalFromInput(true, 'Mic', '50', 'bottom')).toEqual({ title: 'Mic', targetHbd: 50 });
+    expect(goalFromInput(true, 'Mic', '50', 'bottom')).toEqual({ title: 'Mic', targetHbd: 50, position: 'bottom' });
   });
 
   it('no amount, zero, nonsense or boosts off: no goal', () => {

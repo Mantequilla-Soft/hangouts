@@ -57,6 +57,8 @@ export { battleTiles, drawBattleLayer, type BattleRect, type BattleTiles, type B
 export {
   BOOST_TIERS,
   DEFAULT_BOOST_PRESETS,
+  DEFAULT_GOAL_POSITION,
+  GOAL_POSITIONS,
   boostTier,
   boostDisplayMs,
   boostPresets,
@@ -69,6 +71,7 @@ export {
   type BoostTier,
   type BoostAlertSettings,
   type GoalProgress,
+  type GoalPosition,
 } from './lib/boostGoals.js';
 export { DEFAULT_BOOST_LABELS, type BoostLabels } from './lib/boostLabels.js';
 export { playBoostChime } from './lib/boostChime.js';

@@ -7913,8 +7913,8 @@
   color: #fff;
   pointer-events: none;
 }
-/* Where the host put it (goal.position). Bottom is the default above; top is
-   the same band along the top; the corners are a small card. */
+/* Where the host put it (goal.position; top right when unset). Bottom is the
+   band above; top is the same band along the top; the corners are a small card. */
 .hh-boost-goal--pos-top { top: 12px; bottom: auto; }
 .hh-boost-goal--pos-top-right,
 .hh-boost-goal--pos-bottom-right,
