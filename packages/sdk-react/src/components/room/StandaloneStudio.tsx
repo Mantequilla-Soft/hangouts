@@ -29,6 +29,7 @@ import { useBoostAlerts } from '../../hooks/useBoostAlerts.js';
 import { boostTier, boostTierColorVar, pickPinnedBoosts, readBoostConfig, parseRoomMeta } from '../../lib/boostGoals.js';
 import { playBoostChime } from '../../lib/boostChime.js';
 import { StreamBoostGoal } from './StreamBoostGoal.js';
+import { nodeIn } from '../../lib/audioNodeCache.js';
 import { BoostHistoryPanel } from './BoostHistoryPanel.js';
 import { BoostSettingsPanel } from './BoostSettingsPanel.js';
 import { StudioLivePanel, IconLive } from './StudioLivePanel.js';
@@ -1414,6 +1415,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // alone (disconnect(dest) cuts only that one edge).
   const LIMITER_CEILING_DB = -3;
   const limiterMapRef = useRef<Map<string, DynamicsCompressorNode>>(new Map());
+  /** This track's limiter in `ctx`; one cached from an earlier context is
+   *  dropped (connecting across contexts throws and took the studio down). */
+  const limiterIn = useCallback((key: string, ctx: AudioContext) => nodeIn(limiterMapRef.current, key, ctx), []);
   const [autoLimit, setAutoLimit] = useState<Record<string, boolean>>({});
   const autoLimitRef = useRef<Record<string, boolean>>({});
   autoLimitRef.current = autoLimit;
@@ -1441,14 +1445,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     const ctx = audioCtxRef.current, pre = busFor(key);
     if (!ctx || !pre) { try { gainNode.connect(busFor(key)!); } catch { /* not ready */ } return; }
     if (isLimited(key)) {
-      let comp = limiterMapRef.current.get(key);
+      let comp = limiterIn(key, ctx);
       if (!comp) { comp = makeLimiter(ctx); limiterMapRef.current.set(key, comp); }
       gainNode.connect(comp);
       comp.connect(pre);
     } else {
       gainNode.connect(pre);
     }
-  }, [isLimited, makeLimiter, busFor]);
+  }, [isLimited, makeLimiter, busFor, limiterIn]);
 
   const gainNodeFor = useCallback((key: string): GainNode | null => {
     if (key === 'mic') return micGainNodeRef.current;
@@ -1464,7 +1468,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     autoLimitRef.current = { ...autoLimitRef.current, [key]: on };
     const gn = gainNodeFor(key), pre = busFor(key), ctx = audioCtxRef.current;
     if (!gn || !pre || !ctx) return;
-    let comp = limiterMapRef.current.get(key);
+    let comp = limiterIn(key, ctx);
     try {
       if (on) {
         gn.disconnect(pre);                       // cut the direct edge only
@@ -1475,7 +1479,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         gn.connect(pre);
       }
     } catch { /* edge already in the desired state */ }
-  }, [isLimited, gainNodeFor, makeLimiter, busFor]);
+  }, [isLimited, gainNodeFor, makeLimiter, busFor, limiterIn]);
 
   useEffect(() => { if (micGainNodeRef.current) micGainNodeRef.current.gain.value = micMuted ? 0 : micGain; }, [micGain, micMuted]);
   useEffect(() => { if (mediaGainNodeRef.current) mediaGainNodeRef.current.gain.value = mediaMuted ? 0 : mediaGain; }, [mediaGain, mediaMuted]);
@@ -3781,6 +3785,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       mediaMap.clear();
       void audioCtxRef.current?.close().catch(() => { /* closed */ });
       audioCtxRef.current = null;
+      // Every node below belonged to that context.
+      limiterMapRef.current.clear();
+      analysersRef.current = {};
     };
   }, []);
 
