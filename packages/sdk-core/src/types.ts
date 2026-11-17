@@ -186,7 +186,8 @@ export interface RecordingFileResult {
   size: number;
 }
 
-export type StreamPlatform = 'youtube' | 'twitch';
+/** `custom`: the host's own RTMP server (Restream.io, Kick, ...); its stream key is the whole rtmp(s) URL, server and key. */
+export type StreamPlatform = 'youtube' | 'twitch' | 'custom';
 
 export interface StreamStartResponse {
   egressId: string;

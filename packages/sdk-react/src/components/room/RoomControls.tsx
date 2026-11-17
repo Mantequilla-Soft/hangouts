@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalParticipant, useLocalParticipantPermissions, useParticipants, useRoomInfo } from '@livekit/components-react';
-import type { BoostConfig, StreamPlatform } from '@snapie/hangouts-core';
+import type { BoostConfig } from '@snapie/hangouts-core';
+import type { StreamPlatform } from '../../hooks/useStreaming.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { useChat } from '../../hooks/useChat.js';
 import { usePushToTalk } from '../../hooks/usePushToTalk.js';

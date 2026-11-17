@@ -1144,7 +1144,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     setMobileSheet((v) => (v ? 'chat' : v));
   }, [streamState]);
 
-  // Restream to YouTube/Twitch + bring in OBS (Pro). Its own overlay (not a
+  // Restream to YouTube/Twitch/a custom server + bring in OBS (Pro). Its own overlay (not a
   // MobileSheet) because StreamingPanel is absolutely-positioned and would
   // otherwise float out of the sheet. The server enforces the Pro gate.
   const restream = useStreaming(roomName);
@@ -4804,7 +4804,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               <button
                 className={`hh-studio__rbtn${restreamOpen ? ' hh-studio__rbtn--on' : ''}${restream.isStreaming ? ' hh-studio__rbtn--live' : ''}`}
                 onClick={() => setRestreamOpen((v) => !v)}
-                title="Restream to YouTube or Twitch, or bring in OBS (Pro)"
+                title="Restream to YouTube, Twitch or another platform, or bring in OBS (Pro)"
               >
                 <IconBroadcast />
                 <span className="hh-studio__rbtn-label">Restream</span>

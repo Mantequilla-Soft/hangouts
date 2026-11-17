@@ -134,6 +134,27 @@ describe('restream start', () => {
     expect(opts.customBaseUrl).toBeUndefined();
   });
 
+  it('a custom destination streams to the host\'s own RTMP URL, server and key in one', async () => {
+    const res = await start({ platform: 'custom', streamKey: ' rtmps://203.0.113.7:443/live/re_123 ', videoEnabled: true });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ status: 'streaming', platform: 'custom' });
+    const [, out] = egress.startRoomCompositeEgress.mock.calls[0];
+    expect(out.stream.urls).toEqual(['rtmps://203.0.113.7:443/live/re_123']);
+  });
+
+  it('a custom destination on an internal address or not rtmp is refused with 400', async () => {
+    for (const streamKey of ['rtmp://127.0.0.1/live/k', 'rtmp://169.254.169.254/live/k', 'https://203.0.113.7/live/k', 'just-a-key']) {
+      const res = await start({ platform: 'custom', streamKey, videoEnabled: true });
+      expect(res.statusCode, streamKey).toBe(400);
+    }
+    expect(egress.startRoomCompositeEgress).not.toHaveBeenCalled();
+  });
+
+  it('a custom destination is Pro too', async () => {
+    vi.mocked(users.isUserPremium).mockResolvedValue(false);
+    expect((await start({ platform: 'custom', streamKey: 'rtmp://203.0.113.7/live/k' })).statusCode).toBe(402);
+  });
+
   it('refuses a second restream of the same room with 409', async () => {
     expect((await start({ platform: 'youtube', streamKey: 'k' })).statusCode).toBe(200);
     expect((await start({ platform: 'twitch', streamKey: 'k' })).statusCode).toBe(409);

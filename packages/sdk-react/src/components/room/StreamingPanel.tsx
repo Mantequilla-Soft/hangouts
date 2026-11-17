@@ -1,22 +1,49 @@
 import { useState } from 'react';
-import type { StreamPlatform } from '@snapie/hangouts-core';
+import type { StreamPlatform } from '../../hooks/useStreaming.js';
 
 const DEFAULT_BG = 'https://hotipfs-3speak-1.b-cdn.net/ipfs/QmdU1V8Eefmv5E77Ct6hNG8A3f9b75dZmVS6ZVvw5ynnrn';
+
+const PLATFORMS: StreamPlatform[] = ['youtube', 'twitch', 'custom'];
+const PLATFORM_LABELS: Record<StreamPlatform, string> = {
+  youtube: 'YouTube',
+  twitch: 'Twitch',
+  custom: 'Other',
+};
+const LIVE_ON: Record<StreamPlatform, string> = {
+  youtube: 'YouTube',
+  twitch: 'Twitch',
+  custom: 'your own server',
+};
 
 const LS_STREAM_KEYS: Record<StreamPlatform, string> = {
   youtube: 'hh-yt-key',
   twitch: 'hh-tw-key',
+  custom: 'hh-custom-key',
 };
 const LS_VIEWER_URLS: Record<StreamPlatform, string> = {
   youtube: 'hh-yt-url',
   twitch: 'hh-tw-url',
+  custom: 'hh-custom-url',
 };
 const LS_BG_KEY = 'hh-stream-bg';
+const LS_SERVER_URL = 'hh-custom-server';
 
 const VIEWER_URL_PLACEHOLDERS: Record<StreamPlatform, string> = {
   youtube: 'youtube.com/live/...',
   twitch: 'twitch.tv/yourchannel',
+  custom: 'kick.com/yourchannel',
 };
+
+// The server checks it properly (public address only); this just keeps Go Live
+// off until something that looks like a server URL is in.
+const SERVER_URL_RE = /^rtmps?:\/\/[^\s/]+/i;
+
+/** A custom destination as the server takes it: server URL and key joined the way OBS does it. */
+export function customStreamTarget(serverUrl: string, streamKey: string): string | null {
+  const server = serverUrl.trim().replace(/\/+$/, '');
+  const key = streamKey.trim();
+  return SERVER_URL_RE.test(server) && key ? `${server}/${key}` : null;
+}
 
 function loadFromStorage(key: string): string {
   try { return localStorage.getItem(key) ?? ''; } catch { return ''; }
@@ -30,6 +57,7 @@ export interface StreamingPanelProps {
   videoEnabled: boolean;
   isLoading: boolean;
   error: string | null;
+  /** For `custom`, `streamKey` is the server URL and key joined into one rtmp(s) URL. */
   onStart: (platform: StreamPlatform, streamKey: string, bgUrl: string, viewerUrl: string) => void;
   onClose: () => void;
 }
@@ -48,6 +76,9 @@ export function StreamingPanel({ videoEnabled, isLoading, error, onStart, onClos
   const [streamKey, setStreamKey] = useState(() => loadFromStorage(LS_STREAM_KEYS[platform]));
   const [viewerUrl, setViewerUrl] = useState(() => loadFromStorage(LS_VIEWER_URLS[platform]));
   const [bgUrl, setBgUrl] = useState(() => loadFromStorage(LS_BG_KEY));
+  const [serverUrl, setServerUrl] = useState(() => loadFromStorage(LS_SERVER_URL));
+  const custom = platform === 'custom';
+  const ready = custom ? !!customStreamTarget(serverUrl, streamKey) : !!streamKey.trim();
 
   const handlePlatformChange = (p: StreamPlatform) => {
     setPlatform(p);
@@ -59,7 +90,10 @@ export function StreamingPanel({ videoEnabled, isLoading, error, onStart, onClos
     saveToStorage(LS_STREAM_KEYS[platform], streamKey);
     saveToStorage(LS_VIEWER_URLS[platform], viewerUrl);
     if (!videoEnabled) saveToStorage(LS_BG_KEY, bgUrl);
-    onStart(platform, streamKey, bgUrl || DEFAULT_BG, viewerUrl);
+    if (custom) saveToStorage(LS_SERVER_URL, serverUrl.trim());
+    const key = custom ? customStreamTarget(serverUrl, streamKey) : streamKey.trim();
+    if (!key) return;
+    onStart(platform, key, bgUrl || DEFAULT_BG, viewerUrl);
   };
 
   return (
@@ -70,25 +104,46 @@ export function StreamingPanel({ videoEnabled, isLoading, error, onStart, onClos
       </div>
 
       <div className="hh-streaming-panel__tabs">
-        <button
-          className={`hh-btn hh-btn--small ${platform === 'youtube' ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
-          onClick={() => handlePlatformChange('youtube')}
-        >
-          YouTube
-        </button>
-        <button
-          className={`hh-btn hh-btn--small ${platform === 'twitch' ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
-          onClick={() => handlePlatformChange('twitch')}
-        >
-          Twitch
-        </button>
+        {PLATFORMS.map((p) => (
+          <button
+            key={p}
+            className={`hh-btn hh-btn--small ${platform === p ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+            aria-pressed={platform === p}
+            onClick={() => handlePlatformChange(p)}
+          >
+            {PLATFORM_LABELS[p]}
+          </button>
+        ))}
       </div>
 
+      {custom && (
+        <div className="hh-streaming-panel__field">
+          <label className="hh-streaming-panel__label" htmlFor="hh-stream-server">
+            Server URL <span className="hh-streaming-panel__hint">(from the platform's stream settings)</span>
+          </label>
+          <input
+            id="hh-stream-server"
+            className="hh-streaming-panel__input"
+            type="url"
+            inputMode="url"
+            spellCheck={false}
+            autoCapitalize="off"
+            placeholder="rtmp://live.restream.io/live"
+            value={serverUrl}
+            onChange={(e) => setServerUrl(e.target.value)}
+          />
+          <p className="hh-streaming-panel__note">
+            Restream.io, Kick, Facebook or any service that gives you a server URL and a stream key.
+          </p>
+        </div>
+      )}
+
       <div className="hh-streaming-panel__field">
-        <label className="hh-streaming-panel__label">
-          {platform === 'youtube' ? 'YouTube' : 'Twitch'} Stream Key
+        <label className="hh-streaming-panel__label" htmlFor="hh-stream-key">
+          {custom ? 'Stream Key' : `${PLATFORM_LABELS[platform]} Stream Key`}
         </label>
         <input
+          id="hh-stream-key"
           className="hh-streaming-panel__input"
           type="password"
           placeholder="Paste your stream key"
@@ -130,7 +185,7 @@ export function StreamingPanel({ videoEnabled, isLoading, error, onStart, onClos
       <button
         className="hh-btn hh-btn--primary hh-btn--full"
         onClick={handleStart}
-        disabled={!streamKey.trim() || isLoading}
+        disabled={!ready || isLoading}
       >
         {isLoading ? 'Starting...' : '🔴 Go Live'}
       </button>
@@ -151,7 +206,7 @@ export function StopStreamingPanel({ platform, viewerUrl, isLoading, error, onSt
   return (
     <div className="hh-streaming-panel hh-streaming-panel--compact">
       <div className="hh-streaming-panel__header">
-        <span className="hh-streaming-panel__indicator">● LIVE on {platform}</span>
+        <span className="hh-streaming-panel__indicator">● LIVE on {LIVE_ON[platform]}</span>
         <button className="hh-btn hh-btn--icon hh-btn--secondary" onClick={onClose} title="Close">✕</button>
       </div>
 

@@ -2753,6 +2753,12 @@
   letter-spacing: 0;
 }
 
+.hh-streaming-panel__note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--hh-text-secondary);
+}
+
 .hh-streaming-panel__input {
   width: 100%;
   padding: 0.45rem 0.6rem;

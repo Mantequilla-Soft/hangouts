@@ -180,11 +180,11 @@ hands out slots (at most `CAPTIONS_MAX_STREAMS` at once).
 | `GET /podcast/recordings` | session | | `{ recordings }`, the caller's episodes of the last day. |
 | `GET /podcast/files/:token/:file` | token in path, 60/min | | The mix or a speaker file. Kept one day. |
 
-## Restream to YouTube or Twitch
+## Restream to YouTube, Twitch or a custom server
 
 | Route | Auth | Body | Answer |
 |---|---|---|---|
-| `POST /rooms/:name/stream/start` | session+ban, host, Pro | `{ platform*: 'youtube'\|'twitch', streamKey*, backgroundImageUrl?, videoEnabled? }` | `{ egressId, status: 'streaming', platform }`. 402 for non-Pro, 409 already streaming. |
+| `POST /rooms/:name/stream/start` | session+ban, host, Pro | `{ platform*: 'youtube'\|'twitch'\|'custom', streamKey*, backgroundImageUrl?, videoEnabled? }` | `{ egressId, status: 'streaming', platform }`. For `custom` the stream key is the whole `rtmp://` or `rtmps://` URL, the platform's server address and key (Restream.io, Kick, ...); it must resolve to a public address, else 400. 402 for non-Pro, 409 already streaming. |
 | `POST /rooms/:name/stream/stop` | session+ban, host | | `{ egressId, status }` |
 | `GET /rooms/:name/stream/status` | session+ban | | `{ streaming, egressId }` |
 
@@ -410,7 +410,7 @@ inside the handlers and are described above.
 | GET | `/rooms/:name/record/status` | requireAuth, checkBan | none |  |  |
 | POST | `/rooms/:name/record/stop` | requireAuth, checkBan | none |  |  |
 | POST | `/rooms/:name/record/upload` | requireAuth, checkBan | none |  | filePath*: string, duration: number, title: string, tags: string[] |
-| POST | `/rooms/:name/stream/start` | requireAuth, checkBan | none |  | platform*: youtube\|twitch, streamKey*: string, backgroundImageUrl: string, videoEnabled: boolean |
+| POST | `/rooms/:name/stream/start` | requireAuth, checkBan | none |  | platform*: youtube\|twitch\|custom, streamKey*: string, backgroundImageUrl: string, videoEnabled: boolean |
 | GET | `/rooms/:name/stream/status` | requireAuth, checkBan | none |  |  |
 | POST | `/rooms/:name/stream/stop` | requireAuth, checkBan | none |  |  |
 | PATCH | `/rooms/:name/vertical` | requireAuth | 40 / 1 minute |  | on: boolean, x: number, w: number, follow: string, track: boolean |
