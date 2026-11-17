@@ -2839,7 +2839,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     // live/standby gate (preMaster → master), so it can't leak over the
     // "Starting soon" slate. RoomAudio drops `obs-` identities so nobody hears
     // it twice.
-    const externalLabel = externalKindRef.current === 'phone' ? phoneLabels.sourceName : 'OBS';
+    // The host's phone ingress joins as "Phone" (it follows them into each new
+    // room, so it can arrive without the phone dialog having been opened).
+    const externalLabel = externalKindRef.current === 'phone' || obsVideo.participant.name === 'Phone'
+      ? phoneLabels.sourceName : 'OBS';
     const entry: ShareEntry = {
       id: OBS_SOURCE_ID,
       label: externalLabel,

@@ -6094,6 +6094,19 @@
   .hh-studio__phone-qr { flex-direction: column; align-items: flex-start; }
 }
 .hh-studio__phone-open { display: block; margin-top: 0.4rem; font-weight: 600; }
+.hh-studio__phone-tabs { display: flex; gap: 0.3rem; margin: 0 0.9rem 0.6rem; }
+.hh-studio__phone-tab {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--st-border, rgba(255, 255, 255, 0.12));
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  font-weight: 700;
+  cursor: pointer;
+}
+.hh-studio__phone-tab--active { opacity: 1; border-color: var(--st-accent, var(--hh-primary)); }
 .hh-studio__phone-field { display: block; margin: 0 0.9rem 0.2rem; font-size: 0.78rem; opacity: 0.75; }
 
 /* The OBS ingest <video>. Must be a real, laid-out element in the document —

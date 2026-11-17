@@ -7,8 +7,25 @@ const URL = 'https://live.3speak.tv/w/abc123key';
 const noop = () => { /* test */ };
 
 describe('PhoneScreenSourceDialog', () => {
-  it('shows the Larix steps, the URL, the token on its own, a Grove QR code and the waiting state', () => {
+  it('opens on the VDO.Ninja tab: its steps, a QR of the URL, the URL and the token, and that the address stays', () => {
     const html = renderToStaticMarkup(h(PhoneScreenSourceDialog, { whipUrl: URL, connected: false, onClose: noop }));
+    expect(html).toContain(DEFAULT_PHONE_SCREEN_LABELS.vdoStep1);
+    expect(html).not.toContain(DEFAULT_PHONE_SCREEN_LABELS.step1);
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain(`value="${URL}"`);
+    expect(html).toContain('value="abc123key"');
+    expect(html).toContain(DEFAULT_PHONE_SCREEN_LABELS.sameEveryStream);
+    expect(html).not.toContain('larix://');
+  });
+
+  it('the Larix tab (remembered): Larix steps, the token on its own, a Grove QR code and the waiting state', () => {
+    // Server render, no DOM: a stand-in window with the remembered choice.
+    const g = globalThis as { window?: unknown };
+    g.window = { localStorage: { getItem: () => 'larix', setItem: () => undefined } };
+    let html = '';
+    try {
+      html = renderToStaticMarkup(h(PhoneScreenSourceDialog, { whipUrl: URL, connected: false, onClose: noop }));
+    } finally { delete g.window; }
     expect(html).toContain('Larix Screencaster');
     expect(html).toContain(`value="${URL}"`);
     expect(html).toContain('value="abc123key"');
@@ -39,7 +56,7 @@ describe('PhoneScreenSourceDialog', () => {
     }));
     expect(html).toContain('Handy- oder Tablet-Bildschirm');
     expect(html).toContain('Kopieren');
-    expect(html).toContain(DEFAULT_PHONE_SCREEN_LABELS.step1);
+    expect(html).toContain(DEFAULT_PHONE_SCREEN_LABELS.vdoStep1);
   });
 
   it('builds the Grove link: brackets literal, values encoded, overwrite on', () => {
