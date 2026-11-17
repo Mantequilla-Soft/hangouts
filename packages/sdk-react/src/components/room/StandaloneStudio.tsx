@@ -5261,18 +5261,18 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             unpins it) it slides away and slides back in while the pointer is
             over the strip or the panel. */}
         <div
-          className={`hh-studio__rail${chatCollapsed ? ' hh-studio__rail--floating' : ''}${chatCollapsed && railPeek ? ' hh-studio__rail--peek' : ''}`}
+          className={`hh-studio__side${chatCollapsed ? ' hh-studio__side--floating' : ''}${chatCollapsed && railPeek ? ' hh-studio__side--peek' : ''}`}
           onMouseEnter={() => peekRail(true)}
           onMouseLeave={() => peekRail(false)}
           onFocus={() => peekRail(true)}
           onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) peekRail(false); }}
         >
           <aside className="hh-studio__chat" style={{ width: chatW }} aria-hidden={chatCollapsed && !railPeek ? true : undefined}>
-            <div className="hh-studio__rail-head">
+            <div className="hh-studio__side-head">
               <span>{RAIL_TABS.find((t) => t.id === rightTab)?.label}</span>
               <button
                 type="button"
-                className={`hh-studio__rail-pin${chatCollapsed ? '' : ' hh-studio__rail-pin--on'}`}
+                className={`hh-studio__side-pin${chatCollapsed ? '' : ' hh-studio__side-pin--on'}`}
                 onClick={() => { setChatCollapsed((v) => !v); setRailPeek(false); }}
                 aria-pressed={!chatCollapsed}
                 title={chatCollapsed ? 'Pin the panel open' : 'Unpin: the panel slides away and opens when you point at the tabs'}
