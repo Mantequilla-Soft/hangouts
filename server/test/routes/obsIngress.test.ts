@@ -93,7 +93,26 @@ describe('POST /rooms/:name/ingress for the phone/tablet screen source is free',
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ingressId: 'IN_1', streamKey: 'key123', participantIdentity: `obs-ingress-${ROOM}` });
     expect(res.json().whipUrl).toMatch(/\/key123$/);
-    expect(ingress.createIngress.mock.calls[0][1]).toMatchObject({ name: 'phone-alice', roomName: ROOM, enableTranscoding: true });
+    // Forwarded as it comes: no transcoding, no encoding options.
+    expect(ingress.createIngress.mock.calls[0][1]).toMatchObject({ name: 'phone-alice', roomName: ROOM, enableTranscoding: false });
+    expect(ingress.createIngress.mock.calls[0][1].video.encodingOptions?.case).toBeUndefined();
+  });
+
+  it('already here but still re-encoding: switched to forwarding in place', async () => {
+    ingress.listIngress.mockImplementation(async () => [{ ...phone(ROOM), enableTranscoding: true }]);
+    expect((await postPhone()).statusCode).toBe(200);
+    expect(ingress.updateIngress.mock.calls[0][1]).toMatchObject({ roomName: ROOM, enableTranscoding: false });
+  });
+
+  it('an older re-encoding phone ingress switches to forwarding when it moves in; a forwarding one just moves', async () => {
+    ingress.listIngress.mockImplementation(async (o: { roomName?: string }) => (o.roomName ? [] : [{ ...phone('alice-old'), enableTranscoding: true }]));
+    await postPhone();
+    expect(ingress.updateIngress.mock.calls[0][1]).toMatchObject({ roomName: ROOM, enableTranscoding: false });
+
+    ingress.updateIngress.mockClear();
+    ingress.listIngress.mockImplementation(async (o: { roomName?: string }) => (o.roomName ? [] : [{ ...phone('alice-old'), enableTranscoding: false }]));
+    await postPhone();
+    expect(ingress.updateIngress.mock.calls[0][1]).not.toHaveProperty('enableTranscoding');
   });
 
   // One permanent ingress per host: the app on the phone is set up once.
@@ -111,8 +130,9 @@ describe('POST /rooms/:name/ingress for the phone/tablet screen source is free',
     expect(ingress.createIngress).not.toHaveBeenCalled();
   });
 
-  it('is already here: handed back as is', async () => {
-    ingress.listIngress.mockImplementation(async (o: { roomName?: string }) => (o.roomName ? [phone(ROOM)] : [phone(ROOM)]));
+  it('is already here (and forwarding): handed back as is', async () => {
+    const here = { ...phone(ROOM), enableTranscoding: false };
+    ingress.listIngress.mockImplementation(async () => [here]);
     const res = await postPhone();
     expect(res.json()).toMatchObject({ streamKey: 'phonekey' });
     expect(ingress.updateIngress).not.toHaveBeenCalled();

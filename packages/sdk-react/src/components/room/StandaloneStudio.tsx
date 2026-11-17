@@ -1145,6 +1145,15 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     else railPeekTimer.current = window.setTimeout(() => setRailPeek(false), 350);
   }, []);
   useEffect(() => () => window.clearTimeout(railPeekTimer.current), []);
+  // Unpinned, pointing at a tab opens it (after a beat, so sweeping across the
+  // strip on the way to the panel doesn't flip through every tab). Pinned,
+  // tabs switch on click only.
+  const tabHoverTimer = useRef<number | undefined>(undefined);
+  const hoverTab = useCallback((id: RailTab | null) => {
+    window.clearTimeout(tabHoverTimer.current);
+    if (id) tabHoverTimer.current = window.setTimeout(() => setRightTab(id), 140);
+  }, []);
+  useEffect(() => () => window.clearTimeout(tabHoverTimer.current), []);
   const [mixerCollapsed, setMixerCollapsed] = useState(() => savedSetup.mixerCollapsed === true);
 
   // ---- mobile ------------------------------------------------------------
@@ -2823,44 +2832,24 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     // survives and still points at the dead element. Bailing here left that
     // stale element in the compositor forever: no srcObject, no frames, and
     // LiveKit dropping the layers because nothing was attached anymore.
-    const existing = sharesMapRef.current.get(OBS_SOURCE_ID);
-    if (existing) {
-      if (existing.video !== el || !el.srcObject) {
-        existing.video = el;
-        attachTo(el);
+    // Route OBS / phone audio through the studio mixer rather than letting
+    // viewers hear the raw ingress track: that gives it a fader AND puts it
+    // behind the live/standby gate (preMaster → master), so it can't leak over
+    // the "Starting soon" slate. RoomAudio drops `obs-` identities so nobody
+    // hears it twice. The audio track often lands a moment AFTER the video
+    // (and the app may only start sending sound later), so this runs on every
+    // pass until it is wired, not just when the source is first registered.
+    const wireAudio = (entry: ShareEntry): boolean => {
+      if (entry.audioSrc) return false;
+      const obsAudioPub = remoteTracks.find(
+        (t) => t.participant.identity.startsWith('obs-ingress-')
+          && t.publication?.kind === 'audio',
+      )?.publication;
+      if (obsAudioPub && !obsAudioPub.isSubscribed && 'setSubscribed' in obsAudioPub) {
+        (obsAudioPub as { setSubscribed(v: boolean): void }).setSubscribed(true);
       }
-      return;
-    }
-
-    attachTo(el);
-
-    // Route OBS audio through the studio mixer rather than letting viewers hear
-    // the raw ingress track: that gives it a fader AND puts it behind the
-    // live/standby gate (preMaster → master), so it can't leak over the
-    // "Starting soon" slate. RoomAudio drops `obs-` identities so nobody hears
-    // it twice.
-    // The host's phone ingress joins as "Phone" (it follows them into each new
-    // room, so it can arrive without the phone dialog having been opened).
-    const externalLabel = externalKindRef.current === 'phone' || obsVideo.participant.name === 'Phone'
-      ? phoneLabels.sourceName : 'OBS';
-    const entry: ShareEntry = {
-      id: OBS_SOURCE_ID,
-      label: externalLabel,
-      stream: new MediaStream(),
-      video: el,
-      hasAudio: false,
-      reattach: attachTo,
-    };
-
-    const obsAudioPub = remoteTracks.find(
-      (t) => t.participant.identity.startsWith('obs-ingress-')
-        && t.publication?.kind === 'audio',
-    )?.publication;
-    if (obsAudioPub && !obsAudioPub.isSubscribed && 'setSubscribed' in obsAudioPub) {
-      (obsAudioPub as { setSubscribed(v: boolean): void }).setSubscribed(true);
-    }
-    const obsAudioTrack = obsAudioPub?.track?.mediaStreamTrack;
-    if (obsAudioTrack) {
+      const obsAudioTrack = obsAudioPub?.track?.mediaStreamTrack;
+      if (!obsAudioTrack) return false;
       const ctx = ensureAudioGraph();
       const gainNode = ctx.createGain();
       gainNode.gain.value = 1;
@@ -2874,7 +2863,37 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       entry.analyser = analyser;
       analysersRef.current[OBS_SOURCE_ID] = analyser;
       entry.hasAudio = true;
+      return true;
+    };
+
+    const existing = sharesMapRef.current.get(OBS_SOURCE_ID);
+    if (existing) {
+      if (existing.video !== el || !el.srcObject) {
+        existing.video = el;
+        attachTo(el);
+      }
+      // Sound that arrived after the picture: add it to the mixer now.
+      if (wireAudio(existing)) {
+        setShares((prev) => prev.map((x) => (x.id === OBS_SOURCE_ID ? { ...x, hasAudio: true } : x)));
+      }
+      return;
     }
+
+    attachTo(el);
+
+    // The host's phone ingress joins as "Phone" (it follows them into each new
+    // room, so it can arrive without the phone dialog having been opened).
+    const externalLabel = externalKindRef.current === 'phone' || obsVideo.participant.name === 'Phone'
+      ? phoneLabels.sourceName : 'OBS';
+    const entry: ShareEntry = {
+      id: OBS_SOURCE_ID,
+      label: externalLabel,
+      stream: new MediaStream(),
+      video: el,
+      hasAudio: false,
+      reattach: attachTo,
+    };
+    wireAudio(entry);
 
     sharesMapRef.current.set(OBS_SOURCE_ID, entry);
     setShares((prev) => [...prev, { id: OBS_SOURCE_ID, label: externalLabel, hasAudio: entry.hasAudio, gain: 1, muted: false }]);
@@ -5315,7 +5334,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 key={t.id}
                 type="button"
                 className={`hh-studio__vtab hh-studio__vtab--${t.id}${rightTab === t.id ? ' hh-studio__vtab--active' : ''}`}
-                onClick={() => { setRightTab(t.id); if (chatCollapsed) setRailPeek(true); }}
+                onClick={() => { hoverTab(null); setRightTab(t.id); if (chatCollapsed) setRailPeek(true); }}
+                onMouseEnter={chatCollapsed ? () => hoverTab(t.id) : undefined}
+                onMouseLeave={chatCollapsed ? () => hoverTab(null) : undefined}
                 title={t.id === 'boosts' && boostsOff ? 'Boosts are off' : t.title}
                 aria-pressed={rightTab === t.id}
               >

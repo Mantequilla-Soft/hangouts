@@ -106,10 +106,28 @@ async function findPhoneIngress(host: string): Promise<IngressInfo | undefined> 
   return (await ingressClient.listIngress({})).find((i) => i.name === phoneIngressName(host));
 }
 
-function movePhoneIngress(i: IngressInfo, roomName: string, identity = `obs-ingress-${roomName}`): Promise<IngressInfo> {
-  return ingressClient.updateIngress(i.ingressId, {
-    name: i.name, roomName, participantIdentity: identity, participantName: 'Phone',
-  });
+/**
+ * The phone's video is forwarded as it comes (no transcoding). Measured on the
+ * same ingress build (1080x1920 H.264): re-encoding to VP8 took ~0.38 of a CPU
+ * core per phone and ~0.23 s, and capped the picture at 720 px high; forwarding
+ * ~0.03 core, ~0.05 s, the phone's own resolution. A busy box makes the
+ * re-encode fall behind, and the host saw a 7-8 s delay and a smeared picture.
+ * The cost: a Firefox build without H.264 can't show it (the phone dialog says
+ * so). One-way: LiveKit refuses to turn transcoding back on for an ingress
+ * that has bypassed it, so a VP8 phone ingress could not be switched back.
+ */
+const phonePassthrough = () => ({
+  enableTranscoding: false,
+  video: new IngressVideoOptions({ source: TrackSource.CAMERA }),
+});
+
+async function movePhoneIngress(i: IngressInfo, roomName: string, identity = `obs-ingress-${roomName}`): Promise<IngressInfo> {
+  const base = { name: i.name, roomName, participantIdentity: identity, participantName: 'Phone' };
+  // One made before forwarding (VP8 re-encoding) switches over on its next move.
+  if (i.enableTranscoding !== false) {
+    try { return await ingressClient.updateIngress(i.ingressId, { ...base, ...phonePassthrough() }); } catch { /* sending right now: next time */ }
+  }
+  return ingressClient.updateIngress(i.ingressId, base);
 }
 
 /** A new room of the host: bring their phone ingress along, unless it is
@@ -1045,10 +1063,11 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
           .filter((i) => i.participantIdentity === identity && !isPhoneIngress(i));
         await Promise.all(here.map((i) => ingressClient.deleteIngress(i.ingressId).catch(() => undefined)));
         let phone = await findPhoneIngress(request.username!);
-        if (phone && phone.roomName !== name) {
-          if (sendingElsewhere(phone)) {
-            return reply.code(409).send({ message: 'Your phone is sending into another of your streams. Stop it in the app, then try again.' });
-          }
+        if (phone && phone.roomName !== name && sendingElsewhere(phone)) {
+          return reply.code(409).send({ message: 'Your phone is sending into another of your streams. Stop it in the app, then try again.' });
+        }
+        // Moved in, or (already here) switched to forwarding if it still re-encodes.
+        if (phone && (phone.roomName !== name || phone.enableTranscoding !== false)) {
           phone = await movePhoneIngress(phone, name);
         }
         const info = phone ?? await ingressClient.createIngress(IngressInput.WHIP_INPUT, {
@@ -1056,8 +1075,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
           roomName: name,
           participantIdentity: identity,
           participantName: 'Phone',
-          enableTranscoding: true,
-          video: vp8VideoOptions(),
+          ...phonePassthrough(),
         });
         return reply.send({
           ingressId: info.ingressId,

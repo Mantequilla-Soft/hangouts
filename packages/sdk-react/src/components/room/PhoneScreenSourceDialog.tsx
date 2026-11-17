@@ -73,6 +73,8 @@ export interface PhoneScreenSourceLabels {
   sharedSlot: string;
   soundNote: string;
   androidNote: string;
+  /** Shown in Firefox: the phone's H.264 is forwarded as it comes. */
+  firefoxNote: string;
   delayNote: string;
   waiting: string;
   connected: string;
@@ -107,6 +109,7 @@ export const DEFAULT_PHONE_SCREEN_LABELS: PhoneScreenSourceLabels = {
   sharedSlot: 'One outside feed at a time: this uses the same slot as OBS.',
   soundNote: 'Sound: iPhone and iPad send the microphone, or the sound of apps that allow it.',
   androidNote: 'On Android, Larix may ask for its paid Premium before it streams over WebRTC.',
+  firefoxNote: 'Firefox may not show the phone\'s picture. Use Chrome, Edge, Brave or Safari for the studio when you add a phone.',
   delayNote: 'The feed arrives a little later than your studio camera and mic.',
   waiting: 'Waiting for the device to connect…',
   connected: 'The device is connected.',
@@ -126,6 +129,9 @@ export interface PhoneScreenSourceDialogProps {
 }
 
 const APP_KEY = 'hh-phone-source-app';
+// The phone's video reaches the studio as the app sends it (H.264), which some
+// Firefox builds can't decode.
+const isFirefox = () => typeof navigator !== 'undefined' && /firefox\//i.test(navigator.userAgent);
 type PhoneApp = 'vdo' | 'larix';
 const readApp = (): PhoneApp => {
   try { return window.localStorage.getItem(APP_KEY) === 'larix' ? 'larix' : 'vdo'; } catch { return 'vdo'; }
@@ -219,6 +225,7 @@ export function PhoneScreenSourceDialog({ whipUrl, connected, error, onClose, la
               <li>{l.sharedSlot}</li>
               <li>{l.soundNote}</li>
               {app === 'larix' && <li>{l.androidNote}</li>}
+              {isFirefox() && <li className="hh-studio__phone-warn">{l.firefoxNote}</li>}
               <li>{l.delayNote}</li>
             </ul>
             <p className="hh-studio__obs-status">{connected ? `✅ ${l.connected}` : `⏳ ${l.waiting}`}</p>
