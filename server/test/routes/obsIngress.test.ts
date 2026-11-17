@@ -7,6 +7,7 @@ const ingress = vi.hoisted(() => ({
   listIngress: vi.fn(),
   createIngress: vi.fn(),
   deleteIngress: vi.fn(),
+  updateIngress: vi.fn(),
 }));
 
 vi.mock('livekit-server-sdk', async (importOriginal) => {
@@ -16,6 +17,7 @@ vi.mock('livekit-server-sdk', async (importOriginal) => {
     listIngress = ingress.listIngress;
     createIngress = ingress.createIngress;
     deleteIngress = ingress.deleteIngress;
+    updateIngress = ingress.updateIngress;
   }
   return { ...orig, IngressClient: FakeIngressClient };
 });
@@ -53,6 +55,7 @@ beforeEach(async () => {
   }] as never);
   ingress.listIngress.mockResolvedValue([]);
   ingress.createIngress.mockResolvedValue({ ingressId: 'IN_1', streamKey: 'key123' });
+  ingress.updateIngress.mockImplementation(async (id: string, o: Record<string, unknown>) => ({ ingressId: id, streamKey: 'phonekey', ...o }));
 });
 
 const post = () => app.inject({
@@ -90,7 +93,56 @@ describe('POST /rooms/:name/ingress for the phone/tablet screen source is free',
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ingressId: 'IN_1', streamKey: 'key123', participantIdentity: `obs-ingress-${ROOM}` });
     expect(res.json().whipUrl).toMatch(/\/key123$/);
-    expect(ingress.createIngress.mock.calls[0][1]).toMatchObject({ roomName: ROOM, enableTranscoding: true });
+    expect(ingress.createIngress.mock.calls[0][1]).toMatchObject({ name: 'phone-alice', roomName: ROOM, enableTranscoding: true });
+  });
+
+  // One permanent ingress per host: the app on the phone is set up once.
+  const phone = (roomName: string, status = 0) => ({
+    ingressId: 'IN_phone', name: 'phone-alice', streamKey: 'phonekey', roomName,
+    participantIdentity: `obs-ingress-${roomName}`, state: { status },
+  });
+
+  it("moves the host's existing phone ingress into this room, same key, nothing new created", async () => {
+    ingress.listIngress.mockImplementation(async (o: { roomName?: string }) => (o.roomName ? [] : [phone('alice-old')]));
+    const res = await postPhone();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ingressId: 'IN_phone', streamKey: 'phonekey' });
+    expect(ingress.updateIngress).toHaveBeenCalledWith('IN_phone', expect.objectContaining({ roomName: ROOM, participantIdentity: `obs-ingress-${ROOM}` }));
+    expect(ingress.createIngress).not.toHaveBeenCalled();
+  });
+
+  it('is already here: handed back as is', async () => {
+    ingress.listIngress.mockImplementation(async (o: { roomName?: string }) => (o.roomName ? [phone(ROOM)] : [phone(ROOM)]));
+    const res = await postPhone();
+    expect(res.json()).toMatchObject({ streamKey: 'phonekey' });
+    expect(ingress.updateIngress).not.toHaveBeenCalled();
+    expect(ingress.createIngress).not.toHaveBeenCalled();
+  });
+
+  it('a phone sending into another stream right now is not pulled out of it (409); a parked one is', async () => {
+    ingress.listIngress.mockImplementation(async (o: { roomName?: string }) => (o.roomName ? [] : [phone('alice-live', 2)]));
+    expect((await postPhone()).statusCode).toBe(409);
+    expect(ingress.updateIngress).not.toHaveBeenCalled();
+    ingress.listIngress.mockImplementation(async (o: { roomName?: string }) => (o.roomName ? [] : [phone('phone-parked-alice', 2)]));
+    expect((await postPhone()).statusCode).toBe(200);
+  });
+
+  it("an OBS ingress in the room gives way to the phone (deleted), and OBS parks the phone", async () => {
+    const obs = { ingressId: 'IN_obs', name: `obs-${ROOM}-vp8`, participantIdentity: `obs-ingress-${ROOM}`, roomName: ROOM };
+    ingress.listIngress.mockImplementation(async (o: { roomName?: string }) => (o.roomName ? [obs] : [obs]));
+    await postPhone();
+    expect(ingress.deleteIngress).toHaveBeenCalledWith('IN_obs');
+
+    vi.clearAllMocks();
+    const users = await import('../../src/lib/users.js');
+    vi.mocked(users.getUserStatus).mockResolvedValue({ banned: false, premium: true });
+    ingress.updateIngress.mockResolvedValue({});
+    ingress.createIngress.mockResolvedValue({ ingressId: 'IN_1', streamKey: 'key123' });
+    ingress.listIngress.mockResolvedValue([phone(ROOM)]);
+    expect((await post()).statusCode).toBe(200);
+    expect(ingress.deleteIngress).not.toHaveBeenCalled();
+    expect(ingress.updateIngress).toHaveBeenCalledWith('IN_phone', expect.objectContaining({ roomName: 'phone-parked-alice' }));
+    expect(ingress.createIngress).toHaveBeenCalledTimes(1);
   });
 
   it('still only lets the host set it up', async () => {
