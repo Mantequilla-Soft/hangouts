@@ -1145,6 +1145,15 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     else railPeekTimer.current = window.setTimeout(() => setRailPeek(false), 350);
   }, []);
   useEffect(() => () => window.clearTimeout(railPeekTimer.current), []);
+  // Unpinned, pointing at a tab opens it (after a beat, so sweeping across the
+  // strip on the way to the panel doesn't flip through every tab). Pinned,
+  // tabs switch on click only.
+  const tabHoverTimer = useRef<number | undefined>(undefined);
+  const hoverTab = useCallback((id: RailTab | null) => {
+    window.clearTimeout(tabHoverTimer.current);
+    if (id) tabHoverTimer.current = window.setTimeout(() => setRightTab(id), 140);
+  }, []);
+  useEffect(() => () => window.clearTimeout(tabHoverTimer.current), []);
   const [mixerCollapsed, setMixerCollapsed] = useState(() => savedSetup.mixerCollapsed === true);
 
   // ---- mobile ------------------------------------------------------------
@@ -5325,7 +5334,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 key={t.id}
                 type="button"
                 className={`hh-studio__vtab hh-studio__vtab--${t.id}${rightTab === t.id ? ' hh-studio__vtab--active' : ''}`}
-                onClick={() => { setRightTab(t.id); if (chatCollapsed) setRailPeek(true); }}
+                onClick={() => { hoverTab(null); setRightTab(t.id); if (chatCollapsed) setRailPeek(true); }}
+                onMouseEnter={chatCollapsed ? () => hoverTab(t.id) : undefined}
+                onMouseLeave={chatCollapsed ? () => hoverTab(null) : undefined}
                 title={t.id === 'boosts' && boostsOff ? 'Boosts are off' : t.title}
                 aria-pressed={rightTab === t.id}
               >
