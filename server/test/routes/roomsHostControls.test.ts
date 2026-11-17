@@ -251,6 +251,7 @@ describe('PATCH /rooms/:name/live', () => {
     expect(res.statusCode).toBe(429);
     expect(res.json()).toMatchObject({ error: 'daily_stream_limit', retryAt: '2026-11-14T07:00:00.000Z' });
     expect(roomService.deleteRoom).toHaveBeenCalledWith(ROOM);
+    expect(ingress.listIngress).toHaveBeenCalledWith({ roomName: ROOM });
     expect(isGuestBanned(ROOM, '10.50.0.1')).toBe(false);
     expect(quota.recordGoLive).not.toHaveBeenCalled();
   });
@@ -317,6 +318,29 @@ describe('PATCH /rooms/:name/broadcast', () => {
     ]);
     expect(roomMeta()).toMatchObject({ post: { title: 'P' }, willPublishVod: true, broadcasting: true });
     expect(typeof roomMeta().liveAt).toBe('string');
+  });
+});
+
+describe('DELETE /rooms/:name (closing the studio room)', () => {
+  it("deletes the room's OBS / phone ingress too, so a stale address can't stream into an empty room", async () => {
+    const { roomService } = await import('../../src/lib/livekit.js');
+    setRoom({ mode: 'standalone' });
+    ingress.listIngress.mockResolvedValue([
+      { ingressId: 'IN_studio', participantIdentity: `obs-ingress-${ROOM}` },
+      { ingressId: 'IN_other', participantIdentity: 'someone-else' },
+    ]);
+    expect((await req('DELETE', '', 'alice')).statusCode).toBe(204);
+    expect(ingress.deleteIngress).toHaveBeenCalledTimes(1);
+    expect(ingress.deleteIngress).toHaveBeenCalledWith('IN_studio');
+    expect(roomService.deleteRoom).toHaveBeenCalledWith(ROOM);
+  });
+
+  it('still closes the room when the ingress lookup fails', async () => {
+    const { roomService } = await import('../../src/lib/livekit.js');
+    setRoom({ mode: 'standalone' });
+    ingress.listIngress.mockRejectedValueOnce(new Error('ingress down'));
+    expect((await req('DELETE', '', 'alice')).statusCode).toBe(204);
+    expect(roomService.deleteRoom).toHaveBeenCalledWith(ROOM);
   });
 });
 
