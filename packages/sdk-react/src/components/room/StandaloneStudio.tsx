@@ -827,6 +827,17 @@ export interface StandaloneStudioProps {
   captions?: StudioCaptionsOptions;
 }
 
+
+/** The studio's right-rail panels, top to bottom in the vertical tab strip. */
+type RailTab = 'chat' | 'post' | 'live' | 'overlays' | 'boosts' | 'settings';
+const RAIL_TABS: { id: RailTab; icon: string; label: string; title: string }[] = [
+  { id: 'chat', icon: '💬', label: 'Chat', title: 'Chat' },
+  { id: 'post', icon: '📝', label: 'Post', title: 'The announcement post' },
+  { id: 'live', icon: '📊', label: 'Live', title: 'Polls, predictions and raids' },
+  { id: 'overlays', icon: 'Aa', label: 'Overlays', title: 'Lower third, ticker, countdown, be right back' },
+  { id: 'boosts', icon: '🚀', label: 'Boosts', title: 'Boost settings: goal, alerts, amounts' },
+  { id: 'settings', icon: '⚙️', label: 'Settings', title: 'Stream settings' },
+];
 export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium: isPremiumOverride, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false, obsBaseUrl = 'https://hangout.3speak.tv', phoneSourceLabels, captions }: StandaloneStudioProps) {
   // Resolves itself unless the integrator forces it. Starts false, so the
   // free-tier watermark and the short cap apply until premium is confirmed —
@@ -1113,7 +1124,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [postModalOpen, setPostModalOpen] = useState(false);
   // Post tab first — hosts set up the stream's post details before going live.
   // Once live the post is locked, so the studio flips to chat (effect below).
-  const [rightTab, setRightTab] = useState<'chat' | 'post' | 'settings' | 'live' | 'boosts'>(() => (streamState === 'standby' ? 'post' : 'chat'));
+  const [rightTab, setRightTab] = useState<RailTab>(() => (streamState === 'standby' ? 'post' : 'chat'));
   const postLocked = streamState !== 'standby';
 
   // ---- panel sizing ------------------------------------------------------
@@ -1121,7 +1132,19 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [chatW, setChatW] = useState(() => savedNum(savedSetup.chatW, 230, 480, 430));
   const [faderH, setFaderH] = useState(() => savedNum(savedSetup.faderH, 70, 240, 120));
   const [leftCollapsed, setLeftCollapsed] = useState(() => savedSetup.leftCollapsed === true);
+  // The right rail: pinned open (false) or unpinned (true: slid away, shown
+  // while the pointer is over its tabs or the panel, `railPeek`).
   const [chatCollapsed, setChatCollapsed] = useState(() => savedSetup.chatCollapsed === true);
+  const [railPeek, setRailPeek] = useState(false);
+  const railPeekTimer = useRef<number | undefined>(undefined);
+  // Leaving closes after a moment, so crossing the gap between the strip and
+  // the panel (or a twitch of the mouse) doesn't snap it shut.
+  const peekRail = useCallback((open: boolean) => {
+    window.clearTimeout(railPeekTimer.current);
+    if (open) setRailPeek(true);
+    else railPeekTimer.current = window.setTimeout(() => setRailPeek(false), 350);
+  }, []);
+  useEffect(() => () => window.clearTimeout(railPeekTimer.current), []);
   const [mixerCollapsed, setMixerCollapsed] = useState(() => savedSetup.mixerCollapsed === true);
 
   // ---- mobile ------------------------------------------------------------
@@ -1141,6 +1164,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     if (prev !== 'standby' || streamState !== 'live') return;
     setRightTab('chat');
     setMobileSheet((v) => (v ? 'chat' : v));
+    // The picture gets the room: the rail slides away (pin it to keep it open).
+    setChatCollapsed(true);
+    setRailPeek(false);
   }, [streamState]);
 
   // Restream to YouTube/Twitch/a custom server + bring in OBS (Pro). Its own overlay (not a
@@ -4533,8 +4559,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           {!isMobile && shareUrl && <button className="hh-btn hh-btn--secondary hh-btn--small hh-studio__share-btn" onClick={copyShareUrl}>{copied ? <><span className="hh-studio__icon" aria-hidden="true">✓</span>Copied</> : <><span className="hh-studio__icon" aria-hidden="true">🔗</span>Share</>}</button>}
           {!isMobile && (
             <button
-              className={`hh-btn hh-btn--small hh-studio__overlays-btn ${overlaysOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
-              onClick={() => setOverlaysOpen((v) => !v)}
+              className={`hh-btn hh-btn--small hh-studio__overlays-btn ${rightTab === 'overlays' && (!chatCollapsed || railPeek) ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+              onClick={() => { setRightTab('overlays'); if (chatCollapsed) setRailPeek(true); }}
               title="Overlays: lower third, ticker, countdown, be right back"
               aria-label="Overlays"
             >
@@ -4554,8 +4580,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           {!isMobile && <button className={`hh-btn hh-btn--small hh-studio__boost-history-btn ${boostHistoryOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`} onClick={() => setBoostHistoryOpen((v) => !v)} title="Boost history" aria-label="Boost history"><span className="hh-studio__icon" aria-hidden="true">💰</span></button>}
           {!isMobile && (
             <button
-              className={`hh-btn hh-btn--small hh-studio__boost-settings-btn${boostsOff ? ' hh-studio__boost-settings-btn--off' : ''} ${!chatCollapsed && rightTab === 'boosts' ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
-              onClick={() => { setChatCollapsed(false); setRightTab('boosts'); }}
+              className={`hh-btn hh-btn--small hh-studio__boost-settings-btn${boostsOff ? ' hh-studio__boost-settings-btn--off' : ''} ${rightTab === 'boosts' && (!chatCollapsed || railPeek) ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+              onClick={() => { setRightTab('boosts'); if (chatCollapsed) setRailPeek(true); }}
               title={boostsOff ? 'Boosts are off: open Boost settings' : 'Boost settings'}
               aria-label="Boost settings"
             >
@@ -5227,29 +5253,35 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           <div className="hh-studio__resizer" onPointerDown={(e) => { e.preventDefault(); panelDragRef.current = { kind: 'chat', start: e.clientX, startVal: chatW }; }} title="Drag to resize" />
         )}
 
-        {/* Right rail */}
-        {chatCollapsed ? (
-          <button className="hh-studio__reopen" onClick={() => setChatCollapsed(false)} title="Show chat, post & settings">◂ 💬</button>
-        ) : (
-          <aside className="hh-studio__chat" style={{ width: chatW }}>
-            <div className="hh-studio__tabs">
-              <button className={`hh-studio__tab${rightTab === 'chat' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('chat')}>💬 Chat</button>
-              <button className={`hh-studio__tab${rightTab === 'post' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('post')}>
-                📝 Post{postLocked ? ' 🔒' : ''}
-                {/* Unsent: the announcement goes out when the host hits Start,
-                    so flag the tab until then — it's the last chance to check
-                    the title, community and payout. Mirrors the mobile rail. */}
-                {streamState === 'standby' && <span className="hh-studio__rbtn-dot" aria-hidden="true" />}
-              </button>
-              <button className={`hh-studio__tab${rightTab === 'live' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('live')} title="Polls, predictions and raids">📊 Live</button>
-              <button className={`hh-studio__tab${rightTab === 'boosts' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('boosts')} title={boostsOff ? 'Boosts are off' : 'Boost settings: goal, alerts, amounts'}>🚀 Boosts{boostsOff ? ' off' : ''}</button>
-              <button className={`hh-studio__tab${rightTab === 'settings' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('settings')}>⚙️ Settings</button>
-              <button className="hh-studio__collapse hh-studio__tabs-collapse" onClick={() => setChatCollapsed(true)} title="Collapse">›</button>
+        {/* Right rail: the panel, and a vertical strip of tabs along the edge.
+            Pinned, the panel sits beside the preview; unpinned (going live
+            unpins it) it slides away and slides back in while the pointer is
+            over the strip or the panel. */}
+        <div
+          className={`hh-studio__rail${chatCollapsed ? ' hh-studio__rail--floating' : ''}${chatCollapsed && railPeek ? ' hh-studio__rail--peek' : ''}`}
+          onMouseEnter={() => peekRail(true)}
+          onMouseLeave={() => peekRail(false)}
+          onFocus={() => peekRail(true)}
+          onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) peekRail(false); }}
+        >
+          <aside className="hh-studio__chat" style={{ width: chatW }} aria-hidden={chatCollapsed && !railPeek ? true : undefined}>
+            <div className="hh-studio__rail-head">
+              <span>{RAIL_TABS.find((t) => t.id === rightTab)?.label}</span>
+              <button
+                type="button"
+                className={`hh-studio__rail-pin${chatCollapsed ? '' : ' hh-studio__rail-pin--on'}`}
+                onClick={() => { setChatCollapsed((v) => !v); setRailPeek(false); }}
+                aria-pressed={!chatCollapsed}
+                title={chatCollapsed ? 'Pin the panel open' : 'Unpin: the panel slides away and opens when you point at the tabs'}
+                aria-label={chatCollapsed ? 'Pin the panel open' : 'Unpin the panel'}
+              >📌</button>
             </div>
             <div className="hh-studio__tab-body">
               {rightTab === 'chat' ? <ChatPanel /> : rightTab === 'settings' ? renderSettings()
                 : rightTab === 'live' ? <StudioLivePanel roomName={roomName} battle={liveBattle} />
-                : rightTab === 'boosts' ? (
+                : rightTab === 'overlays' ? (
+                  <StudioOverlaysPanel embedded api={overlays} streamState={streamState} onClose={() => setRightTab('chat')} />
+                ) : rightTab === 'boosts' ? (
                   <BoostSettingsPanel
                     embedded
                     roomName={roomName}
@@ -5274,7 +5306,26 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               )}
             </div>
           </aside>
-        )}
+          <nav className="hh-studio__vtabs" aria-label="Studio panels">
+            {RAIL_TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`hh-studio__vtab hh-studio__vtab--${t.id}${rightTab === t.id ? ' hh-studio__vtab--active' : ''}`}
+                onClick={() => { setRightTab(t.id); if (chatCollapsed) setRailPeek(true); }}
+                title={t.id === 'boosts' && boostsOff ? 'Boosts are off' : t.title}
+                aria-pressed={rightTab === t.id}
+              >
+                <span className="hh-studio__vtab-icon" aria-hidden="true">{t.icon}</span>
+                <span className="hh-studio__vtab-label">{t.id === 'boosts' && boostsOff ? `${t.label} off` : t.label}</span>
+                {t.id === 'post' && postLocked && <span className="hh-studio__vtab-lock" aria-hidden="true">🔒</span>}
+                {/* Unsent: the announcement goes out at Start, the last chance
+                    to check the title, community and payout. */}
+                {t.id === 'post' && streamState === 'standby' && <span className="hh-studio__rbtn-dot" aria-hidden="true" />}
+              </button>
+            ))}
+          </nav>
+        </div>
       </div>
       )}
 
