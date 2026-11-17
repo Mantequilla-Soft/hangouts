@@ -65,4 +65,18 @@ describe('PhoneScreenSourceDialog', () => {
       + '&conn[][name]=3Speak%20Live&conn[][token]=abc123key&conn[][overwrite]=on&conn[][mode]=va',
     );
   });
+
+  it('warns in Firefox only (the phone video is forwarded as H.264)', () => {
+    expect(renderToStaticMarkup(h(PhoneScreenSourceDialog, { whipUrl: URL, connected: false, onClose: noop })))
+      .not.toContain(DEFAULT_PHONE_SCREEN_LABELS.firefoxNote.slice(0, 20));
+    const g = globalThis as { navigator?: unknown };
+    const saved = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { userAgent: 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0' } });
+    try {
+      const html = renderToStaticMarkup(h(PhoneScreenSourceDialog, { whipUrl: URL, connected: false, onClose: noop }));
+      expect(html).toContain('Use Chrome, Edge, Brave or Safari');
+    } finally {
+      if (saved) Object.defineProperty(globalThis, 'navigator', saved); else delete g.navigator;
+    }
+  });
 });

@@ -4405,6 +4405,9 @@
 
 .hh-studio__split-handle {
   position: absolute;
+  /* Above .hh-studio__canvas (z-index 1, raised to hide the OBS host video):
+     without it the handle sat under the canvas and could not be grabbed. */
+  z-index: 2;
   top: 0;
   bottom: 0;
   width: 18px;
@@ -6111,6 +6114,7 @@
   font-weight: 700;
   cursor: pointer;
 }
+.hh-studio__phone-warn { font-weight: 700; }
 .hh-studio__phone-tab--active { opacity: 1; border-color: var(--st-accent, var(--hh-primary)); }
 .hh-studio__phone-field { display: block; margin: 0 0.9rem 0.2rem; font-size: 0.78rem; opacity: 0.75; }
 
