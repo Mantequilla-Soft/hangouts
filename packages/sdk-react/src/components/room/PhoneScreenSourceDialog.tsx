@@ -7,8 +7,8 @@ import { useState } from 'react';
  * Browsers on phones and tablets cannot capture the screen, and neither can a
  * browser extension; only an installed app can. So the phone's screen goes to
  * THIS computer with what the systems already have (AirPlay to a Mac, an AirPlay
- * receiver on Windows or Linux, scrcpy by cable or Wi-Fi or wireless display
- * for Android), and
+ * receiver on Windows or Linux, scrcpy by cable or by Wi-Fi (Android 11+
+ * wireless debugging, no cable at all) or wireless display for Android), and
  * the studio shares that window like any other (Add source, Share screen).
  * Nothing goes through a third party or our server.
  *
@@ -45,7 +45,7 @@ export interface PhoneScreenSourceLabels {
   linuxIos1: string;
   linuxIos2: string;
   linuxAndroid1: string;
-  /** scrcpy over Wi-Fi, after one cable connection (every computer). */
+  /** scrcpy over Wi-Fi without a cable: Android 11+ wireless debugging (every computer). */
   androidWifi: string;
   shareStep: string;
   shareButton: string;
@@ -76,7 +76,7 @@ export const DEFAULT_PHONE_SCREEN_LABELS: PhoneScreenSourceLabels = {
   linuxIos1: 'Install UxPlay (a free AirPlay receiver, in most package managers as "uxplay") and run it.',
   linuxIos2: 'Put both on the same Wi-Fi. On the iPhone or iPad, open Control Centre, tap Screen Mirroring and choose UxPlay.',
   linuxAndroid1: 'Install scrcpy (in most package managers). Turn on USB debugging in the phone\'s developer options, connect it with a cable and run scrcpy.',
-  androidWifi: 'Over Wi-Fi instead: with the phone plugged in once, run "scrcpy --tcpip", then unplug it. scrcpy keeps showing the screen over Wi-Fi (both on the same network).',
+  androidWifi: 'No cable (Android 11 or newer): in the developer options turn on Wireless debugging, tap Pair device with pairing code and run "adb pair" with the address and code shown, then "adb connect" with the address on the Wireless debugging screen, and run scrcpy. Same Wi-Fi for both.',
   shareStep: 'When the phone shows on this computer, share that window here:',
   shareButton: 'Share the window',
   soundNote: 'A shared window has no sound in most browsers. For the phone\'s sound, share the whole screen with system audio (Chrome on Windows) or use a microphone.',
