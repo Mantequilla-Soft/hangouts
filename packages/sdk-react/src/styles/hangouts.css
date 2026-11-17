@@ -5996,6 +5996,8 @@
 @media (max-width: 480px) {
   .hh-studio__phone-qr { flex-direction: column; align-items: flex-start; }
 }
+.hh-studio__phone-open { display: block; margin-top: 0.4rem; font-weight: 600; }
+.hh-studio__phone-field { display: block; margin: 0 0.9rem 0.2rem; font-size: 0.78rem; opacity: 0.75; }
 
 /* The OBS ingest <video>. Must be a real, laid-out element in the document —
    Firefox won't decode a detached one — so it's hidden with opacity rather
@@ -7796,6 +7798,27 @@
   color: #fff;
   pointer-events: none;
 }
+/* Where the host put it (goal.position). Bottom is the default above; top is
+   the same band along the top; the corners are a small card. */
+.hh-boost-goal--pos-top { top: 12px; bottom: auto; }
+.hh-boost-goal--pos-top-right,
+.hh-boost-goal--pos-bottom-right,
+.hh-boost-goal--pos-bottom-left {
+  width: min(220px, calc(100% - 24px));
+  max-width: none;
+  margin: 0;
+  padding: 0.3rem 0.5rem 0.4rem;
+  gap: 0.2rem;
+}
+.hh-boost-goal--pos-top-right { top: 12px; right: 12px; bottom: auto; left: auto; }
+.hh-boost-goal--pos-bottom-right { right: 12px; left: auto; }
+.hh-boost-goal--pos-bottom-left { left: 12px; right: auto; }
+.hh-boost-goal--pos-top-right .hh-boost-goal__row,
+.hh-boost-goal--pos-bottom-right .hh-boost-goal__row,
+.hh-boost-goal--pos-bottom-left .hh-boost-goal__row { font-size: 0.7rem; gap: 0.5rem; }
+.hh-boost-goal--pos-top-right .hh-boost-goal__track,
+.hh-boost-goal--pos-bottom-right .hh-boost-goal__track,
+.hh-boost-goal--pos-bottom-left .hh-boost-goal__track { height: 4px; }
 .hh-boost-goal--inline {
   padding: 0.6rem 0.75rem;
   border-radius: 10px;
@@ -7976,6 +7999,21 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* In the studio's Boosts tab: fills the tab, the body scrolls, Save stays at
+   the bottom. */
+.hh-boost-settings.hh-boost-settings--embedded {
+  position: static;
+  transform: none;
+  width: auto;
+  height: 100%;
+  min-height: 0;
+  z-index: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.hh-boost-settings--embedded .hh-boost-settings__body { flex: 1; min-height: 0; max-height: none; }
 .hh-boost-settings__section {
   display: flex;
   flex-direction: column;

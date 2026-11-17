@@ -392,6 +392,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
                 properties: {
                   title: { type: 'string', maxLength: 200 },
                   targetHbd: { type: 'number' },
+                  position: { type: 'string', maxLength: 20 },
                 },
               },
             },
@@ -407,7 +408,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         backgroundImage?: string;
         visibility?: string;
         language?: string;
-        boost?: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string; goal?: { title?: string; targetHbd?: number } };
+        boost?: { enabled?: boolean; minBoostUsd?: number; creatorPayoutAccount?: string; goal?: { title?: string; targetHbd?: number; position?: string } };
         mode?: string;
         tags?: string[];
       };
@@ -782,6 +783,8 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
             properties: {
               title: { type: 'string', maxLength: 200 },
               targetHbd: { type: 'number' },
+              // Where viewers see the bar (GOAL_POSITIONS); default bottom.
+              position: { type: 'string', maxLength: 20 },
             },
             required: ['targetHbd'],
           },

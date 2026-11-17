@@ -6,8 +6,9 @@ import { playBoostChime } from '../../lib/boostChime.js';
 import { boostLabels, type BoostLabels } from '../../lib/boostLabels.js';
 
 export interface StreamBoostGoalProps {
-  /** `overlay`: a slim bar over the bottom of the video. `inline`: a block in
-   *  a panel or dialog. */
+  /** `overlay`: over the video where the host put it (goal.position: a band
+   *  along the bottom or top, or a small card in a corner). `inline`: a block
+   *  in a panel or dialog. */
   variant?: 'overlay' | 'inline';
   labels?: Partial<BoostLabels>;
   className?: string;
@@ -31,6 +32,7 @@ export function StreamBoostGoal({ variant = 'overlay', labels, className }: Stre
   const cls = [
     'hh-boost-goal',
     `hh-boost-goal--${variant}`,
+    variant === 'overlay' ? `hh-boost-goal--pos-${goal.position}` : '',
     goal.reached ? 'hh-boost-goal--reached' : '',
     celebrating ? 'hh-boost-goal--celebrate' : '',
     className ?? '',

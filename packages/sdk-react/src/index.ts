@@ -124,7 +124,7 @@ export {
 } from './components/room/StandaloneWatch.js';
 export { HlsStreamVideo, type HlsStreamVideoProps } from './components/room/HlsStreamVideo.js';
 export {
-  PhoneScreenSourceDialog, DEFAULT_PHONE_SCREEN_LABELS,
+  PhoneScreenSourceDialog, DEFAULT_PHONE_SCREEN_LABELS, larixGroveUrl,
   type PhoneScreenSourceDialogProps, type PhoneScreenSourceLabels,
 } from './components/room/PhoneScreenSourceDialog.js';
 export type { Delivery, JoinOptions } from './lib/hlsDelivery.js';

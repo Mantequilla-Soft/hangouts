@@ -235,7 +235,7 @@ The host sets these in Boost settings (studio rocket button); they are stored in
 
 | Field | Meaning |
 |---|---|
-| `goal: { title, targetHbd }` | Goal bar ("50 HBD for a new mic"). `null` removes it. |
+| `goal: { title, targetHbd, position? }` | Goal bar ("50 HBD for a new mic"). `position`: `bottom` (default), `top`, or a small card at `top-right`, `bottom-right`, `bottom-left`. `null` removes it. |
 | `tiers: boolean` | Amount tiers on (default) or off. Under 1 / 1 to 5 / 5 to 20 / 20+ HBD: colour from the theme tokens and 15 s / 30 s / 1 min / 2 min on screen. Off: 30 s for all. |
 | `alerts: { sound, tts, ttsMinHbd }` | Studio alerts: a synthesised chime (default on) and reading boosts aloud with `speechSynthesis` (default off, from 5 HBD). |
 | `presets: number[]` | Quick amounts in the viewer dialog (default 1, 5, 10, 25; at most 6). `[]` = defaults. |

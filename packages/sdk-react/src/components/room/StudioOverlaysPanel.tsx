@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { StudioOverlaysApi } from '../../hooks/useStudioOverlays.js';
 import { BUILTIN_TRACKS } from '../../lib/brbMusic.js';
-import { editText, formatCountdown, type BrbMusic, type TickerSpeed } from '../../lib/studioOverlays.js';
+import { editText, formatCountdown, type BrbMusic, type TickerPosition, type TickerSpeed } from '../../lib/studioOverlays.js';
 
 /** Lower-third "show for" choices, in seconds (null = until hidden). */
 const SHOW_FOR: Array<{ s: number | null; label: string }> = [
@@ -113,8 +113,16 @@ export function StudioOverlaysPanel({ api, onClose, streamState }: {
         <section className="hh-overlays__section">
           <div className="hh-overlays__section-title">Ticker</div>
           <textarea className="hh-overlays__input hh-overlays__textarea" maxLength={300} rows={2} value={config.ticker.text}
-            placeholder="A line that scrolls along the bottom: links, topics, thanks to supporters"
+            placeholder="A line that scrolls across the picture: links, topics, thanks to supporters"
             onChange={(e) => set('ticker', { text: editText(e.target.value, 300) })} />
+          <div className="hh-overlays__row">
+            <div className="hh-overlays__seg" role="group" aria-label="Position">
+              {(['bottom', 'top'] as TickerPosition[]).map((p) => (
+                <button key={p} type="button" className={config.ticker.position === p ? 'is-active' : ''}
+                  onClick={() => set('ticker', { position: p })}>{p === 'bottom' ? 'Bottom' : 'Top'}</button>
+              ))}
+            </div>
+          </div>
           <div className="hh-overlays__row">
             <div className="hh-overlays__seg" role="group" aria-label="Speed">
               {(['slow', 'normal', 'fast'] as TickerSpeed[]).map((s) => (

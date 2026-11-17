@@ -297,7 +297,7 @@ recording template you build (OBS overlay, egress) needs the same checks: the de
 | Package | Version | Use |
 |---|---|---|
 | `@snapie/hangouts-core` | 0.16.0 | No dependencies. `HangoutsApiClient`, `HangoutsApiError`, login helpers, types, track names. Use it without React or on a server. |
-| `@snapie/hangouts-react` | 0.27.2 | Peer deps: `react` 18 or 19, `livekit-client` 2, `@livekit/components-react` 2. Re-exports most of core. |
+| `@snapie/hangouts-react` | 0.27.3 | Peer deps: `react` 18 or 19, `livekit-client` 2, `@livekit/components-react` 2. Re-exports most of core. |
 
 Styles: `import '@snapie/hangouts-react/src/styles/hangouts.css'` (one file, it
 imports the rest). Classes use the `hh-` prefix, colours the `--hh-*` variables.

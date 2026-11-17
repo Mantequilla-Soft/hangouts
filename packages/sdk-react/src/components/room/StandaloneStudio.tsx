@@ -8,7 +8,7 @@ import { PhoneScreenSourceDialog, DEFAULT_PHONE_SCREEN_LABELS, type PhoneScreenS
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
 import { ChatPanel } from './ChatPanel.js';
-import { AUTO_VOD_KEY, AUTO_VOD_DEFAULT, AUTO_DL_KEY, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
+import { AUTO_VOD_KEY, AUTO_VOD_DEFAULT, ALLOW_CLIPS_KEY, readPref, writePref } from '../../utils/streamRecordingPrefs.js';
 import { resolveStreamCap, FREE_STREAM_CAP_LABEL } from '../../lib/streamLimits.js';
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
 import { readStudioSetup, writeStudioSetup, saveStudioFile, deleteStudioFile, loadStudioFiles } from '../../lib/studioSetup.js';
@@ -1013,10 +1013,13 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // on screen, the payout account. Read live from the room metadata, so the
   // button and the panel follow what the server stored (the panel's save goes
   // through PATCH /rooms/:name/boost, which updates that metadata).
-  const [boostSettingsOpen, setBoostSettingsOpen] = useState(false);
   const roomInfo = useRoomInfo();
   const boostConfig = useMemo(() => readBoostConfig(parseRoomMeta(roomInfo.metadata)), [roomInfo.metadata]);
   const boostsOff = boostConfig?.enabled === false;
+  const boostConfigForPanel = useMemo(
+    () => (boostConfig ? { ...boostConfig, enabled: boostConfig.enabled ?? true, minBoostUsd: boostConfig.minBoostUsd ?? 0 } : undefined),
+    [boostConfig],
+  );
   // Goal, tiers and alerts (Boost settings). Alerts play here, on the host's
   // own speakers: a chime per boost, optionally read aloud, and a run of notes
   // when the goal is reached.
@@ -1088,15 +1091,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     try { if (window.localStorage.getItem(BROWSER_WARN_KEY) === '1') return; } catch { /* ignore */ }
     setShowBrowserWarn(true);
   }, [chromium]);
-  // Pro: keep a local copy of the broadcast, downloaded when the stream ends.
-  const [autoDownload, setAutoDownload] = useState(() => {
-    return readPref(AUTO_DL_KEY);
-  });
-  const autoDownloadRef = useRef(false);
-  autoDownloadRef.current = autoDownload && isPremium;
   const autoVodRef = useRef(false);
-  // Free hosts publish the replay too, as long as their stream (FREE_STREAM_CAP);
-  // the local download stays Pro.
+  // Free hosts publish the replay too, as long as their stream (FREE_STREAM_CAP).
+  // (No separate "download it when it ends" any more: the published VOD can be
+  // downloaded later, owner 2026-11-17.)
   autoVodRef.current = autoVod && canPublishVod;
 
   // ---- post composer (pre-filled from create-room inputs / saved post) ----
@@ -1114,7 +1112,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [postModalOpen, setPostModalOpen] = useState(false);
   // Post tab first — hosts set up the stream's post details before going live.
   // Once live the post is locked, so the studio flips to chat (effect below).
-  const [rightTab, setRightTab] = useState<'chat' | 'post' | 'settings' | 'live'>(() => (streamState === 'standby' ? 'post' : 'chat'));
+  const [rightTab, setRightTab] = useState<'chat' | 'post' | 'settings' | 'live' | 'boosts'>(() => (streamState === 'standby' ? 'post' : 'chat'));
   const postLocked = streamState !== 'standby';
 
   // ---- panel sizing ------------------------------------------------------
@@ -1590,17 +1588,13 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const stopVodEgressRef = useRef<() => Promise<void>>(async () => {});
   const startVodEgress = useCallback(async () => {
     if (egressStartedRef.current) return;
-    // Record on the SERVER (egress) whenever the host wants EITHER a published
-    // VOD or a local download. One recording covers both — the download is just
-    // the same file streamed back — so there is never a second encode on the
-    // host's device.
+    // Record on the SERVER (egress) when the host wants a published VOD.
     const publish = autoVodRef.current && !!onStreamVod;
-    const download = autoDownloadRef.current;
-    if (!publish && !download) return;
+    if (!publish) return;
     egressStartedRef.current = true;
     try {
       await authedPost(`/rooms/${encodeURIComponent(roomName)}/record/start`, {
-        mode: 'video', layout: 'single', publish, download,
+        mode: 'video', layout: 'single', publish, download: false,
       });
       studioCaptionsRef.current.markRecordingStart();
     } catch (err) {
@@ -1619,7 +1613,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       // multi-GB round-trip through the browser, and it survives the studio
       // closing. We just hand the integrator the status URL to poll.
       const res = await authedPost(`/rooms/${encodeURIComponent(roomName)}/record/stop`, {}) as {
-        publishStatusUrl?: string; downloadUrl?: string;
+        publishStatusUrl?: string;
       };
       const abs = (u?: string) => (u ? `${apiBaseUrl.replace(/\/$/, '')}${u}` : undefined);
 
@@ -1627,20 +1621,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       // poll for toasts.
       if (res?.publishStatusUrl && onStreamVod) {
         onStreamVod({ roomName, publishStatusUrl: abs(res.publishStatusUrl), captions: studioCaptionsRef.current.takeCues() ?? undefined });
-      }
-
-      // Download: stream the SERVER's file straight to the host's disk via a
-      // plain link (the token is the auth), so nothing loads into a Blob. Fired
-      // now, while the page is still alive — the browser's download manager
-      // carries on after the studio closes.
-      if (res?.downloadUrl) {
-        const a = document.createElement('a');
-        a.href = abs(res.downloadUrl)!;
-        a.download = `${roomName}.mp4`;
-        a.rel = 'noopener';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => a.remove(), 0);
       }
     } catch (err) {
       setMediaError(`The recording finished but could not be collected: ${err instanceof Error ? err.message : String(err)}`);
@@ -1780,9 +1760,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   useEffect(() => {
     writePref(AUTO_VOD_KEY, autoVod);
   }, [autoVod]);
-  useEffect(() => {
-    writePref(AUTO_DL_KEY, autoDownload);
-  }, [autoDownload]);
 
   // Reflect the live state server-side so the stream appears in the live
   // feeds only while actually broadcasting (live), not standby/paused.
@@ -4151,27 +4128,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           </label>
         )}
 
-        {/* Keep a local copy too — independent of publishing the VOD. */}
-        <label className={`hh-post__vod${isPremium ? '' : ' hh-post__vod--locked'}`}>
-          <input
-            type="checkbox"
-            checked={autoDownload && isPremium}
-            disabled={!isPremium || streamState !== 'standby'}
-            onChange={(e) => setAutoDownload(e.target.checked)}
-          />
-          <span>
-            💾 Record the session and download it when it ends
-            {!isPremium && ' 🔒'}
-            <em className="hh-post__vod-hint">
-              {!isPremium
-                ? 'Only available with 3Speak Pro — records the broadcast to a file on your computer.'
-                : streamState !== 'standby'
-                  ? 'Locked while the stream is running.'
-                  : 'Saves a copy to your computer when you end the stream.'}
-            </em>
-          </span>
-        </label>
-
         {/* Pro: let viewers clip the last 30s. Toggleable ANY time — turning it
             off stops the DVR recording, so the viewer "30 sec" button vanishes. */}
         <label className={`hh-post__vod${isPremium ? '' : ' hh-post__vod--locked'}`}>
@@ -4591,8 +4547,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           {!isMobile && <button className={`hh-btn hh-btn--small hh-studio__boost-history-btn ${boostHistoryOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`} onClick={() => setBoostHistoryOpen((v) => !v)} title="Boost history" aria-label="Boost history"><span className="hh-studio__icon" aria-hidden="true">💰</span></button>}
           {!isMobile && (
             <button
-              className={`hh-btn hh-btn--small hh-studio__boost-settings-btn${boostsOff ? ' hh-studio__boost-settings-btn--off' : ''} ${boostSettingsOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
-              onClick={() => setBoostSettingsOpen((v) => !v)}
+              className={`hh-btn hh-btn--small hh-studio__boost-settings-btn${boostsOff ? ' hh-studio__boost-settings-btn--off' : ''} ${!chatCollapsed && rightTab === 'boosts' ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
+              onClick={() => { setChatCollapsed(false); setRightTab('boosts'); }}
               title={boostsOff ? 'Boosts are off: open Boost settings' : 'Boost settings'}
               aria-label="Boost settings"
             >
@@ -5279,12 +5235,22 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 {streamState === 'standby' && <span className="hh-studio__rbtn-dot" aria-hidden="true" />}
               </button>
               <button className={`hh-studio__tab${rightTab === 'live' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('live')} title="Polls, predictions and raids">📊 Live</button>
+              <button className={`hh-studio__tab${rightTab === 'boosts' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('boosts')} title={boostsOff ? 'Boosts are off' : 'Boost settings: goal, alerts, amounts'}>🚀 Boosts{boostsOff ? ' off' : ''}</button>
               <button className={`hh-studio__tab${rightTab === 'settings' ? ' hh-studio__tab--active' : ''}`} onClick={() => setRightTab('settings')}>⚙️ Settings</button>
               <button className="hh-studio__collapse hh-studio__tabs-collapse" onClick={() => setChatCollapsed(true)} title="Collapse">›</button>
             </div>
             <div className="hh-studio__tab-body">
               {rightTab === 'chat' ? <ChatPanel /> : rightTab === 'settings' ? renderSettings()
-                : rightTab === 'live' ? <StudioLivePanel roomName={roomName} battle={liveBattle} /> : renderPostEditor(false)}
+                : rightTab === 'live' ? <StudioLivePanel roomName={roomName} battle={liveBattle} />
+                : rightTab === 'boosts' ? (
+                  <BoostSettingsPanel
+                    embedded
+                    roomName={roomName}
+                    currentConfig={boostConfigForPanel}
+                    onClose={() => setRightTab('chat')}
+                    onSaved={() => { /* the room metadata update re-renders the goal and the tab */ }}
+                  />
+                ) : renderPostEditor(false)}
             </div>
             <div className="hh-studio__transport">
               {streamState === 'standby' && <button className="hh-studio__go-btn" onClick={() => { void savePost(); setStreamState('live'); }} title="Cut the program and audio over to your viewers"><span className="hh-studio__icon" aria-hidden="true">🔴</span>Start stream</button>}
@@ -5522,14 +5488,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           streamLive={streamState === 'live'}
           hasGuest={!!guestIdentity}
           onClose={() => setBattleOpen(false)}
-        />
-      )}
-      {boostSettingsOpen && (
-        <BoostSettingsPanel
-          roomName={roomName}
-          currentConfig={boostConfig ? { ...boostConfig, enabled: boostConfig.enabled ?? true, minBoostUsd: boostConfig.minBoostUsd ?? 0 } : undefined}
-          onClose={() => setBoostSettingsOpen(false)}
-          onSaved={() => { /* the room metadata update re-renders the button */ }}
         />
       )}
     </div>
