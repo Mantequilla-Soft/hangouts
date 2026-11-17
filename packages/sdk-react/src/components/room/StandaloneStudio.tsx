@@ -2756,24 +2756,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     }
   }, [startWhipIngress, whipError, roomName]);
 
-  // Same ingress as OBS (VP8, for the same browser reasons), asked for as the
-  // free phone/tablet source.
-  const openPhoneSetup = useCallback(async () => {
-    setExternalKind('phone');
-    externalKindRef.current = 'phone';
-    setObsBusy(true);
-    setObsError('');
-    try {
-      const info = await startWhipIngress({ transcode: true, source: 'phone' });
-      if (!info) throw new Error(whipError || 'Could not set up the phone source');
-      setObsInfo(info);
-    } catch (err) {
-      setObsError(err instanceof Error ? err.message : 'Could not set up the phone source');
-    } finally {
-      setObsOpen(true);
-      setObsBusy(false);
-    }
-  }, [startWhipIngress, whipError]);
+  // The phone / tablet screen: a guide to mirror it to this computer, then the
+  // window is shared like any other (addShare). No ingress, no app on the phone.
+  const [phoneGuideOpen, setPhoneGuideOpen] = useState(false);
 
   useEffect(() => {
     // Match on the PUBLICATION only — deliberately NOT on `publication.track`,
@@ -5430,12 +5415,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         </div>
       )}
 
-      {obsOpen && externalKind === 'phone' && (
+      {phoneGuideOpen && (
         <PhoneScreenSourceDialog
-          whipUrl={obsInfo?.whipUrl || ''}
-          connected={obsLive}
-          error={obsError}
-          onClose={() => setObsOpen(false)}
+          onShareWindow={() => { void addShare(); }}
+          onClose={() => setPhoneGuideOpen(false)}
           labels={phoneLabels}
         />
       )}
@@ -5520,13 +5503,12 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 </button>
               );
             })()}
-            {/* Free for every host: a screen-broadcast app on the phone or
-                tablet sends its screen over WHIP into the same slot as OBS. */}
-            <button className="hh-studio__add-item" disabled={obsBusy}
-              onClick={() => { setAddMenuOpen(false); void openPhoneSetup(); }}
+            {/* How to mirror a phone or tablet to this computer and share the
+                window (no app on the phone, nothing through our server). */}
+            <button className="hh-studio__add-item"
+              onClick={() => { setAddMenuOpen(false); setPhoneGuideOpen(true); }}
               title={phoneLabels.menuHint}>
               <span className="hh-studio__add-icon hh-studio__add-icon--phone" aria-hidden="true">📱</span>{phoneLabels.menuItem}
-              <span className="hh-studio__add-state">{obsLive && externalKind === 'phone' ? '✓' : ''}</span>
             </button>
             <button className="hh-studio__add-item" onClick={() => { setAddMenuOpen(false); mediaInputRef.current?.click(); }}>
               <span className="hh-studio__add-icon hh-studio__add-icon--media" aria-hidden="true">🖼️</span>Media file (image / GIF / video)

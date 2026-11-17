@@ -6084,24 +6084,6 @@
   padding-left: 1.2rem;
 }
 .hh-studio__phone-steps li { margin: 0.3rem 0; }
-.hh-studio__phone-qr {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  margin: 0 0.9rem 0.7rem;
-  font-size: 0.78rem;
-  opacity: 0.85;
-}
-/* Always black on white, whatever the theme: scanners need the contrast. */
-.hh-studio__phone-qr svg {
-  flex: none;
-  background: #fff;
-  border-radius: 6px;
-}
-@media (max-width: 480px) {
-  .hh-studio__phone-qr { flex-direction: column; align-items: flex-start; }
-}
-.hh-studio__phone-open { display: block; margin-top: 0.4rem; font-weight: 600; }
 .hh-studio__phone-tabs { display: flex; gap: 0.3rem; margin: 0 0.9rem 0.6rem; }
 .hh-studio__phone-tab {
   flex: 1;
@@ -6114,7 +6096,7 @@
   font-weight: 700;
   cursor: pointer;
 }
-.hh-studio__phone-warn { font-weight: 700; }
+.hh-studio__phone-share { display: flex; margin: 0 0.9rem 0.7rem; }
 .hh-studio__phone-tab--active { opacity: 1; border-color: var(--st-accent, var(--hh-primary)); }
 .hh-studio__phone-field { display: block; margin: 0 0.9rem 0.2rem; font-size: 0.78rem; opacity: 0.75; }
 
