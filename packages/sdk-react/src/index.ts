@@ -127,8 +127,8 @@ export {
 } from './components/room/StandaloneWatch.js';
 export { HlsStreamVideo, type HlsStreamVideoProps } from './components/room/HlsStreamVideo.js';
 export {
-  PhoneScreenSourceDialog, DEFAULT_PHONE_SCREEN_LABELS, detectComputerOs, mirrorSteps,
-  type PhoneScreenSourceDialogProps, type PhoneScreenSourceLabels, type ComputerOs, type PhoneOs,
+  PhoneScreenSourceDialog, DEFAULT_PHONE_SCREEN_LABELS, PHONE_SCREEN_LABEL_KEYS, detectComputerOs, pictureSteps, soundSteps,
+  type PhoneScreenSourceDialogProps, type PhoneScreenSourceLabels, type ComputerOs, type PhoneOs, type GuideStep,
 } from './components/room/PhoneScreenSourceDialog.js';
 export type { Delivery, JoinOptions } from './lib/hlsDelivery.js';
 
