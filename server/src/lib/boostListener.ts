@@ -28,7 +28,7 @@ import {
 import { sendBoostPayout, sendBoostRefund } from './boostPayout.js';
 import { recordBoost } from './streamStats.js';
 import { recordBoostTally } from './boostGoals.js';
-import { POINTS_BOOST_MAX, POINTS_BOOST_MIN, POINTS_PER_HBD, earnForBoost, pointsStore, spendPoints } from './points.js';
+import { POINTS_BOOST_MAX, POINTS_BOOST_MIN, POINTS_PER_HBD, applyPointsNow, earnForBoost, spendPoints } from './points.js';
 import { noteBoost } from './streamHighlights.js';
 import { recordBattleBoost } from './battles.js';
 
@@ -272,7 +272,7 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
     // Highlight moments (H13): a boost spike suggests a clip.
     noteBoost(event.room, event.usdAmount);
     // Channel points for the account that actually sent the money.
-    earnForBoost(input.from?.trim().toLowerCase() || memo.sender, usdAmount);
+    earnForBoost(input.from?.trim().toLowerCase() || memo.sender, usdAmount, memo.room);
   } catch (err) {
     await handleRejected(id, 'internal_error', log, err);
     return;
@@ -365,7 +365,7 @@ export async function processPointsBoost(input: {
     ? input.recipient
     : hostAccount;
 
-  const balance = await spendPoints(sender, amount);
+  const balance = await spendPoints(sender, amount, input.room);
   if (balance === null) throw new PointsBoostError(400, 'You do not have that many points.');
 
   const usdAmount = Math.round((amount / POINTS_PER_HBD) * 1000) / 1000;
@@ -393,7 +393,7 @@ export async function processPointsBoost(input: {
     await publishBoost(input.room, event, lk);
   } catch {
     // Nothing reached the stream: give the points back.
-    await pointsStore().apply(new Map([[sender, amount]])).catch(() => undefined);
+    await applyPointsNow(new Map([[sender, amount]]), 'refund', input.room).catch(() => undefined);
     throw new PointsBoostError(503, 'The boost could not reach the stream. Your points are back.');
   }
   return { event, balance };

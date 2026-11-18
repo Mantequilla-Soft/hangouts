@@ -1,6 +1,7 @@
 import type { Collection } from 'mongodb';
 import { ParticipantInfo_Kind } from '@livekit/protocol';
 import { getLiveDb } from './mongoDb.js';
+import { ledgerStore, logPendingToChain, newRow, type LedgerRow, type PointsKind } from './pointsLedger.js';
 
 /**
  * Channel points: ONE balance per Hive account across every stream (not per
@@ -19,6 +20,9 @@ import { getLiveDb } from './mongoDb.js';
  *
  * A balance nobody touched for POINTS_TTL_DAYS (90, a quarter) is deleted, and
  * the account starts again at POINTS_START: come back, or stream, to keep it.
+ *
+ * Every movement is also a ledger row and, batched, a custom_json on Hive
+ * (lib/pointsLedger.ts), so balances can be rebuilt from the chain.
  */
 
 export const POINTS_START = Math.max(1, Number(process.env.POINTS_START ?? 1000) || 1000);
@@ -192,15 +196,55 @@ export function pointsBalance(user: string): Promise<number> {
   return store.get(user.toLowerCase());
 }
 
-/** Spend points (a points boost). The balance left, or null when too few. */
-export function spendPoints(user: string, amount: number): Promise<number | null> {
-  return store.spend(user.toLowerCase(), amount);
+/** A user's points history for the wallet, newest first. */
+export function pointsHistory(user: string, limit: number, before?: number): Promise<LedgerRow[]> {
+  return ledgerStore().history(user.toLowerCase(), limit, before);
 }
 
-/** Best effort: points never break a stream, a chat line or a boost. */
-function award(deltas: Map<string, number>): void {
+/** Spend points (a points boost for `ref`, the stream). The balance left, or
+ *  null when too few. The movement goes into the ledger right away. */
+export async function spendPoints(user: string, amount: number, ref?: string): Promise<number | null> {
+  const u = user.toLowerCase();
+  const left = await store.spend(u, amount);
+  if (left !== null) await ledgerStore().insert([newRow(u, -amount, 'spend', Date.now(), ref)]).catch(() => undefined);
+  return left;
+}
+
+/** Move points now, with their ledger rows (a prediction's payouts, a refund). */
+export async function applyPointsNow(deltas: Map<string, number>, kind: PointsKind, ref?: string): Promise<void> {
   if (deltas.size === 0) return;
-  void store.apply(deltas).catch(() => undefined);
+  await store.apply(deltas);
+  const at = Date.now();
+  await ledgerStore().insert([...deltas].map(([u, d]) => newRow(u, d, kind, at, ref))).catch(() => undefined);
+}
+
+// Earnings wait here and are paid out with the next batch (POINTS_BATCH_MIN):
+// one balance write and one ledger row per account and kind, then logged to
+// the chain. A restart loses at most one batch of earnings, never a spend.
+const pending = new Map<string, { user: string; kind: PointsKind; ref?: string; delta: number }>();
+
+function earn(user: string, delta: number, kind: PointsKind, ref?: string): void {
+  if (delta === 0) return;
+  const k = `${user}|${kind}|${ref ?? ''}`;
+  const cur = pending.get(k);
+  if (cur) cur.delta += delta;
+  else pending.set(k, { user, kind, ...(ref ? { ref } : {}), delta });
+}
+
+/** Pay out the waiting earnings, then log what is not on the chain yet
+ *  (`chain: false` on shutdown, when there is no time to wait for Hive). */
+export async function flushPoints(now = Date.now(), { chain = true }: { chain?: boolean } = {}): Promise<void> {
+  if (pending.size > 0) {
+    const batch = [...pending.values()];
+    pending.clear();
+    const deltas = new Map<string, number>();
+    for (const e of batch) deltas.set(e.user, (deltas.get(e.user) ?? 0) + e.delta);
+    try {
+      await store.apply(deltas);
+      await ledgerStore().insert(batch.map((e) => newRow(e.user, e.delta, e.kind, now, e.ref)));
+    } catch { /* this batch's earnings are lost: points never break a stream */ }
+  }
+  if (chain) await logPendingToChain().catch(() => 0);
 }
 
 // ── earning ───────────────────────────────────────────────────────────────
@@ -218,16 +262,17 @@ export function earnForChat(identity: string, text: string, now = Date.now()): n
   const pts = Math.min(chatWords(text), CHAT_POINTS_PER_MIN_MAX - earned);
   if (pts <= 0) return 0;
   chatMinute.set(user, { minute, earned: earned + pts });
-  award(new Map([[user, pts]]));
+  // No stream on the record: the chain must not show where someone chats.
+  earn(user, pts, 'chat');
   return pts;
 }
 
-/** A boost worth `hbd` from `sender`. */
-export function earnForBoost(sender: string, hbd: number): number {
+/** A boost worth `hbd` from `sender` to the stream `room`. */
+export function earnForBoost(sender: string, hbd: number, room?: string): number {
   const user = pointsAccount(sender);
   const pts = boostReward(hbd);
   if (!user || pts <= 0) return 0;
-  award(new Map([[user, pts]]));
+  earn(user, pts, 'boost', room);
   return pts;
 }
 
@@ -249,7 +294,7 @@ export function earnForRaid(raider: string, target: string, now = Date.now()): n
   const a = pointsAccount(raider);
   const b = pointsAccount(target);
   if (!a || !b || a === b || !pairDue('raid', a, b, now)) return 0;
-  award(new Map([[a, RAID_POINTS]]));
+  earn(a, RAID_POINTS, 'raid', b);
   return RAID_POINTS;
 }
 
@@ -258,7 +303,8 @@ export function earnForBattle(hostA: string, hostB: string, now = Date.now()): n
   const a = pointsAccount(hostA);
   const b = pointsAccount(hostB);
   if (!a || !b || a === b || !pairDue('battle', a, b, now)) return 0;
-  award(new Map([[a, BATTLE_POINTS], [b, BATTLE_POINTS]]));
+  earn(a, BATTLE_POINTS, 'battle', b);
+  earn(b, BATTLE_POINTS, 'battle', a);
   return BATTLE_POINTS;
 }
 
@@ -272,7 +318,9 @@ interface SampleParticipant {
  * One minute's watching and streaming points from what is live now. Pure:
  * `rooms` is every room with its metadata and participants.
  */
-export function minuteRewards(rooms: Array<{ metadata?: string; participants: SampleParticipant[] }>): Map<string, number> {
+export function minuteRewards(
+  rooms: Array<{ metadata?: string; participants: SampleParticipant[] }>,
+): Map<string, { points: number; kind: 'watch' | 'stream' }> {
   const viewers = new Set<string>();
   const streamers = new Set<string>();
   for (const room of rooms) {
@@ -300,10 +348,10 @@ export function minuteRewards(rooms: Array<{ metadata?: string; participants: Sa
       if (guest && standard.some((p) => pointsAccount(p.identity) === guest)) streamers.add(guest);
     }
   }
-  const out = new Map<string, number>();
-  for (const v of viewers) out.set(v, WATCH_POINTS_PER_MIN);
+  const out = new Map<string, { points: number; kind: 'watch' | 'stream' }>();
+  for (const v of viewers) out.set(v, { points: WATCH_POINTS_PER_MIN, kind: 'watch' });
   // A streamer watching someone else in another tab still earns as a streamer.
-  for (const s of streamers) out.set(s, STREAM_POINTS_PER_MIN);
+  for (const s of streamers) out.set(s, { points: STREAM_POINTS_PER_MIN, kind: 'stream' });
   return out;
 }
 
@@ -319,13 +367,21 @@ async function sampleMinute(): Promise<void> {
       withPeople.push({ metadata: room.metadata, participants: await roomService.listParticipants(room.name) });
     } catch { /* skip this room this minute */ }
   }
-  award(minuteRewards(withPeople));
+  // No stream on the record for watching either (viewing history stays private).
+  for (const [user, r] of minuteRewards(withPeople)) earn(user, r.points, r.kind);
 }
 
+export const POINTS_BATCH_MIN = Math.max(1, Number(process.env.POINTS_BATCH_MIN ?? 5) || 5);
 let timer: ReturnType<typeof setInterval> | null = null;
+let flushTimer: ReturnType<typeof setInterval> | null = null;
 
-/** Count watching and streaming once a minute. POINTS_EARN_ENABLED=false turns it off. */
+/** Count watching and streaming once a minute (POINTS_EARN_ENABLED=false turns
+ *  that off), and pay out and log a batch every POINTS_BATCH_MIN minutes. */
 export function startPointsSampler(intervalMs = 60_000): void {
+  if (!flushTimer) {
+    flushTimer = setInterval(() => { void flushPoints(); }, POINTS_BATCH_MIN * 60_000);
+    flushTimer.unref?.();
+  }
   if (timer || process.env.POINTS_EARN_ENABLED === 'false') return;
   timer = setInterval(() => { void sampleMinute(); }, intervalMs);
   timer.unref?.();
@@ -339,6 +395,7 @@ export function sweepPoints(now = Date.now()): void {
 }
 
 export function resetPointsEarning(): void {
+  pending.clear();
   chatMinute.clear();
   lastPairReward.clear();
 }

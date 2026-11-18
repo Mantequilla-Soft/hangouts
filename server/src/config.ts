@@ -41,6 +41,12 @@ const envSchema = z.object({
   BOOST_INGEST_KEY: z.string().default(''),
   BOOST_PLATFORM_ACCOUNT: z.string().default(''),
   BOOST_PLATFORM_ACTIVE_KEY: z.string().default(''),
+  // Channel points log on Hive (custom_json 3speak_points, lib/pointsLedger.ts).
+  // Signed with this account's posting key; without one, the boost wallet's
+  // active key when it is the same account; without either, nothing is logged
+  // (the rows wait in Mongo until a key is set).
+  POINTS_LOG_ACCOUNT: z.string().default('threespeak-pro'),
+  POINTS_LOG_POSTING_KEY: z.string().default(''),
   BOOST_PLATFORM_FEE_PERCENT: z.coerce.number().min(0).max(100).default(5),
   BOOST_HIVE_USD_FALLBACK: z.coerce.number().positive().default(0.25),
   BOOST_HIVE_USD_CACHE_MS: z.coerce.number().int().positive().default(120000),

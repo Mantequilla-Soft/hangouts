@@ -11,7 +11,8 @@
     "test:ui": "vitest --ui",
     "load-collections": "tsx scripts/load-collections.ts",
     "routes": "tsx scripts/list-routes.ts",
-    "routes:check": "tsx scripts/list-routes.ts --check ../docs/api-routes.md"
+    "routes:check": "tsx scripts/list-routes.ts --check ../docs/api-routes.md",
+    "points:replay": "tsx scripts/replay-points.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.0",

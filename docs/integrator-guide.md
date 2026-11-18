@@ -639,6 +639,9 @@ Read straight from the environment elsewhere (not in `config.ts`):
 | `POINTS_TTL_DAYS` | `90` | A balance untouched this long is deleted and starts over. |
 | `POINTS_BOOST_MIN` | `2500` | The smallest boost paid with points. |
 | `POINTS_EARN_ENABLED` | `true` | `false` stops the once-a-minute watching and streaming points. |
+| `POINTS_BATCH_MIN` | `5` | Earnings are paid out and logged on Hive in batches this often. |
+| `POINTS_LOG_ACCOUNT` | `threespeak-pro` | Signs the custom_json points log. |
+| `POINTS_LOG_POSTING_KEY` | | Its posting key. Without it, the boost wallet's active key when it is the same account; without either, rows wait in Mongo. |
 | `RAID_COUNTDOWN_SEC`, `RAID_COOLDOWN_MIN` | `10`, `10` | Raid countdown and per-host cooldown (`lib/raids.ts`). |
 
 ## Mongo collections
@@ -655,6 +658,7 @@ All in the database named by `MONGODB_URI`. The server creates its indexes on fi
 | `chat-backlog` | Recent chat lines per room (batched writes). | 1 day |
 | `stream-polls` | Finished polls and predictions. | 1 year |
 | `points` | Channel points, one balance per Hive account. | `POINTS_TTL_DAYS` (90) after the last change |
+| `points-ledger` | Every points movement (the wallet history), with the Hive tx that logged it. | 400 days |
 | `raid-settings` | "Accept raids" opt-out per host. | none |
 | `stream-highlights` | Highlight moments per room. | 30 days |
 | `stream-clips` | Kept clips (file on disk). | `CLIP_KEEP_HOURS` |

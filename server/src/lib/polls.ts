@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { Collection } from 'mongodb';
 import { getLiveDb } from './mongoDb.js';
-import { POINTS_START, memoryPointsStore, pointsBalance, pointsStore, setPointsStore, type PointsStore } from './points.js';
+import { POINTS_START, applyPointsNow, memoryPointsStore, pointsBalance, pointsStore, setPointsStore, type PointsStore } from './points.js';
 
 // The points live in lib/points.ts now; kept here for older imports.
 export { POINTS_START, memoryPointsStore, pointsBalance, type PointsStore };
@@ -344,7 +344,7 @@ export async function resolvePrediction(room: string, id: string, winner: number
   if (p.kind !== 'prediction') throw new PollError(400, 'Only a prediction is resolved.');
   if (!Number.isInteger(winner) || winner < 0 || winner >= p.options.length) throw new PollError(400, 'No such outcome.');
   p.winner = winner;
-  await pointsStore().apply(payouts(p, winner));
+  await applyPointsNow(payouts(p, winner), 'prediction');
   await finish(p, 'resolved');
   return p;
 }

@@ -9,7 +9,9 @@ import { reconcileHeadlessRooms } from './lib/headlessStreams.js';
 import { sweepBacklogs, flushBacklog } from './lib/chatBacklog.js';
 import { sweepPolls } from './lib/polls.js';
 import { sweepRaids } from './lib/raids.js';
-import { startPointsSampler, sweepPoints } from './lib/points.js';
+import { flushPoints, startPointsSampler, sweepPoints } from './lib/points.js';
+import { setPointsLogWriter } from './lib/pointsLedger.js';
+import { hivePointsLogWriter } from './lib/pointsChain.js';
 
 const server = await buildApp();
 await server.listen({ port: config.PORT, host: '0.0.0.0' });
@@ -20,7 +22,11 @@ startBoostListener((msg, detail) => {
 // Poll live standalone streams for peak viewers + end/duration (no LiveKit
 // webhook is wired). No-op unless STREAM_STATS_SECRET is set.
 startStreamStatsSampler();
-// Channel points for watching and streaming, counted once a minute.
+// Channel points for watching and streaming, counted once a minute; every
+// movement batched into the ledger and logged on Hive (custom_json).
+const pointsWriter = hivePointsLogWriter();
+setPointsLogWriter(pointsWriter);
+if (!pointsWriter) server.log.warn('[Points] no POINTS_LOG_POSTING_KEY: movements are kept in Mongo but not logged on Hive yet');
 startPointsSampler();
 
 // Headless (OBS) streams live in an in-memory session map, which a restart
@@ -56,6 +62,8 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
   process.once(sig, () => {
     // Never hold a shutdown up for long: three seconds, then exit regardless.
     setTimeout(() => process.exit(0), 3000).unref();
-    void flushBacklog().finally(() => process.exit(0));
+    // Pay out the earnings waiting for the next batch (the chain log follows
+    // after the restart: the rows wait in Mongo).
+    void Promise.allSettled([flushBacklog(), flushPoints(Date.now(), { chain: false })]).finally(() => process.exit(0));
   });
 }

@@ -7,7 +7,7 @@ import {
 } from '../lib/polls.js';
 import {
   BATTLE_POINTS, BOOST_POINTS_BASE, BOOST_POINTS_MAX, BOOST_POINTS_PER_HBD, CHAT_POINTS_PER_MIN_MAX, POINTS_BOOST_MIN,
-  POINTS_START, POINTS_TTL_DAYS, RAID_POINTS, STREAM_POINTS_PER_MIN, WATCH_POINTS_PER_MIN, pointsDetails,
+  POINTS_START, POINTS_TTL_DAYS, RAID_POINTS, STREAM_POINTS_PER_MIN, WATCH_POINTS_PER_MIN, pointsDetails, pointsHistory,
 } from '../lib/points.js';
 import { readRoomMeta, sendRoomData, sessionUser, streamOffset } from '../lib/liveRoom.js';
 
@@ -138,6 +138,26 @@ export const pollRoutes: FastifyPluginAsync = async (fastify) => {
         boostMax: BOOST_POINTS_MAX,
       },
       boostMin: POINTS_BOOST_MIN,
+    });
+  });
+
+  // The wallet's points history: newest first, `before` (ms) pages back. Public
+  // like the chain log it mirrors (watching and chat rows name no stream).
+  fastify.get('/users/:account/points/history', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    schema: {
+      params: { type: 'object', required: ['account'], properties: { account: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9.-]{2,15}$' } } },
+      querystring: { type: 'object', properties: { before: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 } } },
+    },
+  }, async (request, reply) => {
+    const account = (request.params as { account: string }).account.toLowerCase();
+    const { before, limit = 30 } = request.query as { before?: number; limit?: number };
+    const rows = await pointsHistory(account, limit, before);
+    reply.header('Cache-Control', 'no-store');
+    return reply.send({
+      account,
+      items: rows.map((r) => ({ id: r.id, delta: r.delta, kind: r.kind, ...(r.ref ? { ref: r.ref } : {}), at: new Date(r.at).toISOString(), tx: r.tx })),
+      next: rows.length === limit ? rows[rows.length - 1].at : null,
     });
   });
 
