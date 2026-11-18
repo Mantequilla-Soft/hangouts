@@ -116,6 +116,12 @@ describe('PollCardView', () => {
     expect(html).not.toContain('hh-poll__choice');
   });
 
+  it("the host's studio copy shows the results without the sign-in hint", () => {
+    const html = renderToStaticMarkup(h(PollCardView, { poll: basePoll, now: 0, canVote: false, hostView: true }));
+    expect(html).not.toContain('Sign in to vote');
+    expect(html).toContain('hh-poll__result');
+  });
+
   it('a prediction shows the pot, the stake box and the balance', () => {
     const html = renderToStaticMarkup(h(PollCardView, { poll: basePrediction, now: 0, canVote: true, balance: 800 }));
     expect(html).toContain('Pot: 400 points');

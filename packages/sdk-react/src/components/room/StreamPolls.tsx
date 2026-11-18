@@ -24,6 +24,8 @@ export interface PollCardViewProps {
   balance?: number | null;
   /** Signed in: may vote or stake. */
   canVote: boolean;
+  /** The host's own copy in the studio: results only, no sign-in hint. */
+  hostView?: boolean;
   busy?: boolean;
   error?: string | null;
   onVote?: (option: number) => void;
@@ -33,7 +35,7 @@ export interface PollCardViewProps {
 
 /** The poll or prediction card (no state of its own beyond the stake box). */
 export function PollCardView({
-  poll, now, labels, myVote = null, myStake = null, balance = null, canVote, busy = false, error = null,
+  poll, now, labels, myVote = null, myStake = null, balance = null, canVote, hostView = false, busy = false, error = null,
   onVote, onStake, onDismiss,
 }: PollCardViewProps) {
   const L = liveLabels(labels);
@@ -130,7 +132,7 @@ export function PollCardView({
           </span>
         )}
         {!myStake && myVote !== null && <span>{L.youVoted}</span>}
-        {!canVote && open && <span>{L.signInToVote}</span>}
+        {!canVote && !hostView && open && <span>{L.signInToVote}</span>}
       </footer>
       {error && <p className="hh-poll__error" role="alert">{L.voteFailed}</p>}
     </section>
@@ -212,7 +214,7 @@ export function PollHostPanel({ roomName }: { roomName: string }) {
   return (
     <div className="hh-pollhost">
       {p && (
-        <PollCardView poll={p} now={now} canVote={false} onDismiss={polls.dismiss} />
+        <PollCardView poll={p} now={now} canVote={false} hostView onDismiss={polls.dismiss} />
       )}
       {running && (
         <div className="hh-pollhost__actions">
