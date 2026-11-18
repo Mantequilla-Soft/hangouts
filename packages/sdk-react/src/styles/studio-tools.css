@@ -13,9 +13,8 @@
   pointer-events: none;
 }
 
-/* The Overlays button glyph (header). */
-.hh-studio__hbtn-aa,
-.hh-studio__overlays-btn .hh-studio__icon {
+/* The Overlays button glyph (phone header). */
+.hh-studio__hbtn-aa {
   font-weight: 800;
   letter-spacing: -0.02em;
 }
@@ -260,3 +259,44 @@
 .hh-health__auto { display: flex; gap: 0.55rem; align-items: flex-start; cursor: pointer; font-weight: 700; }
 .hh-health__auto input { margin-top: 0.15rem; accent-color: var(--hh-primary); }
 .hh-health__auto em { display: block; font-style: normal; font-weight: 400; font-size: 0.75rem; line-height: 1.4; color: var(--st-muted, var(--hh-text-muted)); margin-top: 0.15rem; }
+
+/* Sub-tabs at the top of a studio panel (StudioSubtabs): Live, Overlays,
+   Boosts, Settings, Post. */
+.hh-subtabs {
+  display: flex;
+  gap: 0.15rem;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--hh-border);
+  margin: 0 0 0.75rem;
+  /* A narrow rail wraps the tabs rather than hiding the last one. */
+  flex-wrap: wrap;
+}
+.hh-subtabs__tab {
+  position: relative;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--st-muted, var(--hh-text-muted));
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.45rem 0.7rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.hh-subtabs__tab:hover { color: var(--hh-text); }
+.hh-subtabs__tab.is-active { color: var(--hh-text); border-bottom-color: var(--hh-primary); }
+.hh-subtabs__dot {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.15rem;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hh-primary);
+}
+/* The dialogs pad their body, not the panel: line the tabs up with it. */
+.hh-boost-settings > .hh-subtabs,
+.hh-overlays > .hh-subtabs { margin: 0.6rem 1.1rem 0.25rem; }
+.hh-boost-settings__history { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }

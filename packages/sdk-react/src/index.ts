@@ -109,7 +109,7 @@ export { BattlePanel, BattleInviteCard, type BattlePanelProps } from './componen
 export { useWhipIngress, type UseWhipIngress } from './hooks/useWhipIngress.js';
 export { isChromium, isInAppBrowser, canBroadcast } from './lib/browser.js';
 export { CollabRequest, type CollabRequestProps } from './components/room/CollabRequest.js';
-export { BoostHistoryPanel } from './components/room/BoostHistoryPanel.js';
+export { BoostHistoryPanel, BoostHistoryList } from './components/room/BoostHistoryPanel.js';
 export { BoostSettingsPanel, type BoostSettingsUpdate } from './components/room/BoostSettingsPanel.js';
 export { RecordingControls, RecordingIndicator } from './components/room/RecordingControls.js';
 export { StreamingPanel, StopStreamingPanel, type StreamingPanelProps, type StopStreamingPanelProps } from './components/room/StreamingPanel.js';
@@ -167,7 +167,8 @@ export { useRaid, parseRaid, type RaidTargetInfo, type ViewerRaid } from './hook
 export { StreamPollCard, PollCardView, PollHostPanel, type StreamPollCardProps, type PollCardViewProps } from './components/room/StreamPolls.js';
 export { RaidBanner, RaidBannerView, type RaidBannerProps, type RaidBannerViewProps } from './components/room/RaidBanner.js';
 export { RaidHostPanel } from './components/room/RaidHostPanel.js';
-export { StudioLivePanel } from './components/room/StudioLivePanel.js';
+export { StudioLivePanel, type LiveSubtab } from './components/room/StudioLivePanel.js';
+export { StudioSubtabs, type StudioSubtab } from './components/room/StudioSubtabs.js';
 export { DEFAULT_LIVE_LABELS, liveLabels, fillLabel, clockLabel, type LiveLabels } from './lib/liveLabels.js';
 export {
   parsePoll, isFinished as isPollFinished, optionShare, leaders as pollLeaders, payoutFor,

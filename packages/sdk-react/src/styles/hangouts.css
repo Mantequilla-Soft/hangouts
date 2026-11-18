@@ -7909,8 +7909,6 @@
 /* Leading symbols in studio labels sit in their own element (so an integrator
    can swap them for its icon set); this keeps the space the text used to have. */
 .hh-studio__icon { display: inline-block; margin-right: 0.35em; }
-.hh-studio__boost-history-btn .hh-studio__icon,
-.hh-studio__boost-settings-btn:not(.hh-studio__boost-settings-btn--off) .hh-studio__icon { margin-right: 0; }
 
 /* The throttling warning at the top of the scenes rail (desktop): full rail
    width instead of centred in the header. */

@@ -37,10 +37,14 @@ interface Props {
   onClose: () => void;
 }
 
-export function BoostHistoryPanel({ onClose }: Props) {
+/**
+ * This stream's goal, top supporters and the boosts this browser has seen,
+ * newest at the bottom like the chat. The floating BoostHistoryPanel and the
+ * studio's Boosts tab (History) both show it.
+ */
+export function BoostHistoryList() {
   const boosts = useBoostStore();
   const { tiersOn } = useRoomBoost();
-  const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Scroll to bottom when new boosts arrive — newest at bottom, same as chat
@@ -49,6 +53,30 @@ export function BoostHistoryPanel({ onClose }: Props) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [boosts.length]);
+
+  return (
+    <>
+      {/* This stream's goal and top supporters, from the server's tally (the
+          list below is only what this browser has seen). */}
+      <div className="hh-boost-history__summary">
+        <StreamBoostGoal variant="inline" />
+        <BoostTopSupporters />
+      </div>
+      <div className="hh-boost-history__list" ref={listRef}>
+        {boosts.length === 0 ? (
+          <p className="hh-boost-history__empty">No boosts yet this session</p>
+        ) : (
+          boosts.map((boost) => (
+            <BoostHistoryItem key={boost.id} boost={boost} tiersOn={tiersOn} />
+          ))
+        )}
+      </div>
+    </>
+  );
+}
+
+export function BoostHistoryPanel({ onClose }: Props) {
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -77,21 +105,7 @@ export function BoostHistoryPanel({ onClose }: Props) {
           ✕
         </button>
       </div>
-      {/* This stream's goal and top supporters, from the server's tally (the
-          list below is only what this browser has seen). */}
-      <div className="hh-boost-history__summary">
-        <StreamBoostGoal variant="inline" />
-        <BoostTopSupporters />
-      </div>
-      <div className="hh-boost-history__list" ref={listRef}>
-        {boosts.length === 0 ? (
-          <p className="hh-boost-history__empty">No boosts yet this session</p>
-        ) : (
-          boosts.map((boost) => (
-            <BoostHistoryItem key={boost.id} boost={boost} tiersOn={tiersOn} />
-          ))
-        )}
-      </div>
+      <BoostHistoryList />
     </div>,
     document.body,
   );

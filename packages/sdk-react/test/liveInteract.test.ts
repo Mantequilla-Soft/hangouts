@@ -10,6 +10,7 @@ import { parseRaid } from '../src/hooks/useRaid.js';
 import { PollCardView, PollHostPanel } from '../src/components/room/StreamPolls.js';
 import { RaidBannerView } from '../src/components/room/RaidBanner.js';
 import { StudioLivePanel } from '../src/components/room/StudioLivePanel.js';
+import { BoostSettingsPanel } from '../src/components/room/BoostSettingsPanel.js';
 import { HangoutsContext, type HangoutsContextValue } from '../src/context/HangoutsContext.js';
 
 const line = (id: string, timestamp: number, identity = 'fan'): BacklogLine => ({ id, identity, name: identity, text: id, timestamp });
@@ -173,19 +174,30 @@ describe('studio Live tab', () => {
 
   it('offers a poll or a prediction and the raid list', () => {
     const html = inRoom(h(StudioLivePanel, { roomName: 'badadib-live' }));
-    expect(html).toContain('Polls and predictions');
+    // Polls first; Battle only when the studio passes it; Raid last.
+    expect(html.match(/role="tab"[^>]*>[A-Za-z]+/g)?.map((t) => t.split('>')[1])).toEqual(['Polls', 'Raid']);
     expect(html).toContain('Start poll');
-    expect(html).toContain('Raid');
-    expect(html).toContain('Loading');
+    expect(html).not.toContain('Loading');
+    expect(inRoom(h(StudioLivePanel, { roomName: 'badadib-live', initialTab: 'raid' }))).toContain('Loading');
   });
 
   it('has the live battle when the studio passes it, on air or not', () => {
     const idle = inRoom(h(StudioLivePanel, { roomName: 'badadib-live', battle: { onAir: false, onOpen: () => {} } }));
-    expect(idle).toContain('Live battle');
-    expect(idle).toContain('Start a battle');
-    const on = inRoom(h(StudioLivePanel, { roomName: 'badadib-live', battle: { onAir: true, opponent: 'fan', onOpen: () => {} } }));
+    expect(idle.match(/role="tab"[^>]*>[A-Za-z]+/g)?.map((t) => t.split('>')[1])).toEqual(['Polls', 'Battle', 'Raid']);
+    expect(idle).not.toContain('hh-subtabs__dot');
+    expect(inRoom(h(StudioLivePanel, { roomName: 'badadib-live', initialTab: 'battle', battle: { onAir: false, onOpen: () => {} } }))).toContain('Start a battle');
+    const on = inRoom(h(StudioLivePanel, { roomName: 'badadib-live', initialTab: 'battle', battle: { onAir: true, opponent: 'fan', onOpen: () => {} } }));
     expect(on).toContain('On air with @fan.');
-    expect(inRoom(h(StudioLivePanel, { roomName: 'badadib-live' }))).not.toContain('Live battle');
+    expect(on).toContain('hh-subtabs__dot');
+  });
+
+  it('the Boosts tab opens on the goal, with the history as the second tab', () => {
+    const html = inRoom(h(BoostSettingsPanel, { roomName: 'badadib-live', currentConfig: undefined, onClose: () => {}, onSaved: () => {}, embedded: true }));
+    expect(html.match(/role="tab"[^>]*>[A-Za-z]+/g)?.map((t) => t.split('>')[1])).toEqual(['Goal', 'History', 'Alerts', 'Amounts']);
+    expect(html).toContain('Enable boosts');
+    expect(html).toContain('Where viewers see it');
+    expect(html).not.toContain('Preset amounts');
+    expect(html).toContain('>Save<');
   });
 
   it('the poll form starts disabled until a question and two options are in', () => {
