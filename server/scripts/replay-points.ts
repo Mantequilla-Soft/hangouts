@@ -1,7 +1,7 @@
 /**
  * Rebuild every channel points balance from the Hive log alone: the
  * custom_json `3speak_points` ops of the points account, replayed with the
- * live rules (start amount, floor 0, the 90-day reset). Prints JSON
+ * live rules (start amount, floor 0, `expire` back to the start). Prints JSON
  * `{ account, ops, movements, balances: { user: balance } }` to stdout; it
  * reads the chain only and changes nothing.
  *
@@ -14,7 +14,6 @@ import { POINTS_LOG_ID, decodePointsLog, replayPointsLog, type LoggedMovement } 
 const account = (process.argv[2] ?? 'threespeak-pro').toLowerCase();
 const client = new Client(process.argv[3] ?? 'https://api.hive.blog');
 const START = Math.max(1, Number(process.env.POINTS_START ?? 1000) || 1000);
-const TTL_MS = Math.max(1, Number(process.env.POINTS_TTL_DAYS ?? 90) || 90) * 24 * 60 * 60 * 1000;
 // get_account_history operation filter: custom_json is operation 18.
 const CUSTOM_JSON = (BigInt(1) << BigInt(18)).toString();
 const PAGE = 1000;
@@ -44,5 +43,5 @@ for (;;) {
   start = first - 1;
 }
 
-const balances = Object.fromEntries([...replayPointsLog(movements, START, TTL_MS)].map(([u, b]) => [u, b.balance]));
+const balances = Object.fromEntries([...replayPointsLog(movements, START)].map(([u, b]) => [u, b.balance]));
 process.stdout.write(`${JSON.stringify({ account, ops, movements: movements.length, balances }, null, 2)}\n`);

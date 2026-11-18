@@ -3,7 +3,7 @@ import { ParticipantInfo_Kind } from '@livekit/protocol';
 import {
   BATTLE_POINTS, BOOST_POINTS_MAX, CHAT_POINTS_PER_MIN_MAX, PAIR_REWARD_GAP_MS, POINTS_START, RAID_POINTS,
   STREAM_POINTS_PER_MIN, WATCH_POINTS_PER_MIN, boostReward, chatWords, earnForBattle, earnForBoost, earnForChat,
-  earnForRaid, flushPoints, memoryPointsStore, minuteRewards, pointsAccount, pointsHistory, resetPointsEarning,
+  earnForRaid, expirePoints, flushPoints, memoryPointsStore, minuteRewards, pointsAccount, pointsHistory, resetPointsEarning,
   setPointsStore, spendPoints,
 } from '../../src/lib/points.js';
 import {
@@ -180,15 +180,34 @@ describe('the ledger and the Hive log', () => {
     expect(decodePointsLog('nope')).toBeNull();
   });
 
-  it('a replay rebuilds balances with the start amount, the floor of 0 and the 90-day reset', () => {
+  it('a replay rebuilds balances with the start amount, the floor of 0 and logged expiries', () => {
     const day = 24 * 60 * 60 * 1000;
     const balances = replayPointsLog([
       { user: 'fan', delta: 500, kind: 'boost', at: 0 },
       { user: 'fan', delta: -2000, kind: 'prediction', at: day },
       { user: 'fan2', delta: 10, kind: 'watch', at: day },
-      { user: 'fan2', delta: 10, kind: 'watch', at: day + 91 * day },
-    ], POINTS_START, 90 * day);
+      { user: 'fan2', delta: -10, kind: 'expire', at: 91 * day },
+      { user: 'fan2', delta: 10, kind: 'watch', at: 92 * day },
+    ], POINTS_START);
     expect(balances.get('fan')?.balance).toBe(0);
     expect(balances.get('fan2')?.balance).toBe(POINTS_START + 10);
+  });
+
+  it('an expiry resets the balance and is a logged movement, in the history and on the chain', async () => {
+    const day = 24 * 60 * 60 * 1000;
+    await store.apply(new Map([['fan', 700], ['fan2', -300], ['fan3', 0]]));
+    expect((await store.details('fan')).expiresAt).toBeInstanceOf(Date);
+    expect(await expirePoints(Date.now() + 89 * day)).toBe(0);
+    const later = Date.now() + 91 * day;
+    expect(await expirePoints(later)).toBe(3);
+    expect(store.balances.size).toBe(0);
+    // Back to the start: -700 for fan, +300 for fan2, nothing to log for fan3.
+    expect(ledger.rows.map((r) => [r.user, r.delta, r.kind])).toEqual([['fan', -700, 'expire'], ['fan2', 300, 'expire']]);
+    const sent: string[] = [];
+    setPointsLogWriter(async (json) => { sent.push(json); return 'tx9'; });
+    await logPendingToChain();
+    const back = decodePointsLog(sent[0]) ?? [];
+    expect(back.map((m) => m.kind)).toEqual(['expire', 'expire']);
+    expect(replayPointsLog([{ user: 'fan', delta: 700, kind: 'boost', at: 0 }, ...back], POINTS_START).get('fan')?.balance).toBe(POINTS_START);
   });
 });

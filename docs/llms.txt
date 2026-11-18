@@ -645,7 +645,7 @@ Read straight from the environment elsewhere (not in `config.ts`):
 | `MAX_GUESTS_PER_ROOM` | `50` | WebRTC guest cap per room (`routes/rooms.ts`). |
 | `CHAT_BACKLOG_SIZE` | `300` | Lines kept per room (`lib/chatBacklog.ts`). |
 | `POINTS_START` | `1000` | Starting channel points (`lib/points.ts`). |
-| `POINTS_TTL_DAYS` | `90` | A balance untouched this long is deleted and starts over. |
+| `POINTS_TTL_DAYS` | `90` | A balance untouched this long starts over at `POINTS_START`, logged as an `expire` movement. |
 | `POINTS_BOOST_MIN` | `2500` | The smallest boost paid with points. |
 | `POINTS_EARN_ENABLED` | `true` | `false` stops the once-a-minute watching and streaming points. |
 | `POINTS_BATCH_MIN` | `5` | Earnings are paid out and logged on Hive in batches this often. |
@@ -666,7 +666,7 @@ All in the database named by `MONGODB_URI`. The server creates its indexes on fi
 | `studio-overlays` | A host's overlay templates. | 400 days after the last save |
 | `chat-backlog` | Recent chat lines per room (batched writes). | 1 day |
 | `stream-polls` | Finished polls and predictions. | 1 year |
-| `points` | Channel points, one balance per Hive account. | `POINTS_TTL_DAYS` (90) after the last change |
+| `points` | Channel points, one balance per Hive account. | none: a balance untouched for `POINTS_TTL_DAYS` is reset by a logged `expire` movement |
 | `points-ledger` | Every points movement (the wallet history), with the Hive tx that logged it. | 400 days |
 | `raid-settings` | "Accept raids" opt-out per host. | none |
 | `stream-highlights` | Highlight moments per room. | 30 days |
@@ -791,14 +791,15 @@ prediction stakes and on boosts paid with points
 (`POST /rooms/:name/boosts/points`, at least `POINTS_BOOST_MIN`; 10,000 points
 count as 1 HBD for the alert size and the host's minimum; the points are gone,
 nobody is paid, and they count toward no goal or battle). A balance untouched
-for `POINTS_TTL_DAYS` (90) is deleted and starts again at `POINTS_START`.
+for `POINTS_TTL_DAYS` (90) starts again at `POINTS_START`, as an `expire`
+movement of its own (in the history and on the chain).
 
 Every movement is a row in `points-ledger` (the wallet history) and, batched
 every `POINTS_BATCH_MIN` (5) minutes, a custom_json `3speak_points` on Hive
 signed by `POINTS_LOG_ACCOUNT` (@threespeak-pro):
 `{"v":1,"at":<unix s>,"m":[[user, delta, kind, dt, ref?]]}` with kind `w`
 watch, `s` stream, `c` chat, `r` raid, `t` battle, `b` boost, `x` spent on a
-points boost, `f` refund, `p` prediction, and `dt` seconds after `at`. Watching
+points boost, `f` refund, `p` prediction, `e` expire (back to the start), and `dt` seconds after `at`. Watching
 and chat name no stream (viewing history stays private). `npm run
 points:replay` (server) rebuilds every balance from the chain alone. Every change is broadcast on the `poll` data topic, at most about once a second.
 

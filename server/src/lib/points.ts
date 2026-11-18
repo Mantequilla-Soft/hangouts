@@ -18,8 +18,9 @@ import { ledgerStore, logPendingToChain, newRow, type LedgerRow, type PointsKind
  * Spent:
  *   predictions (stakes, lib/polls.ts) and points boosts (POINTS_BOOST_MIN and up)
  *
- * A balance nobody touched for POINTS_TTL_DAYS (90, a quarter) is deleted, and
- * the account starts again at POINTS_START: come back, or stream, to keep it.
+ * A balance nobody touched for POINTS_TTL_DAYS (90, a quarter) starts again at
+ * POINTS_START: come back, or stream, to keep it. The reset is a movement of
+ * its own (kind `expire`), in the history and on the chain like any other.
  *
  * Every movement is also a ledger row and, batched, a custom_json on Hive
  * (lib/pointsLedger.ts), so balances can be rebuilt from the chain.
@@ -81,6 +82,9 @@ export interface PointsStore {
   apply(deltas: Map<string, number>): Promise<void>;
   /** Take `amount` if the balance covers it: the balance left, or null. */
   spend(user: string, amount: number): Promise<number | null>;
+  /** Remove balances untouched since their expiry, at most `limit`: who, and
+   *  what they had. */
+  expire(now: number, limit: number): Promise<Array<{ user: string; balance: number }>>;
 }
 
 interface PointsDoc { user: string; balance: number; updatedAt: Date; expiresAt: Date }
@@ -92,29 +96,50 @@ async function collection(): Promise<Collection<PointsDoc> | null> {
   const db = await getLiveDb();
   if (!db) return null;
   // `points`, not the old per-channel `stream-points` (whose rows expire on
-  // their own TTL).
+  // their own TTL). No TTL here: an expiry is a logged movement (expirePoints).
   const c = db.collection<PointsDoc>('points');
   await c.createIndex({ user: 1 }, { unique: true }).catch(() => undefined);
-  await c.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }).catch(() => undefined);
+  await c.createIndex({ expiresAt: 1 }).catch(() => undefined);
   col = c;
   return c;
 }
 
 /** In memory: tests, and a server with no Mongo configured. */
-export function memoryPointsStore(): PointsStore & { balances: Map<string, number> } {
+export function memoryPointsStore(): PointsStore & { balances: Map<string, number>; expires: Map<string, number> } {
   const balances = new Map<string, number>();
+  const expires = new Map<string, number>();
+  const touch = (user: string) => expires.set(user, Date.now() + POINTS_TTL_MS);
   return {
     balances,
+    expires,
     async get(user) { return balances.get(user) ?? POINTS_START; },
-    async details(user) { return { balance: balances.get(user) ?? POINTS_START, expiresAt: null }; },
+    async details(user) {
+      const at = expires.get(user);
+      return { balance: balances.get(user) ?? POINTS_START, expiresAt: balances.has(user) && at ? new Date(at) : null };
+    },
     async apply(deltas) {
-      for (const [user, d] of deltas) balances.set(user, Math.max(0, (balances.get(user) ?? POINTS_START) + d));
+      for (const [user, d] of deltas) {
+        balances.set(user, Math.max(0, (balances.get(user) ?? POINTS_START) + d));
+        touch(user);
+      }
     },
     async spend(user, amount) {
       const cur = balances.get(user) ?? POINTS_START;
+      touch(user);
       if (cur < amount) return null;
       balances.set(user, cur - amount);
       return cur - amount;
+    },
+    async expire(now, limit) {
+      const out: Array<{ user: string; balance: number }> = [];
+      for (const [user, at] of expires) {
+        if (out.length >= limit) break;
+        if (at > now || !balances.has(user)) continue;
+        out.push({ user, balance: balances.get(user)! });
+        balances.delete(user);
+        expires.delete(user);
+      }
+      return out;
     },
   };
 }
@@ -172,6 +197,19 @@ const mongoStore: PointsStore = {
     }], { upsert: true, returnDocument: 'before', projection: { balance: 1 } });
     const had = before?.balance ?? POINTS_START;
     return had >= amount ? had - amount : null;
+  },
+  async expire(now, limit) {
+    const c = await collection();
+    if (!c) return fallback.expire(now, limit);
+    const cutoff = new Date(now);
+    const due = await c.find({ expiresAt: { $lte: cutoff } }, { projection: { user: 1 } }).limit(limit).toArray();
+    const out: Array<{ user: string; balance: number }> = [];
+    for (const { user } of due) {
+      // Only if still untouched: an earning a moment ago moved its expiry on.
+      const gone = await c.findOneAndDelete({ user, expiresAt: { $lte: cutoff } }, { projection: { balance: 1 } });
+      if (gone) out.push({ user, balance: gone.balance });
+    }
+    return out;
   },
 };
 
@@ -231,6 +269,19 @@ function earn(user: string, delta: number, kind: PointsKind, ref?: string): void
   else pending.set(k, { user, kind, ...(ref ? { ref } : {}), delta });
 }
 
+/**
+ * Reset the balances untouched for POINTS_TTL_DAYS to POINTS_START, each as an
+ * `expire` movement (delta: what it takes to get back to the start), so the
+ * wallet history and the chain both show it. A balance already at the start
+ * just goes, with nothing to log.
+ */
+export async function expirePoints(now = Date.now(), limit = 500): Promise<number> {
+  const gone = await store.expire(now, limit);
+  const rows = gone.filter((g) => g.balance !== POINTS_START).map((g) => newRow(g.user, POINTS_START - g.balance, 'expire', now));
+  if (rows.length) await ledgerStore().insert(rows);
+  return gone.length;
+}
+
 /** Pay out the waiting earnings, then log what is not on the chain yet
  *  (`chain: false` on shutdown, when there is no time to wait for Hive). */
 export async function flushPoints(now = Date.now(), { chain = true }: { chain?: boolean } = {}): Promise<void> {
@@ -244,7 +295,10 @@ export async function flushPoints(now = Date.now(), { chain = true }: { chain?: 
       await ledgerStore().insert(batch.map((e) => newRow(e.user, e.delta, e.kind, now, e.ref)));
     } catch { /* this batch's earnings are lost: points never break a stream */ }
   }
-  if (chain) await logPendingToChain().catch(() => 0);
+  if (chain) {
+    await expirePoints(now).catch(() => 0);
+    await logPendingToChain().catch(() => 0);
+  }
 }
 
 // ── earning ───────────────────────────────────────────────────────────────

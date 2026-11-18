@@ -110,14 +110,15 @@ prediction stakes and on boosts paid with points
 (`POST /rooms/:name/boosts/points`, at least `POINTS_BOOST_MIN`; 10,000 points
 count as 1 HBD for the alert size and the host's minimum; the points are gone,
 nobody is paid, and they count toward no goal or battle). A balance untouched
-for `POINTS_TTL_DAYS` (90) is deleted and starts again at `POINTS_START`.
+for `POINTS_TTL_DAYS` (90) starts again at `POINTS_START`, as an `expire`
+movement of its own (in the history and on the chain).
 
 Every movement is a row in `points-ledger` (the wallet history) and, batched
 every `POINTS_BATCH_MIN` (5) minutes, a custom_json `3speak_points` on Hive
 signed by `POINTS_LOG_ACCOUNT` (@threespeak-pro):
 `{"v":1,"at":<unix s>,"m":[[user, delta, kind, dt, ref?]]}` with kind `w`
 watch, `s` stream, `c` chat, `r` raid, `t` battle, `b` boost, `x` spent on a
-points boost, `f` refund, `p` prediction, and `dt` seconds after `at`. Watching
+points boost, `f` refund, `p` prediction, `e` expire (back to the start), and `dt` seconds after `at`. Watching
 and chat name no stream (viewing history stays private). `npm run
 points:replay` (server) rebuilds every balance from the chain alone. Every change is broadcast on the `poll` data topic, at most about once a second.
 

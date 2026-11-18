@@ -82,7 +82,7 @@ describe('chat-backlog collection', () => {
 });
 
 describe('points and stream-polls collections', () => {
-  it('reads a balance, defaulting to the start amount, with a 90-day TTL', async () => {
+  it('reads a balance, defaulting to the start amount; no TTL (an expiry is logged)', async () => {
     expect(await pointsBalance('fan')).toBe(POINTS_START);
     db.results['points.findOne'] = { balance: 777 };
     expect(await pointsBalance('fan')).toBe(777);
@@ -90,7 +90,8 @@ describe('points and stream-polls collections', () => {
     expect(await pointsDetails('fan')).toEqual({ balance: 5, expiresAt: new Date('2027-02-16T00:00:00Z') });
     db.results['points.findOne'] = null;
     expect(await pointsDetails('fan')).toEqual({ balance: POINTS_START, expiresAt: null });
-    expect(ops('points', 'createIndex').map((c) => c.args)).toContainEqual([{ expiresAt: 1 }, { expireAfterSeconds: 0 }]);
+    expect(ops('points', 'createIndex').map((c) => c.args)).toContainEqual([{ expiresAt: 1 }]);
+    expect(ops('points', 'createIndex').map((c) => c.args)).not.toContainEqual([{ expiresAt: 1 }, { expireAfterSeconds: 0 }]);
   });
 
   it('spends only what the balance covers, in one atomic step', async () => {

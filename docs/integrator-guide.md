@@ -636,7 +636,7 @@ Read straight from the environment elsewhere (not in `config.ts`):
 | `MAX_GUESTS_PER_ROOM` | `50` | WebRTC guest cap per room (`routes/rooms.ts`). |
 | `CHAT_BACKLOG_SIZE` | `300` | Lines kept per room (`lib/chatBacklog.ts`). |
 | `POINTS_START` | `1000` | Starting channel points (`lib/points.ts`). |
-| `POINTS_TTL_DAYS` | `90` | A balance untouched this long is deleted and starts over. |
+| `POINTS_TTL_DAYS` | `90` | A balance untouched this long starts over at `POINTS_START`, logged as an `expire` movement. |
 | `POINTS_BOOST_MIN` | `2500` | The smallest boost paid with points. |
 | `POINTS_EARN_ENABLED` | `true` | `false` stops the once-a-minute watching and streaming points. |
 | `POINTS_BATCH_MIN` | `5` | Earnings are paid out and logged on Hive in batches this often. |
@@ -657,7 +657,7 @@ All in the database named by `MONGODB_URI`. The server creates its indexes on fi
 | `studio-overlays` | A host's overlay templates. | 400 days after the last save |
 | `chat-backlog` | Recent chat lines per room (batched writes). | 1 day |
 | `stream-polls` | Finished polls and predictions. | 1 year |
-| `points` | Channel points, one balance per Hive account. | `POINTS_TTL_DAYS` (90) after the last change |
+| `points` | Channel points, one balance per Hive account. | none: a balance untouched for `POINTS_TTL_DAYS` is reset by a logged `expire` movement |
 | `points-ledger` | Every points movement (the wallet history), with the Hive tx that logged it. | 400 days |
 | `raid-settings` | "Accept raids" opt-out per host. | none |
 | `stream-highlights` | Highlight moments per room. | 30 days |

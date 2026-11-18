@@ -4,11 +4,12 @@
  * `3speak_points`, `{"v":1,"at":<unix s>,"m":[[user, delta, kind, dt, ref?]]}`.
  */
 
-export type PointsKind = 'watch' | 'stream' | 'chat' | 'raid' | 'battle' | 'boost' | 'spend' | 'refund' | 'prediction';
+export type PointsKind = 'watch' | 'stream' | 'chat' | 'raid' | 'battle' | 'boost' | 'spend' | 'refund' | 'prediction' | 'expire';
 
 /** One letter per kind on the chain (custom_json is capped at 8 KB). */
 const KIND_CODE: Record<PointsKind, string> = {
   watch: 'w', stream: 's', chat: 'c', raid: 'r', battle: 't', boost: 'b', spend: 'x', refund: 'f', prediction: 'p',
+  expire: 'e',
 };
 const CODE_KIND = Object.fromEntries(Object.entries(KIND_CODE).map(([k, c]) => [c, k])) as Record<string, PointsKind>;
 
@@ -77,15 +78,15 @@ export function decodePointsLog(json: string): LoggedMovement[] | null {
 
 /**
  * Rebuild every balance from the logged movements, in order, with the same
- * rules as the live store: a balance starts at `start`, never goes below 0,
- * and one untouched for `ttlMs` starts over at `start`.
+ * rules as the live store: a balance starts at `start` and never goes below
+ * 0, and an `expire` movement puts it back at `start` (the log says so; there
+ * is no hidden time rule).
  */
-export function replayPointsLog(movements: LoggedMovement[], start: number, ttlMs: number): Map<string, { balance: number; last: number }> {
+export function replayPointsLog(movements: LoggedMovement[], start: number): Map<string, { balance: number; last: number }> {
   const out = new Map<string, { balance: number; last: number }>();
   for (const mv of [...movements].sort((a, b) => a.at - b.at)) {
-    const cur = out.get(mv.user);
-    const base = !cur || mv.at - cur.last >= ttlMs ? start : cur.balance;
-    out.set(mv.user, { balance: Math.max(0, base + mv.delta), last: mv.at });
+    const cur = out.get(mv.user)?.balance ?? start;
+    out.set(mv.user, { balance: mv.kind === 'expire' ? start : Math.max(0, cur + mv.delta), last: mv.at });
   }
   return out;
 }
