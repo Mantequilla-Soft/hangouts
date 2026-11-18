@@ -5,6 +5,10 @@ import {
   PollError, activePoll, cancelPoll, createPoll, endPoll, listRoomPolls, onPollChange, pointsBalance,
   resolvePrediction, stake, toView, vote, type Poll, type PollKind,
 } from '../lib/polls.js';
+import {
+  BATTLE_POINTS, BOOST_POINTS_BASE, BOOST_POINTS_MAX, BOOST_POINTS_PER_HBD, CHAT_POINTS_PER_MIN_MAX, POINTS_BOOST_MIN,
+  POINTS_START, POINTS_TTL_DAYS, RAID_POINTS, STREAM_POINTS_PER_MIN, WATCH_POINTS_PER_MIN, pointsDetails,
+} from '../lib/points.js';
 import { readRoomMeta, sendRoomData, sessionUser, streamOffset } from '../lib/liveRoom.js';
 
 /**
@@ -105,6 +109,36 @@ export const pollRoutes: FastifyPluginAsync = async (fastify) => {
   }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     return reply.send({ balance: await pointsBalance(request.username) });
+  });
+
+  // Anyone's balance by account name (the 3Speak wallet shows it), with when
+  // it expires and what earns points, so the page needs no session here.
+  fastify.get('/users/:account/points', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    schema: { params: { type: 'object', required: ['account'], properties: { account: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9.-]{2,15}$' } } } },
+  }, async (request, reply) => {
+    const account = (request.params as { account: string }).account.toLowerCase();
+    const { balance, expiresAt } = await pointsDetails(account);
+    reply.header('Cache-Control', 'no-store');
+    return reply.send({
+      account,
+      balance,
+      expiresAt: expiresAt ? expiresAt.toISOString() : null,
+      start: POINTS_START,
+      ttlDays: POINTS_TTL_DAYS,
+      earn: {
+        watchPerMin: WATCH_POINTS_PER_MIN,
+        chatPerWord: 1,
+        chatPerMinMax: CHAT_POINTS_PER_MIN_MAX,
+        streamPerMin: STREAM_POINTS_PER_MIN,
+        raid: RAID_POINTS,
+        battle: BATTLE_POINTS,
+        boostBase: BOOST_POINTS_BASE,
+        boostPerHbd: BOOST_POINTS_PER_HBD,
+        boostMax: BOOST_POINTS_MAX,
+      },
+      boostMin: POINTS_BOOST_MIN,
+    });
   });
 
   // Older clients ask per channel: points are global now, the channel is ignored.

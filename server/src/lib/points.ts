@@ -71,6 +71,8 @@ export function chatWords(text: string): number {
 
 export interface PointsStore {
   get(user: string): Promise<number>;
+  /** The balance and when it expires (null: no row yet, or no Mongo). */
+  details(user: string): Promise<{ balance: number; expiresAt: Date | null }>;
   /** Add `delta` to each user's balance (starting from POINTS_START, never below 0). */
   apply(deltas: Map<string, number>): Promise<void>;
   /** Take `amount` if the balance covers it: the balance left, or null. */
@@ -100,6 +102,7 @@ export function memoryPointsStore(): PointsStore & { balances: Map<string, numbe
   return {
     balances,
     async get(user) { return balances.get(user) ?? POINTS_START; },
+    async details(user) { return { balance: balances.get(user) ?? POINTS_START, expiresAt: null }; },
     async apply(deltas) {
       for (const [user, d] of deltas) balances.set(user, Math.max(0, (balances.get(user) ?? POINTS_START) + d));
     },
@@ -118,6 +121,12 @@ const mongoStore: PointsStore = {
     if (!c) return fallback.get(user);
     const doc = await c.findOne({ user }, { projection: { balance: 1 } });
     return doc ? doc.balance : POINTS_START;
+  },
+  async details(user) {
+    const c = await collection();
+    if (!c) return fallback.details(user);
+    const doc = await c.findOne({ user }, { projection: { balance: 1, expiresAt: 1 } });
+    return doc ? { balance: doc.balance, expiresAt: doc.expiresAt ?? null } : { balance: POINTS_START, expiresAt: null };
   },
   async apply(deltas) {
     const c = await collection();
@@ -172,6 +181,11 @@ export function setPointsStore(next: PointsStore): void {
 
 export function pointsStore(): PointsStore {
   return store;
+}
+
+/** For the wallet: the balance and when it expires (public, like a profile stat). */
+export function pointsDetails(user: string): Promise<{ balance: number; expiresAt: Date | null }> {
+  return store.details(user.toLowerCase());
 }
 
 export function pointsBalance(user: string): Promise<number> {

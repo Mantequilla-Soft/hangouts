@@ -41,7 +41,7 @@ vi.mock('../../src/config.js', () => ({
 const { mongoBacklogStore } = await import('../../src/lib/chatBacklog.js');
 const { pointsBalance, POINTS_START, createPoll, resolvePrediction, stake, listRoomPolls, resetPolls } = await import('../../src/lib/polls.js');
 const { acceptsRaids, setAcceptsRaids } = await import('../../src/lib/raids.js');
-const { spendPoints } = await import('../../src/lib/points.js');
+const { spendPoints, pointsDetails } = await import('../../src/lib/points.js');
 const { getLiveDb } = await import('../../src/lib/mongoDb.js');
 
 const ops = (col: string, op: string) => db.calls.filter((c) => c.col === col && c.op === op);
@@ -86,7 +86,10 @@ describe('points and stream-polls collections', () => {
     expect(await pointsBalance('fan')).toBe(POINTS_START);
     db.results['points.findOne'] = { balance: 777 };
     expect(await pointsBalance('fan')).toBe(777);
+    db.results['points.findOne'] = { balance: 5, expiresAt: new Date('2027-02-16T00:00:00Z') };
+    expect(await pointsDetails('fan')).toEqual({ balance: 5, expiresAt: new Date('2027-02-16T00:00:00Z') });
     db.results['points.findOne'] = null;
+    expect(await pointsDetails('fan')).toEqual({ balance: POINTS_START, expiresAt: null });
     expect(ops('points', 'createIndex').map((c) => c.args)).toContainEqual([{ expiresAt: 1 }, { expireAfterSeconds: 0 }]);
   });
 

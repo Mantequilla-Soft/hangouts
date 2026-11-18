@@ -117,6 +117,7 @@ for `POINTS_TTL_DAYS` (90) is deleted and starts again at `POINTS_START`. Every 
 | `GET /rooms/:name/polls/active` | optional session, 60/min | | `{ poll \| null, myVote?, myStake?, balance? }` |
 | `GET /rooms/:name/polls` | none, 30/min | | `{ polls }`, finished polls of the stream (kept a year, for the VOD). |
 | `GET /points` | session, 30/min | | `{ balance }` |
+| `GET /users/:account/points` | none, 60/min | | `{ account, balance, expiresAt, start, ttlDays, earn, boostMin }`, for a wallet or profile page. |
 | `GET /points/:channel` | session, 30/min | | `{ channel, balance }`, the same global balance (older clients). |
 | `POST /rooms/:name/boosts/points` | session+ban, 10/min | `{ amount*, message*, displayName?, recipient? }` | 201 `{ boost, balance }`; 400 too few points or below the minimum, 403 own stream, 409 boosts off. |
 | `POST /rooms/:name/polls` | session+ban, host, 20/5 min | `{ kind?: 'poll'\|'prediction', question*, options*, durationSec* }` | 201 `{ poll }`. Polls run 15 to 600 s, predictions up to 1800 s. |
@@ -356,6 +357,7 @@ inside the handlers and are described above.
 | GET | `/podcast/files/:token/:file` | none | 60 / 1 minute |  |  |
 | GET | `/podcast/recordings` | requireAuth | none |  |  |
 | GET | `/points` | requireAuth | 30 / 1 minute |  |  |
+| GET | `/users/:account/points` | none | 60 / 1 minute |  |  |
 | GET | `/points/:channel` | requireAuth | 30 / 1 minute |  |  |
 | POST | `/rooms/:name/boosts/points` | requireAuth, checkBan | 10 / 1 minute |  |  |
 | GET | `/premium` | none | none |  |  |
