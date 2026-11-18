@@ -9,6 +9,7 @@ import { reconcileHeadlessRooms } from './lib/headlessStreams.js';
 import { sweepBacklogs, flushBacklog } from './lib/chatBacklog.js';
 import { sweepPolls } from './lib/polls.js';
 import { sweepRaids } from './lib/raids.js';
+import { startPointsSampler, sweepPoints } from './lib/points.js';
 
 const server = await buildApp();
 await server.listen({ port: config.PORT, host: '0.0.0.0' });
@@ -19,6 +20,8 @@ startBoostListener((msg, detail) => {
 // Poll live standalone streams for peak viewers + end/duration (no LiveKit
 // webhook is wired). No-op unless STREAM_STATS_SECRET is set.
 startStreamStatsSampler();
+// Channel points for watching and streaming, counted once a minute.
+startPointsSampler();
 
 // Headless (OBS) streams live in an in-memory session map, which a restart
 // loses. Re-adopt any that are still publishing and tear down the rest — now,
@@ -38,6 +41,7 @@ setInterval(() => {
       // Chat backlogs, polls and raid countdowns of rooms that are gone.
       sweepBacklogs(names);
       sweepPolls(names);
+      sweepPoints();
       sweepRaids(names);
     } catch (err) {
       server.log.warn({ err }, 'room-data sweep failed');

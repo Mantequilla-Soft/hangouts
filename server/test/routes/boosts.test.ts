@@ -102,3 +102,72 @@ describe('GET /boosts/ledger', () => {
     expect(Array.isArray(res.json())).toBe(true);
   });
 });
+
+describe('POST /rooms/:name/boosts/points', () => {
+  let app: FastifyInstance;
+  let store: Awaited<ReturnType<typeof import('../../src/lib/points.js')['memoryPointsStore']>>;
+  const auth: Record<string, { authorization: string }> = {};
+  const ROOM = 'alice-room-abc123';
+
+  beforeAll(async () => {
+    app = await buildApp();
+    const { makeToken } = await import('../setup.js');
+    for (const u of ['alice', 'fan']) auth[u] = { authorization: `Bearer ${await makeToken(u)}` };
+  });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(roomService.listRooms).mockResolvedValue([{
+      name: ROOM,
+      metadata: JSON.stringify({ host: 'alice', boost: { enabled: true, minBoostUsd: 0.5 } }),
+    }] as any);
+    vi.mocked(roomService.sendData).mockResolvedValue(undefined as any);
+    const points = await import('../../src/lib/points.js');
+    store = points.memoryPointsStore();
+    store.balances.set('fan', 6000);
+    points.setPointsStore(store);
+  });
+
+  const send = (payload: Record<string, unknown>, who = 'fan') => app.inject({
+    method: 'POST', url: `/rooms/${ROOM}/boosts/points`, headers: auth[who], payload,
+  });
+
+  it('spends the points and shows the boost, worth 1 HBD per 10,000 points', async () => {
+    const res = await send({ amount: 5000, message: '  Great   stream! ' });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ balance: 1000, boost: { asset: 'POINTS', amount: '5000', usdAmount: 0.5, sender: 'fan', recipient: 'alice', message: 'Great stream!' } });
+    expect(res.json().boost.belowMinimum).toBeUndefined();
+    expect(store.balances.get('fan')).toBe(1000);
+    const { roomService } = await import('../../src/lib/livekit.js');
+    const [call] = vi.mocked(roomService.sendData).mock.calls;
+    expect(call[3]).toMatchObject({ topic: 'boost' });
+  });
+
+  it('flags a points boost under the host minimum like any other', async () => {
+    const res = await send({ amount: 2500, message: 'hi' });
+    expect(res.json().boost.belowMinimum).toBe(true);
+  });
+
+  it('refuses too few points, too small a boost, your own stream and boosts switched off', async () => {
+    expect((await send({ amount: 7000, message: 'hi' })).statusCode).toBe(400);
+    expect((await send({ amount: 100, message: 'hi' })).json().message).toContain('2,500');
+    expect((await send({ amount: 2500, message: 'hi' }, 'alice')).statusCode).toBe(403);
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(roomService.listRooms).mockResolvedValue([{ name: ROOM, metadata: JSON.stringify({ host: 'alice', boost: { enabled: false } }) }] as any);
+    expect((await send({ amount: 2500, message: 'hi' })).statusCode).toBe(409);
+    expect(store.balances.get('fan')).toBe(6000);
+  });
+
+  it('gives the points back when the boost cannot reach the stream', async () => {
+    const { roomService } = await import('../../src/lib/livekit.js');
+    vi.mocked(roomService.sendData).mockRejectedValue(new Error('down'));
+    expect((await send({ amount: 3000, message: 'hi' })).statusCode).toBe(503);
+    expect(store.balances.get('fan')).toBe(6000);
+  });
+
+  it('needs a signed-in account', async () => {
+    const res = await app.inject({ method: 'POST', url: `/rooms/${ROOM}/boosts/points`, payload: { amount: 2500, message: 'hi' } });
+    expect(res.statusCode).toBe(401);
+  });
+});

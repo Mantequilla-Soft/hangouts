@@ -10,7 +10,8 @@ export interface BoostEvent {
   displayName?: string;
   message: string;
   amount: string;
-  asset: 'HIVE' | 'HBD';
+  /** POINTS: paid with channel points (no money moved, nobody paid). */
+  asset: 'HIVE' | 'HBD' | 'POINTS';
   usdAmount: number;
   feeAmount: string;
   payoutAmount: string;

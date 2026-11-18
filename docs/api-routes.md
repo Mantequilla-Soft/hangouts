@@ -98,14 +98,27 @@ the VOD can replay them.
 
 One poll or prediction runs per room at a time. A poll has 2 to 4 options and one
 vote per Hive account. A prediction has 2 outcomes; viewers stake channel points
-(not money, start balance `POINTS_START` = 1000 per channel) and winners split the
-pot. Every change is broadcast on the `poll` data topic, at most about once a second.
+(not money, start balance `POINTS_START` = 1000) and winners split the pot.
+
+Points are ONE balance per Hive account across all streams (`lib/points.ts`).
+The server counts what earns them: watching a live stream 10 a minute (signed-in
+and connected, WebRTC or HLS, once per account), chat 1 a word (at most 20 a
+message and 50 a minute), streaming 100 a minute while live with an audience,
+a raid 500 to the raider and a full-time battle 500 to both hosts (once an hour
+per pair), a boost 100 plus 100 per HBD (at most 2,000). They are spent on
+prediction stakes and on boosts paid with points
+(`POST /rooms/:name/boosts/points`, at least `POINTS_BOOST_MIN`; 10,000 points
+count as 1 HBD for the alert size and the host's minimum; the points are gone,
+nobody is paid, and they count toward no goal or battle). A balance untouched
+for `POINTS_TTL_DAYS` (90) is deleted and starts again at `POINTS_START`. Every change is broadcast on the `poll` data topic, at most about once a second.
 
 | Route | Auth | Body | Answer |
 |---|---|---|---|
 | `GET /rooms/:name/polls/active` | optional session, 60/min | | `{ poll \| null, myVote?, myStake?, balance? }` |
 | `GET /rooms/:name/polls` | none, 30/min | | `{ polls }`, finished polls of the stream (kept a year, for the VOD). |
-| `GET /points/:channel` | session, 30/min | | `{ channel, balance }` |
+| `GET /points` | session, 30/min | | `{ balance }` |
+| `GET /points/:channel` | session, 30/min | | `{ channel, balance }`, the same global balance (older clients). |
+| `POST /rooms/:name/boosts/points` | session+ban, 10/min | `{ amount*, message*, displayName?, recipient? }` | 201 `{ boost, balance }`; 400 too few points or below the minimum, 403 own stream, 409 boosts off. |
 | `POST /rooms/:name/polls` | session+ban, host, 20/5 min | `{ kind?: 'poll'\|'prediction', question*, options*, durationSec* }` | 201 `{ poll }`. Polls run 15 to 600 s, predictions up to 1800 s. |
 | `POST /rooms/:name/polls/:id/vote` | session+ban, 20/min | `{ option* }` | `{ poll, myVote }` |
 | `POST /rooms/:name/polls/:id/stake` | session+ban, 20/min | `{ option*, amount* }` | `{ poll, myStake, balance }` |
@@ -342,7 +355,9 @@ inside the handlers and are described above.
 | GET | `/overlay/:key` | none | 120 / 1 minute |  |  |
 | GET | `/podcast/files/:token/:file` | none | 60 / 1 minute |  |  |
 | GET | `/podcast/recordings` | requireAuth | none |  |  |
+| GET | `/points` | requireAuth | 30 / 1 minute |  |  |
 | GET | `/points/:channel` | requireAuth | 30 / 1 minute |  |  |
+| POST | `/rooms/:name/boosts/points` | requireAuth, checkBan | 10 / 1 minute |  |  |
 | GET | `/premium` | none | none |  |  |
 | GET | `/premium/:username` | none | none |  |  |
 | POST | `/premium/start-testing` | requireAuth, checkBan | 5 / 1 minute |  |  |

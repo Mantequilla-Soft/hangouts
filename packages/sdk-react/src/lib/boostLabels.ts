@@ -48,6 +48,19 @@ export interface BoostLabels {
   topSupporters: string;
   /** {amount} */
   supporterAmount: string;
+  /** The asset picker's entry for paying with channel points. */
+  assetPoints: string;
+  /** {points}: a points amount, e.g. on the preset buttons. */
+  pointsAmount: string;
+  /** {points} */
+  pointsBalance: string;
+  /** Under the amount when paying with points. */
+  pointsHint: string;
+  /** {min} */
+  errPointsMinimum: string;
+  /** {points} */
+  errPointsBalance: string;
+  errSignIn: string;
 }
 
 export const DEFAULT_BOOST_LABELS: BoostLabels = {
@@ -82,6 +95,13 @@ export const DEFAULT_BOOST_LABELS: BoostLabels = {
   goalReached: 'Goal reached!',
   topSupporters: 'Top supporters',
   supporterAmount: '{amount} HBD',
+  assetPoints: 'Points',
+  pointsAmount: '{points} points',
+  pointsBalance: 'You have {points} points.',
+  pointsHint: 'Points are spent, the streamer gets no money. Earn points by watching, chatting, streaming and boosting.',
+  errPointsMinimum: 'A points boost is at least {min} points.',
+  errPointsBalance: 'You only have {points} points.',
+  errSignIn: 'Sign in to boost with points.',
 };
 
 /** Defaults plus the integrator's text; an empty or missing entry keeps English. */

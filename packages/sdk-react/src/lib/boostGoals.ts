@@ -334,6 +334,15 @@ export function fillLabel(text: string, vars: Record<string, string | number>): 
   return text.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
 }
 
+/** A boost's amount as shown: "5.000 HBD", or "2,500 points" for a points boost. */
+export function boostAmountText(boost: { amount: string; asset: string }): string {
+  if (boost.asset === 'POINTS') {
+    const n = Number(boost.amount);
+    return `${Number.isFinite(n) ? n.toLocaleString('en-US') : boost.amount} points`;
+  }
+  return `${boost.amount} ${boost.asset}`;
+}
+
 /** What the speech synthesis says for a boost. `template` takes {name},
  *  {amount}, {asset} and {message}. */
 export function boostSpeechText(
@@ -345,7 +354,7 @@ export function boostSpeechText(
   return fillLabel(template, {
     name: boost.displayName || boost.sender,
     amount: amount === 'NaN' ? boost.amount : amount,
-    asset: boost.asset,
+    asset: boost.asset === 'POINTS' ? 'points' : boost.asset,
     message: boost.message,
   }).replace(/\s+/g, ' ').trim();
 }

@@ -80,7 +80,7 @@ export function usePolls(roomName: string) {
   // A resolved prediction moved points: read the new balance once.
   useEffect(() => {
     if (!poll || poll.status !== 'resolved' || !myStake || !apiBaseUrl || !ctx?.isAuthenticated) return;
-    fetch(`${apiBaseUrl}/points/${encodeURIComponent(poll.host)}`, { headers: headers() })
+    fetch(`${apiBaseUrl}/points`, { headers: headers() })
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => { if (typeof body?.balance === 'number') setBalance(body.balance); })
       .catch(() => {});

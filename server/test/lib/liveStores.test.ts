@@ -15,6 +15,7 @@ const db = vi.hoisted(() => {
       updateOne: rec('updateOne'),
       bulkWrite: rec('bulkWrite'),
       findOne: rec('findOne'),
+      findOneAndUpdate: rec('findOneAndUpdate'),
       find: vi.fn((...args: unknown[]) => {
         calls.push({ col: name, op: 'find', args });
         const cursor = { sort: () => cursor, limit: () => cursor, toArray: async () => (results[`${name}.find`] as unknown[]) ?? [] };
@@ -40,6 +41,7 @@ vi.mock('../../src/config.js', () => ({
 const { mongoBacklogStore } = await import('../../src/lib/chatBacklog.js');
 const { pointsBalance, POINTS_START, createPoll, resolvePrediction, stake, listRoomPolls, resetPolls } = await import('../../src/lib/polls.js');
 const { acceptsRaids, setAcceptsRaids } = await import('../../src/lib/raids.js');
+const { spendPoints } = await import('../../src/lib/points.js');
 const { getLiveDb } = await import('../../src/lib/mongoDb.js');
 
 const ops = (col: string, op: string) => db.calls.filter((c) => c.col === col && c.op === op);
@@ -79,12 +81,25 @@ describe('chat-backlog collection', () => {
   });
 });
 
-describe('stream-points and stream-polls collections', () => {
-  it('reads a balance, defaulting to the start amount', async () => {
-    expect(await pointsBalance('badadib', 'fan')).toBe(POINTS_START);
-    db.results['stream-points.findOne'] = { balance: 777 };
-    expect(await pointsBalance('badadib', 'fan')).toBe(777);
-    db.results['stream-points.findOne'] = null;
+describe('points and stream-polls collections', () => {
+  it('reads a balance, defaulting to the start amount, with a 90-day TTL', async () => {
+    expect(await pointsBalance('fan')).toBe(POINTS_START);
+    db.results['points.findOne'] = { balance: 777 };
+    expect(await pointsBalance('fan')).toBe(777);
+    db.results['points.findOne'] = null;
+    expect(ops('points', 'createIndex').map((c) => c.args)).toContainEqual([{ expiresAt: 1 }, { expireAfterSeconds: 0 }]);
+  });
+
+  it('spends only what the balance covers, in one atomic step', async () => {
+    db.results['points.findOneAndUpdate'] = { balance: 3000 };
+    expect(await spendPoints('fan', 2500)).toBe(500);
+    db.results['points.findOneAndUpdate'] = { balance: 2000 };
+    expect(await spendPoints('fan', 2500)).toBeNull();
+    db.results['points.findOneAndUpdate'] = null; // no row yet: the start amount
+    expect(await spendPoints('fan', 2500)).toBeNull();
+    const [first] = ops('points', 'findOneAndUpdate');
+    expect(first.args[0]).toEqual({ user: 'fan' });
+    expect(first.args[2]).toMatchObject({ upsert: true, returnDocument: 'before' });
   });
 
   it('applies a resolution as one bulk write and archives the result', async () => {
@@ -93,9 +108,9 @@ describe('stream-points and stream-polls collections', () => {
     await stake('room-m', p.id, 'fan', 0, 10);
     await stake('room-m', p.id, 'fan2', 1, 30);
     await resolvePrediction('room-m', p.id, 0);
-    const [bulk] = ops('stream-points', 'bulkWrite');
+    const [bulk] = ops('points', 'bulkWrite');
     const writes = bulk.args[0] as Array<{ updateOne: { filter: unknown; upsert: boolean } }>;
-    expect(writes.map((w) => w.updateOne.filter)).toEqual([{ channel: 'badadib', user: 'fan' }, { channel: 'badadib', user: 'fan2' }]);
+    expect(writes.map((w) => w.updateOne.filter)).toEqual([{ user: 'fan' }, { user: 'fan2' }]);
     expect(writes.every((w) => w.updateOne.upsert)).toBe(true);
     const [save] = ops('stream-polls', 'updateOne');
     expect(save.args[0]).toEqual({ id: p.id });

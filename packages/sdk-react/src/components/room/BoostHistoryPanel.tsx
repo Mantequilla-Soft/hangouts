@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useBoostStore, type BoostEvent } from '../../hooks/useBoosts.js';
 import { useRoomBoost } from '../../hooks/useRoomBoost.js';
-import { boostTier } from '../../lib/boostGoals.js';
+import { boostAmountText, boostTier } from '../../lib/boostGoals.js';
 import { StreamBoostGoal, BoostTopSupporters } from './StreamBoostGoal.js';
 
 function formatTime(timestamp: number): string {
@@ -18,8 +18,8 @@ function BoostHistoryItem({ boost, tiersOn }: { boost: BoostEvent; tiersOn: bool
           @{boost.displayName || boost.sender}
         </span>
         <span className="hh-boost-history__amount">
-          {boost.amount} {boost.asset}
-          <span className="hh-boost-history__usd"> (${boost.usdAmount.toFixed(2)})</span>
+          {boostAmountText(boost)}
+          {boost.asset !== 'POINTS' && <span className="hh-boost-history__usd"> (${boost.usdAmount.toFixed(2)})</span>}
         </span>
       </div>
       <p className="hh-boost-history__message">{boost.message}</p>

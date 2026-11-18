@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useBoostStore, type BoostEvent } from '../../hooks/useBoosts.js';
 import { useRoomBoost } from '../../hooks/useRoomBoost.js';
-import { boostDisplayMs, boostTier, pickPinnedBoosts } from '../../lib/boostGoals.js';
+import { boostAmountText, boostDisplayMs, boostTier, pickPinnedBoosts } from '../../lib/boostGoals.js';
 
-function formatBoostAmount(amount: string, asset: string, usdAmount: number): string {
-  return `${amount} ${asset} ($${usdAmount.toFixed(2)})`;
+function formatBoostAmount(boost: BoostEvent): string {
+  // A points boost has no money value to show.
+  if (boost.asset === 'POINTS') return boostAmountText(boost);
+  return `${boostAmountText(boost)} ($${boost.usdAmount.toFixed(2)})`;
 }
 
 interface BoostCardProps {
@@ -44,7 +46,7 @@ function BoostCard({ boost, onDismiss, displayMs, tier }: BoostCardProps) {
       <div className="hh-boost-overlay__top">
         <span className="hh-boost-overlay__label">🚀 Boost</span>
         <span className="hh-boost-overlay__amount">
-          {formatBoostAmount(boost.amount, boost.asset, boost.usdAmount)}
+          {formatBoostAmount(boost)}
         </span>
       </div>
       <div className="hh-boost-overlay__from">

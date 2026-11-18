@@ -36,7 +36,8 @@ export interface BoostEvent {
   displayName?: string;
   message: string;
   amount: string;
-  asset: BoostAsset;
+  /** POINTS: a boost paid with channel points (lib/points.ts), no money moved. */
+  asset: BoostAsset | 'POINTS';
   usdAmount: number;
   feeAmount: string;
   payoutAmount: string;
@@ -75,6 +76,14 @@ function isString(value: unknown): value is string {
 
 function cleanText(raw: string): string {
   return raw.replace(/\s+/g, ' ').trim();
+}
+
+/** A boost message as shown: one line, trimmed to the display length, or
+ *  null when empty or garbage-long. */
+export function boostDisplayMessage(raw: string): string | null {
+  const message = cleanText(raw);
+  if (!message || message.length > MAX_MESSAGE_LENGTH) return null;
+  return message.slice(0, DISPLAY_MESSAGE_LENGTH);
 }
 
 export function parseBoostMemo(rawMemo: string): BoostMemoV1 | null {

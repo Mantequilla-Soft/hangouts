@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { earnForRaid } from './points.js';
 import type { Collection } from 'mongodb';
 import { getLiveDb } from './mongoDb.js';
 
@@ -78,6 +79,8 @@ export function startRaid(
   lastRaidOn.set(input.target.roomName, now);
   const timer = setTimeout(() => {
     pending.delete(input.fromRoom);
+    // Channel points for the raider (once an hour for the same two streamers).
+    earnForRaid(raid.from, raid.target.host);
     void Promise.resolve(land(raid)).catch(() => undefined);
   }, RAID_COUNTDOWN_SEC * 1000);
   timer.unref?.();

@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { earnForBattle } from './points.js';
 import { AccessToken, type RoomServiceClient } from 'livekit-server-sdk';
 import { ParticipantInfo_State } from '@livekit/protocol';
 import { config } from '../config.js';
@@ -456,6 +457,7 @@ export async function endBattleBy(args: {
     }
     clearTimer(battle.id);
     await writeBoth(next, lk);
+    if (next.endReason === 'time') earnForBattle(next.a.host, next.b.host, now);
     return next;
   });
 }
@@ -476,6 +478,8 @@ export async function settleBattle(args: { room: string; by?: string; now?: numb
     const ended = endBattle(battle, 'time', now);
     clearTimer(battle.id);
     await writeBoth(ended, lk);
+    // Both hosts earn channel points for a battle that ran its full time.
+    earnForBattle(ended.a.host, ended.b.host, now);
     return ended;
   });
 }

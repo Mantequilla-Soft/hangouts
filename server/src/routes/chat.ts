@@ -7,6 +7,7 @@ import {
 } from '../lib/chatBacklog.js';
 import { isHostOrMod, livekitParticipant, readRoomMeta, sendRoomData, sessionUser } from '../lib/liveRoom.js';
 import { noteChat } from '../lib/streamHighlights.js';
+import { earnForChat } from '../lib/points.js';
 
 /** Rooms seen to exist recently, so a busy chat is not one LiveKit lookup per line. */
 const KNOWN_TTL_MS = 15_000;
@@ -131,6 +132,8 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
     // Highlight moments (H13): a new line counts for its verified sender (the
     // host's second device is the same person). Map lookup + Set add, no I/O.
     if (added) noteChat(name, `u:${identity.replace(/~watch$/, '')}`);
+    // Channel points: a point a word for a Hive account (capped, lib/points.ts).
+    if (added && account) earnForChat(identity, text);
     return reply.code(added ? 201 : 200).send({ ok: true });
   });
 

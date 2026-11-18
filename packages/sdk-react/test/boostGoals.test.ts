@@ -8,6 +8,7 @@ import {
   DEFAULT_TTS_MIN_HBD,
   GOAL_NEWS_MS,
   alertSettings,
+  boostAmountText,
   boostDisplayMs,
   boostPresets,
   boostSpeechText,
@@ -169,6 +170,12 @@ describe('alerts', () => {
   it('boostSpeechText reads the name, a tidy amount and the message', () => {
     expect(boostSpeechText({ sender: 'fan', amount: '5.000', asset: 'HBD', message: 'Great  stream!' })).toBe('fan boosted 5 HBD. Great stream!');
     expect(boostSpeechText({ sender: 'fan', displayName: 'Fan', amount: '2.500', asset: 'HIVE', message: 'hi' }, '{name}: {amount} {asset}, {message}')).toBe('Fan: 2.5 HIVE, hi');
+  });
+
+  it('a points boost reads and shows as points', () => {
+    expect(boostSpeechText({ sender: 'fan', amount: '2500', asset: 'POINTS', message: 'hi' })).toBe('fan boosted 2500 points. hi');
+    expect(boostAmountText({ amount: '12500', asset: 'POINTS' })).toBe('12,500 points');
+    expect(boostAmountText({ amount: '5.000', asset: 'HBD' })).toBe('5.000 HBD');
   });
 });
 

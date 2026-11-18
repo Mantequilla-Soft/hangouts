@@ -26,7 +26,7 @@ import { BoostOverlay } from './BoostOverlay.js';
 import { useBoostStore } from '../../hooks/useBoosts.js';
 import { useRoomBoost, useGoalCelebration } from '../../hooks/useRoomBoost.js';
 import { useBoostAlerts } from '../../hooks/useBoostAlerts.js';
-import { boostTier, boostTierColorVar, pickPinnedBoosts, readBoostConfig, parseRoomMeta } from '../../lib/boostGoals.js';
+import { boostAmountText, boostTier, boostTierColorVar, pickPinnedBoosts, readBoostConfig, parseRoomMeta } from '../../lib/boostGoals.js';
 import { playBoostChime } from '../../lib/boostChime.js';
 import { StreamBoostGoal } from './StreamBoostGoal.js';
 import { nodeIn } from '../../lib/audioNodeCache.js';
@@ -462,7 +462,7 @@ function drawBoostCard(
   ctx.fillStyle = tiered ? (lvl === 0 ? '#fff' : style.accent) : '#ff5a6e';
   const title = `\u{1F680} @${boost.displayName || boost.sender}`;
   ctx.fillText(title, x + pad, y + pad + titlePx * 0.85);
-  const amount = `${boost.amount} ${boost.asset}`;
+  const amount = boostAmountText(boost);
   const amtW = ctx.measureText(amount).width;
   ctx.fillStyle = '#fff';
   ctx.fillText(amount, x + w - pad - amtW, y + pad + titlePx * 0.85);

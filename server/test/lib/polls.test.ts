@@ -116,10 +116,11 @@ describe('predictions', () => {
     await rejects(() => stake('room1', p.id, 'd', 0, 10), 409);
     await resolvePrediction('room1', p.id, 0);
     // Pot 800, winning pool 400: a gets 200 back (+100), b 600 (+300), c loses 400.
-    expect(await pointsBalance('badadib', 'a')).toBe(POINTS_START + 100);
-    expect(await pointsBalance('badadib', 'b')).toBe(POINTS_START + 300);
-    expect(await pointsBalance('badadib', 'c')).toBe(POINTS_START - 400);
-    expect(await pointsBalance('other-channel', 'a')).toBe(POINTS_START);
+    expect(await pointsBalance('a')).toBe(POINTS_START + 100);
+    expect(await pointsBalance('b')).toBe(POINTS_START + 300);
+    expect(await pointsBalance('c')).toBe(POINTS_START - 400);
+    // One balance across all streams: no per-channel copy.
+    expect(points.balances.get('a')).toBe(POINTS_START + 100);
     const [saved] = await listRoomPolls('room1');
     expect(saved).toMatchObject({ status: 'resolved', winner: 0, pot: 800 });
     expect(changes).toEqual(expect.arrayContaining(['prediction:locked', 'prediction:resolved']));
@@ -139,7 +140,7 @@ describe('predictions', () => {
     expect(p.status).toBe('locked');
     await vi.advanceTimersByTimeAsync(3 * 60 * 60 * 1000 + 1000);
     expect(p.status).toBe('cancelled');
-    expect(await pointsBalance('badadib', 'fan')).toBe(POINTS_START);
+    expect(await pointsBalance('fan')).toBe(POINTS_START);
 
     const q = prediction();
     await cancelPoll('room1', q.id);
@@ -157,8 +158,8 @@ describe('predictions', () => {
   });
 
   it('a balance never goes below zero in the memory store', async () => {
-    await points.apply('badadib', new Map([['fan', -5000]]));
-    expect(await pointsBalance('badadib', 'fan')).toBe(0);
+    await points.apply(new Map([['fan', -5000]]));
+    expect(await pointsBalance('fan')).toBe(0);
   });
 });
 

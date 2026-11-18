@@ -83,7 +83,7 @@ export const pollRoutes: FastifyPluginAsync = async (fastify) => {
     const user = await sessionUser(request);
     let balance: number | undefined;
     if (user && p?.kind === 'prediction') {
-      try { balance = (await pointsBalance(p.host, user)) - (p.stakes.get(user)?.amount ?? 0); } catch { /* unknown */ }
+      try { balance = (await pointsBalance(user)) - (p.stakes.get(user)?.amount ?? 0); } catch { /* unknown */ }
     }
     return reply.send({ poll: p ? toView(p) : null, ...mine(p, user), ...(balance !== undefined ? { balance } : {}) });
   });
@@ -98,14 +98,24 @@ export const pollRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ polls: await listRoomPolls(name) });
   });
 
-  // A viewer's points on this host's channel.
+  // The signed-in account's points (one balance across all streams).
+  fastify.get('/points', {
+    preHandler: [requireAuth],
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return reply.send({ balance: await pointsBalance(request.username) });
+  });
+
+  // Older clients ask per channel: points are global now, the channel is ignored.
   fastify.get('/points/:channel', {
     preHandler: [requireAuth],
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     schema: { params: { type: 'object', required: ['channel'], properties: { channel: { type: 'string', maxLength: 32 } } } },
   }, async (request, reply) => {
     const { channel } = request.params as { channel: string };
-    return reply.send({ channel, balance: await pointsBalance(channel.toLowerCase(), request.username) });
+    reply.header('Cache-Control', 'no-store');
+    return reply.send({ channel, balance: await pointsBalance(request.username) });
   });
 
   // Host: start a poll or a prediction.
