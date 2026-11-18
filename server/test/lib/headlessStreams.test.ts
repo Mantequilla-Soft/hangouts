@@ -130,6 +130,27 @@ afterEach(() => {
 });
 
 describe('startHeadlessStream', () => {
+  it('re-encodes to VP8 with OBS_PASSTHROUGH off, or without the HLS fallback for browsers that cannot show H.264', async () => {
+    const { config } = await import('../../src/config.js');
+    const saved = { p: config.OBS_PASSTHROUGH, w: config.HLS_WEAK_FALLBACK, t: config.HLS_VIEWER_THRESHOLD };
+    try {
+      expect(hs.obsPassthrough()).toBe(true);
+      for (const [key, value] of [['OBS_PASSTHROUGH', false], ['HLS_WEAK_FALLBACK', false], ['HLS_VIEWER_THRESHOLD', null]] as const) {
+        Object.assign(config, { OBS_PASSTHROUGH: saved.p, HLS_WEAK_FALLBACK: saved.w, HLS_VIEWER_THRESHOLD: saved.t, [key]: value });
+        expect(hs.obsPassthrough()).toBe(false);
+      }
+      const t = await makeTemplate();
+      await hs.startHeadlessStream(t, 'v=0\r\noffer\r\n');
+      const { opts } = lk.createIngressCalls[0] as { opts: Record<string, any> };
+      expect(opts.enableTranscoding).toBe(true);
+      expect(opts.video.name).toBe('studio-program');
+      expect(opts.video.encodingOptions.value.videoCodec).toBe(VideoCodec.VP8);
+      expect(opts.video.encodingOptions.value.layers ?? []).toHaveLength(0);
+    } finally {
+      Object.assign(config, { OBS_PASSTHROUGH: saved.p, HLS_WEAK_FALLBACK: saved.w, HLS_VIEWER_THRESHOLD: saved.t });
+    }
+  });
+
   it('creates a headless room + host-identity ingress and proxies the SDP', async () => {
     const t = await makeTemplate();
     const r = await hs.startHeadlessStream(t, 'v=0\r\noffer\r\n');
@@ -151,12 +172,12 @@ describe('startHeadlessStream', () => {
     expect(m.broadcasting).toBeUndefined();
     expect(m.whipSession).toBe(createHash('sha256').update(r.sessionToken).digest('hex'));
 
+    // OBS's H.264 is forwarded, not re-encoded (obsPassthrough: HLS is on by default).
     const { opts } = lk.createIngressCalls[0] as { opts: Record<string, any> };
-    expect(opts).toMatchObject({ roomName: room, participantIdentity: 'alice', participantName: 'alice', enableTranscoding: true });
+    expect(opts).toMatchObject({ roomName: room, participantIdentity: 'alice', participantName: 'alice', enableTranscoding: false });
     expect(opts.video.name).toBe('studio-program');
     expect(opts.video.source).toBe(TrackSource.CAMERA);
-    expect(opts.video.encodingOptions.value.videoCodec).toBe(VideoCodec.VP8);
-    expect(opts.video.encodingOptions.value.layers ?? []).toHaveLength(0);
+    expect(opts.video.encodingOptions?.value).toBeUndefined();
     expect(opts.audio.name).toBe('studio-mix');
     expect(opts.audio.source).toBe(TrackSource.MICROPHONE);
 

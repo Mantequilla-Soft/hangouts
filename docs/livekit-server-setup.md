@@ -521,7 +521,7 @@ The API routes that use the ingress (details in [api-routes.md](api-routes.md)):
 
 | Route | Auth | Purpose |
 |---|---|---|
-| `POST /rooms/:name/ingress` | host | Create or reuse the room's WHIP ingress. Body `{ transcode?: boolean (default true, VP8), source?: 'obs' \| 'phone' }`; `obs` is Pro, `phone` is free. Answers `{ ingressId, whipUrl, streamKey, participantIdentity }`. The ingress joins as `obs-ingress-<room>`. |
+| `POST /rooms/:name/ingress` | host | Create or reuse the room's WHIP ingress. Body `{ transcode?: boolean (default true, VP8), source?: 'obs' \| 'phone' }` (the studio sends `transcode: false`, H.264 as OBS sends it, and switches a browser that can't show it to `true`); `obs` is Pro, `phone` is free. Answers `{ ingressId, whipUrl, streamKey, participantIdentity }`. The ingress joins as `obs-ingress-<room>`. |
 | `DELETE /rooms/:name/ingress` | host | Remove the room's ingress. |
 | `POST /whip/:owner/:slug` | streaming secret as Bearer | Headless OBS stream from a template (Pro). Answers the SDP; `Location: /whip/s/<token>`. |
 | `PATCH`, `DELETE /whip/s/:token` | token | Trickle ICE; stop. |

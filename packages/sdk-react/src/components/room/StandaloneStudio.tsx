@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConnectionState, useLocalParticipant, useParticipants, useRoomInfo, useTracks } from '@livekit/components-react';
-import { ConnectionQuality, ConnectionState, ParticipantEvent, Track } from 'livekit-client';
+import { ConnectionQuality, ConnectionState, ParticipantEvent, Track, type RemoteTrackPublication } from 'livekit-client';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { usePremiumStatus } from '../../hooks/usePremiumStatus.js';
 import { useWhipIngress } from '../../hooks/useWhipIngress.js';
+import { useUndecodableVideo } from '../../lib/undecodableVideo.js';
 import { PhoneScreenSourceDialog, DEFAULT_PHONE_SCREEN_LABELS, type PhoneScreenSourceLabels } from './PhoneScreenSourceDialog.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
@@ -839,6 +840,17 @@ const RAIL_TABS: { id: RailTab; icon: string; label: string; title: string }[] =
   { id: 'health', icon: '📶', label: 'Health', title: 'Stream health: upload, frame rate, loss, Auto quality' },
   { id: 'settings', icon: '⚙️', label: 'Settings', title: 'Stream settings' },
 ];
+
+/** Set in this browser once OBS's H.264 could not be shown here: its OBS
+ *  address is re-encoded (VP8) from then on. */
+const OBS_VP8_KEY = 'hh-obs-vp8';
+function obsNeedsVp8(): boolean {
+  try { return localStorage.getItem(OBS_VP8_KEY) === '1'; } catch { return false; }
+}
+function rememberObsNeedsVp8(): void {
+  try { localStorage.setItem(OBS_VP8_KEY, '1'); } catch { /* private mode: asks again next time */ }
+}
+
 export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium: isPremiumOverride, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false, obsBaseUrl = 'https://hangout.3speak.tv', phoneSourceLabels, captions }: StandaloneStudioProps) {
   // Resolves itself unless the integrator forces it. Starts false, so the
   // free-tier watermark and the short cap apply until premium is confirmed —
@@ -1055,6 +1067,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [obsBusy, setObsBusy] = useState(false);
   const [obsError, setObsError] = useState('');
   const [obsLive, setObsLive] = useState(false);
+  // This browser couldn't show OBS's H.264 as it is, so the OBS address was
+  // swapped for a re-encoded (VP8) one: the dialog asks for the new address.
+  const [obsSwitched, setObsSwitched] = useState(false);
   // Bumped to force the OBS-detection effect to re-run and re-add the source
   // after the host removed the tile while OBS is still publishing (the effect
   // otherwise only wakes on a remoteTracks change, which a steady OBS feed
@@ -2388,6 +2403,31 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const OBS_SOURCE_ID = 'obs';
   const remoteTracks = useTracks([Track.Source.Camera, Track.Source.Microphone], { onlySubscribed: false });
 
+  // OBS's H.264 that this browser can't show: remember it, swap the OBS
+  // address for a re-encoded one and ask for it in the OBS dialog.
+  const obsVideoPub = useMemo(() => (remoteTracks.find(
+    (t) => t.participant.identity.startsWith('obs-ingress-') && t.publication?.kind === 'video',
+  )?.publication ?? null) as RemoteTrackPublication | null, [remoteTracks]);
+  const switchObsToVp8 = useCallback(async () => {
+    rememberObsNeedsVp8();
+    setObsBusy(true);
+    setObsError('');
+    try {
+      const info = await startWhipIngress({ transcode: true });
+      if (!info) throw new Error('Could not set up OBS ingest');
+      setObsInfo(info);
+      setObsSwitched(true);
+    } catch (err) {
+      setObsError(err instanceof Error ? err.message : 'Could not set up OBS ingest');
+    } finally {
+      setObsBusy(false);
+      setExternalKind('obs');
+      externalKindRef.current = 'obs';
+      setObsOpen(true);
+    }
+  }, [startWhipIngress]);
+  useUndecodableVideo(obsVideoPub, () => { void switchObsToVp8(); });
+
   // One collab guest at a time. The button also disables on `guestIdentity`,
   // but that state only lands once the guest's track ARRIVES — so two quick taps
   // on different raised hands would promote both before it populates. Gate
@@ -2733,21 +2773,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     setObsBusy(true);
     setObsError('');
     try {
-      // Always VP8, deliberately not H.264 passthrough.
-      //
-      // OBS publishes H.264, which plenty of Firefox builds cannot receive at
-      // all — the SFU then refuses to bind the track ("codec is not supported
-      // by remote") and the source is black forever. Two attempts at
-      // detecting that browser-side both failed: getCapabilities() and a
-      // recvonly-offer SDP probe BOTH report H.264 support in a Firefox whose
-      // real subscriber answer offers only VP8/VP9/AV1. Since there is no
-      // trustworthy signal, take the codec every browser can decode.
-      //
-      // The cost is ingress CPU (whip_cpu_cost 1 vs 0.1 for passthrough) on
-      // what is an uncommon path. It buys nothing in quality either way: the
-      // studio composites this into its canvas and re-encodes before viewers
-      // ever see it.
-      const info = await startWhipIngress({ transcode: true });
+      // H.264 as OBS sends it, not re-encoded: re-encoding cost the server
+      // about a CPU core per OBS source, and the studio re-encodes its canvas
+      // anyway. A browser that can't show H.264 (Firefox without OpenH264
+      // and the like) can't be told apart up front: getCapabilities() and an
+      // SDP probe both claim H.264 there. So the studio watches instead (the
+      // effect below): no frame from an H.264 OBS source within a few seconds
+      // switches this browser to a VP8 address, for good (OBS_VP8_KEY).
+      const info = await startWhipIngress({ transcode: obsNeedsVp8() });
       if (!info) throw new Error(whipError || 'Could not set up OBS ingest');
       setObsInfo(info);
       setObsOpen(true);
@@ -5444,6 +5477,13 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               <p className="hh-studio__obs-error">{obsError}</p>
             ) : (
               <>
+                {obsSwitched && (
+                  <p className="hh-studio__obs-error" role="status">
+                    This browser can't show OBS's video as OBS sends it, so you have a new
+                    address that converts it. Paste it into OBS as the <strong>Server</strong>{' '}
+                    and start streaming again. Chrome or Edge can show it without converting.
+                  </p>
+                )}
                 <p className="hh-studio__obs-lead">
                   In OBS: <strong>Settings → Stream</strong>, set <strong>Service</strong> to{' '}
                   <strong>WHIP</strong>, paste this as the <strong>Server</strong>, leave the

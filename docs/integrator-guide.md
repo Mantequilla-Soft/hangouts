@@ -452,6 +452,11 @@ For big audiences the server moves viewers from WebRTC to HLS.
   answer has `delivery: 'hls'` and `hlsUrl`.
 - `HLS_WEAK_FALLBACK` (default on): a WebRTC viewer whose connection stays poor for
   15 s may rejoin with `delivery: 'hls'` (the answer has `hlsFallback: true`).
+  The same goes for a viewer whose browser can't show the video at all: an OBS
+  stream is H.264 as OBS sent it (`OBS_PASSTHROUGH`), and a browser without H.264
+  (Firefox before its OpenH264 add-on, LibreWolf, Chromium without the licensed
+  codecs) decodes no frame. `StandaloneWatch` notices that after 12 s of visible
+  time and rejoins with `delivery: 'hls'` (SDK `lib/undecodableVideo.ts`).
 - One HLS egress per stream (2 s segments, one rendition at `HLS_VIDEO_BITRATE`),
   started by the first HLS viewer, stopped 5 minutes after the last one.
 - `HLS_PUBLIC_BASE` puts a CDN in front (origin = this API's `/rooms/:name/hls/*`).
@@ -625,6 +630,7 @@ value). Required ones have no default.
 | `HLS_VIEWER_THRESHOLD` | `50` | WebRTC viewers per stream before HLS. `0` = all HLS, empty = HLS off. |
 | `HLS_PUBLIC_BASE` | empty | CDN base for HLS; empty = this API. |
 | `HLS_WEAK_FALLBACK` | `true` | Poorly connected WebRTC viewers may ask for HLS. |
+| `OBS_PASSTHROUGH` | `true` | OBS streams that go live from a template keep OBS's H.264 (about 0.1 CPU core instead of one for re-encoding to VP8). Only while HLS and `HLS_WEAK_FALLBACK` are on, since viewers who can't show H.264 move to HLS. `false` = always re-encode. |
 | `HLS_VIDEO_BITRATE` | `2000` kbps | HLS rendition bitrate. |
 | `CAPTIONS_ENABLED` | `false` | Live caption slots. |
 | `CAPTIONS_MAX_STREAMS`, `CAPTIONS_SLOT_TTL_SEC` | `3`, `90` | Caption slots at once; slot lifetime without renewal. |
