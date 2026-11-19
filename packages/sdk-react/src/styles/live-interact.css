@@ -5,6 +5,30 @@
 /* === Poll / prediction card === */
 .hh-chat__poll { padding: 0.5rem 0.5rem 0; }
 
+/* A finished poll among the chat messages: the full card for five minutes,
+   then one line that opens it again. */
+.hh-chat__result { padding: 0.25rem 0; }
+.hh-poll-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 36px;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--hh-border-light);
+  border-radius: 10px;
+  background: var(--hh-surface);
+  color: var(--hh-text);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+.hh-poll-line:hover { background: var(--hh-bg-hover); }
+.hh-poll-line__question { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.hh-poll-line__outcome { flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--hh-text-secondary); }
+.hh-poll-line__chev { flex-shrink: 0; color: var(--hh-text-muted); }
+
 .hh-poll {
   display: flex;
   flex-direction: column;

@@ -38,6 +38,9 @@ export interface LiveLabels {
   youWon: string;
   cancelled: string;
   close: string;
+  /** The folded line of a finished poll in the chat opens it again. */
+  showResult: string;
+  hideResult: string;
 }
 
 export const DEFAULT_LIVE_LABELS: LiveLabels = {
@@ -64,6 +67,8 @@ export const DEFAULT_LIVE_LABELS: LiveLabels = {
   youWon: 'You got {points} points back',
   cancelled: 'Cancelled, everyone keeps their points',
   close: 'Close',
+  showResult: 'Show the result',
+  hideResult: 'Hide the result',
 };
 
 export function liveLabels(labels?: Partial<LiveLabels>): LiveLabels {

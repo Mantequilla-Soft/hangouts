@@ -14,15 +14,17 @@ export const MAX_OVERLAY_TEMPLATES = 12;
 export const BRB_MUSIC = ['off', 'calm', 'lofi', 'bright', 'file'] as const;
 export const TICKER_SPEEDS = ['slow', 'normal', 'fast'] as const;
 export const TICKER_POSITIONS = ['bottom', 'top'] as const;
+export const COUNTDOWN_POSITIONS = ['top-right', 'top-left', 'bottom-right', 'bottom-left', 'center'] as const;
 
 export type BrbMusic = typeof BRB_MUSIC[number];
 export type TickerSpeed = typeof TICKER_SPEEDS[number];
 export type TickerPosition = typeof TICKER_POSITIONS[number];
+export type CountdownPosition = typeof COUNTDOWN_POSITIONS[number];
 
 export interface OverlayConfig {
   lowerThird: { name: string; title: string };
   ticker: { text: string; speed: TickerSpeed; position: TickerPosition };
-  countdown: { label: string; minutes: number };
+  countdown: { label: string; minutes: number; position: CountdownPosition };
   brb: { message: string; music: BrbMusic; volume: number };
   fade: boolean;
 }
@@ -68,6 +70,7 @@ export function cleanOverlayConfig(raw: unknown): OverlayConfig {
     countdown: {
       label: cleanText(cd.label, 40),
       minutes: Math.round(clamp(cd.minutes, 1, 180, 5)),
+      position: pick(cd.position, COUNTDOWN_POSITIONS, 'top-right'),
     },
     brb: {
       message: cleanText(brb.message, 80),

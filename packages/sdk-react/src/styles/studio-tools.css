@@ -142,6 +142,11 @@
 }
 .hh-overlays__seg button + button { border-left: 1px solid var(--hh-border); }
 .hh-overlays__seg button.is-active { background: var(--hh-primary); color: #fff; }
+/* Five places do not fit one pill in the side panel: separate pills that wrap. */
+.hh-overlays__seg--wrap { flex-wrap: wrap; gap: 0.35rem; border: 0; border-radius: 0; overflow: visible; }
+.hh-overlays__seg--wrap button { border: 1px solid var(--hh-border); border-radius: 999px; }
+.hh-overlays__seg--wrap button + button { border-left: 1px solid var(--hh-border); }
+.hh-overlays__seg--wrap button.is-active { border-color: var(--hh-primary); }
 .hh-overlays__chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .hh-overlays__chip {
   display: inline-flex;

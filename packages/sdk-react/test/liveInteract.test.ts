@@ -5,9 +5,9 @@ import { RoomContext } from '@livekit/components-react';
 import { Room } from 'livekit-client';
 import { mergeChatLines, parseBacklog, type BacklogLine } from '../src/lib/chatBacklog.js';
 import { DEFAULT_LIVE_LABELS, clockLabel, fillLabel, liveLabels } from '../src/lib/liveLabels.js';
-import { isFinished, leaders, optionShare, parsePoll, payoutFor, type PollView } from '../src/lib/polls.js';
+import { RESULT_OPEN_MS, addResult, isFinished, leaders, optionShare, parsePoll, parsePollList, payoutFor, resultSummary, type PollView } from '../src/lib/polls.js';
 import { parseRaid } from '../src/hooks/useRaid.js';
-import { PollCardView, PollHostPanel } from '../src/components/room/StreamPolls.js';
+import { PollCardView, PollHostPanel, PollResult } from '../src/components/room/StreamPolls.js';
 import { RaidBannerView } from '../src/components/room/RaidBanner.js';
 import { StudioLivePanel } from '../src/components/room/StudioLivePanel.js';
 import { BoostSettingsPanel } from '../src/components/room/BoostSettingsPanel.js';
@@ -149,6 +149,44 @@ describe('PollCardView', () => {
       .toContain('Cancelled, everyone keeps their points');
     expect(renderToStaticMarkup(h(PollCardView, { poll: { ...basePoll, status: 'closed' }, now: 0, canVote: true })))
       .toContain('Final results');
+  });
+});
+
+describe('poll results in the chat', () => {
+  const closed = (id: string, endedAt: number, over: Partial<PollView> = {}): PollView => ({ ...basePoll, id, status: 'closed', endedAt, ...over });
+
+  it('keeps finished polls only, once each, oldest first, the newest copy winning', () => {
+    let list = addResult([], { ...basePoll, id: 'open' });
+    expect(list).toEqual([]);
+    list = addResult(list, closed('b', 200));
+    list = addResult(list, closed('a', 100));
+    list = addResult(list, closed('b', 200, { total: 9 }));
+    expect(list.map((p) => p.id)).toEqual(['a', 'b']);
+    expect(list[1].total).toBe(9);
+    expect(parsePollList({ polls: [closed('y', 2), null, { id: 1 }, closed('x', 1)] }).map((p) => p.id)).toEqual(['x', 'y']);
+    expect(parsePollList('nope')).toEqual([]);
+  });
+
+  it('sums a result up in one line', () => {
+    const L = { ...DEFAULT_LIVE_LABELS };
+    expect(resultSummary(closed('a', 1), L)).toBe('Chess won');
+    expect(resultSummary({ ...basePrediction, status: 'resolved', winner: 1 }, L)).toBe('No won');
+    expect(resultSummary({ ...basePrediction, status: 'cancelled' }, L)).toBe(L.cancelled);
+    expect(resultSummary(closed('a', 1, { total: 0, options: basePoll.options.map((o) => ({ ...o, votes: 0 })) }), L)).toBe('Final results');
+  });
+
+  it('shows the full card for five minutes after the end, then one line that opens it again', () => {
+    const p = closed('a', 1_000_000);
+    const fresh = renderToStaticMarkup(h(PollResult, { poll: p, now: 1_000_000 + RESULT_OPEN_MS - 1 }));
+    expect(fresh).toContain('hh-poll__result');
+    expect(fresh).toContain('Hide the result');
+    expect(fresh).not.toContain('Sign in to vote');
+    const old = renderToStaticMarkup(h(PollResult, { poll: p, now: 1_000_000 + RESULT_OPEN_MS, labels: { showResult: 'Ergebnis zeigen' } }));
+    expect(old).toContain('hh-poll-line');
+    expect(old).toContain('aria-expanded="false"');
+    expect(old).toContain('Ergebnis zeigen');
+    expect(old).toContain('Chess won');
+    expect(old).not.toContain('hh-poll__options');
   });
 });
 

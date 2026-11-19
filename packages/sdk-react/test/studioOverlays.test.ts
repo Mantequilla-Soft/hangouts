@@ -18,6 +18,8 @@ describe('config cleaning', () => {
     expect(c.countdown.minutes).toBe(180);
     expect(c.brb).toEqual({ message: '', music: 'lofi', volume: 1 });
     expect(c.ticker.speed).toBe('normal');
+    expect(c.countdown.position).toBe('top-right');
+    expect(cleanOverlayConfig({ countdown: { position: 'bottom-left' } }).countdown.position).toBe('bottom-left');
     expect(c.fade).toBe(false);
   });
   it('cleanText folds, editText keeps the trailing space being typed', () => {
@@ -150,7 +152,7 @@ describe('createTextOverlayLayers', () => {
     ...DEFAULT_OVERLAY_CONFIG,
     lowerThird: { name: '@badadib', title: 'Host' },
     ticker: { text: 'Boost the stream', speed: 'normal', position: 'bottom' },
-    countdown: { label: 'Back in', minutes: 5 },
+    countdown: { label: 'Back in', minutes: 5, position: 'top-right' },
   };
   const layers = (live: OverlayLive, c = cfg) => {
     const list = new OverlayLayerList();
@@ -196,6 +198,31 @@ describe('createTextOverlayLayers', () => {
     // the lower third panel (3rd rect) sits a ticker band lower without a bottom ticker
     expect(top[2][1] - bottom[2][1]).toBe(band);
     expect(chipY({ ...cfg, ticker: { ...cfg.ticker, position: 'top' } }) - chipY(cfg)).toBe(band);
+  });
+  it('the countdown chip goes where the host put it, clear of a ticker on that edge', () => {
+    const live: OverlayLive = { ...OFF_LIVE, tickerOn: true, tickerAt: 0, countdownEndsAt: 1_000_000 + 60_000 };
+    const chip = (position: OverlayConfig['countdown']['position'], ticker: 'top' | 'bottom' = 'bottom') => {
+      const ctx = fakeCtx();
+      layers(live, { ...cfg, ticker: { ...cfg.ticker, position: ticker }, countdown: { ...cfg.countdown, position } }).draw(ctx, 1280, 720, info());
+      const [x, y, w, h] = ctx.calls.find((c) => c.op === 'roundRect')!.args as number[];
+      return { x, y, w, h };
+    };
+    const band = 40;
+    const tr = chip('top-right');
+    expect(tr.x + tr.w).toBe(1280 - 20);
+    expect(tr.y).toBe(20);
+    expect(chip('top-left').x).toBe(20);
+    const bl = chip('bottom-left');
+    expect(bl.y + bl.h).toBe(720 - band - 20);      // above the bottom ticker
+    const br = chip('bottom-right', 'top');
+    expect(br.y + br.h).toBe(720 - 20);             // nothing along the bottom
+    const mid = chip('center');
+    expect(mid.x + mid.w / 2).toBeCloseTo(640);
+    expect(mid.y + mid.h / 2).toBeCloseTo(360);
+    // On a slate it stays big in the middle wherever the chip would go.
+    const slate = fakeCtx();
+    layers(live, { ...cfg, countdown: { ...cfg.countdown, position: 'bottom-left' } }).draw(slate, 1280, 720, info({ state: 'paused' }));
+    expect(slate.calls.some((c) => c.op === 'roundRect' && (c.args as number[])[2] < 400 && (c.args as number[])[1] > 600)).toBe(false);
   });
   it('a ticker without text stays off', () => {
     const ctx = fakeCtx();
