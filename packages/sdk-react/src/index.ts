@@ -230,7 +230,8 @@ export {
 } from './lib/vscContract.js';
 
 // Styles — import this in your app: import '@hive-hangouts/react/styles'
-export { useIsMobile, MOBILE_QUERY } from './hooks/useIsMobile.js';
+export { useIsMobile, MOBILE_QUERY, PHONE_STUDIO_QUERY } from './hooks/useIsMobile.js';
+export { useKeyboardInset } from './hooks/useKeyboardInset.js';
 
 // The create form's remembered setup and the stream recording preferences, so
 // an integrator can pre-fill the form (e.g. from a saved stream template) in

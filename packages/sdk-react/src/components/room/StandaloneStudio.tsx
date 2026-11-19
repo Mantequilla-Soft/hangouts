@@ -14,14 +14,14 @@ import { resolveStreamCap, FREE_STREAM_CAP_LABEL } from '../../lib/streamLimits.
 import { readPostDraft, writePostDraft } from '../../lib/postDraft.js';
 import { readStudioSetup, writeStudioSetup, saveStudioFile, deleteStudioFile, loadStudioFiles } from '../../lib/studioSetup.js';
 import { isChromium } from '../../lib/browser.js';
-import { MOBILE_QUERY, useIsMobile } from '../../hooks/useIsMobile.js';
+import { PHONE_STUDIO_QUERY, useIsMobile } from '../../hooks/useIsMobile.js';
 // The SDK's OWN chat hook — NOT LiveKit's. ChatPanel speaks this protocol; the
 // two are different transports and don't see each other's messages.
 import { useChat } from '../../hooks/useChat.js';
 import { MobileSheet } from './MobileSheet.js';
 import {
   IconAspect, IconAudio, IconBoost, IconChat, IconCheck, IconFlipCamera, IconGuest,
-  IconMirror, IconBroadcast, IconPause, IconPlay, IconPost, IconShare, IconStop, IconZoomIn, IconZoomOut,
+  IconMirror, IconBroadcast, IconPause, IconPlay, IconPost, IconRotate, IconShare, IconStop, IconZoomIn, IconZoomOut,
 } from './StudioIcons.js';
 import { BoostOverlay } from './BoostOverlay.js';
 import { useBoostStore } from '../../hooks/useBoosts.js';
@@ -1175,7 +1175,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [mixerCollapsed, setMixerCollapsed] = useState(() => savedSetup.mixerCollapsed === true);
 
   // ---- mobile ------------------------------------------------------------
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobile(PHONE_STUDIO_QUERY);
   const isMobileRef = useRef(isMobile);
   isMobileRef.current = isMobile;
   type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests' | 'settings' | 'live';
@@ -1274,11 +1274,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // Phones shoot both ways. The whole compositor (preview canvas, program
   // canvas, published track) swaps to 9:16 rather than letterboxing a portrait
   // camera into a landscape frame.
-  // Mobile is portrait-only for now — deliberately not user-switchable, so
-  // there's one shape to get right. The landscape path still exists for
-  // desktop and can be re-exposed by restoring the rail button.
+  // A phone opens upright; the Rotate button on the camera rail turns it to
+  // landscape before going live (rotateStudio).
   const [portrait, setPortrait] = useState(() => {
-    if (typeof window !== 'undefined' && window.matchMedia?.(MOBILE_QUERY).matches) return true;
+    if (typeof window !== 'undefined' && window.matchMedia?.(PHONE_STUDIO_QUERY).matches) return true;
     try { return localStorage.getItem(ORIENTATION_KEY) === 'portrait'; } catch { return false; }
   });
   const portraitRef = useRef(portrait);
@@ -4414,7 +4413,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     orientationLockedRef.current = true;
     try {
       const o = screen.orientation as ScreenOrientation & { lock?: (t: string) => Promise<void> };
-      await o?.lock?.('portrait');
+      await o?.lock?.(portraitRef.current ? 'portrait' : 'landscape');
       // The already-open track keeps the OLD orientation, so re-acquire it.
       if (camStreamRef.current) {
         stopCam();
@@ -4423,6 +4422,27 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       }
     } catch { /* lock unsupported or refused — nothing lost */ }
   }, [stopCam]);
+
+  // Phone only, before going live: turn the stream between upright (9:16) and
+  // sideways (16:9). The screen is locked to the new shape first so the camera
+  // reopens (the portrait effect above) delivering frames that already match.
+  // Where the lock is refused (iOS) the host turns the phone by hand.
+  const rotateStudio = useCallback(async () => {
+    if (!isMobileRef.current) return;
+    const next = !portraitRef.current;
+    const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> };
+    if (!document.fullscreenElement) {
+      try { await (el.requestFullscreen?.({ navigationUI: 'hide' }) ?? el.webkitRequestFullscreen?.()); }
+      catch { /* iOS Safari refuses */ }
+    }
+    try {
+      const o = screen.orientation as ScreenOrientation & { lock?: (t: string) => Promise<void> };
+      await o?.lock?.(next ? 'portrait' : 'landscape');
+      orientationLockedRef.current = true;
+    } catch { /* lock unsupported or refused */ }
+    portraitRef.current = next;
+    setPortrait(next);
+  }, []);
 
   // The actual teardown — no confirm. Used by the Stop button (after its
   // prompt) AND by the free-stream time cap, which must stop without asking.
@@ -4762,6 +4782,19 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               <IconMirror />
               <span className="hh-studio__rbtn-label">Mirror</span>
             </button>
+            {/* The stream's shape is set before going live: viewers and the
+                post are told it once, at the start. */}
+            {streamState === 'standby' && (
+              <button
+                className={`hh-studio__rbtn${portrait ? '' : ' hh-studio__rbtn--on'}`}
+                onClick={() => { void rotateStudio(); }}
+                aria-pressed={!portrait}
+                title={portrait ? 'Stream in landscape (turn the phone sideways)' : 'Stream upright (portrait)'}
+              >
+                <IconRotate />
+                <span className="hh-studio__rbtn-label">{portrait ? 'Rotate' : 'Upright'}</span>
+              </button>
+            )}
           </div>
 
           <div className="hh-studio__rail hh-studio__rail--right">
