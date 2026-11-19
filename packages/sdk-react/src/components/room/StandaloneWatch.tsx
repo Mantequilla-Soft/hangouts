@@ -49,6 +49,8 @@ interface StreamCtxValue {
   hlsUrl?: string | null;
   /** The page asked for the stream's sound to be off (ads). */
   audioMuted?: boolean;
+  /** The viewer's volume, 0 to 1. */
+  audioVolume?: number;
   /** HLS could not start: rejoin and let the server pick again. */
   onHlsUnavailable?: () => void;
 }
@@ -63,6 +65,9 @@ export interface StandaloneWatchProps {
   /** Silence the stream's sound without leaving the room, e.g. while the page
    *  plays an ad over it. The picture keeps running underneath. */
   audioMuted?: boolean;
+  /** The viewer's own volume for the stream, 0 to 1 (default 1, as sent).
+   *  The page keeps the setting; iOS ignores it for the HLS player. */
+  audioVolume?: number;
   /** The host raided another stream and the countdown ran out: move the viewer
    *  to `target` (the integrator knows its own URLs). Without it, no raid banner. */
   onRaid?: (target: RaidTargetInfo) => void;
@@ -70,7 +75,7 @@ export interface StandaloneWatchProps {
   liveLabels?: Partial<LiveLabels>;
 }
 
-export function StandaloneWatch({ roomName, children, connecting, audioMuted = false, onRaid, liveLabels }: StandaloneWatchProps) {
+export function StandaloneWatch({ roomName, children, connecting, audioMuted = false, audioVolume, onRaid, liveLabels }: StandaloneWatchProps) {
   const room = useHangoutsRoom();
   const { isAuthenticated } = useHangoutsContext();
   const joinedForRef = useRef<string | null>(null);
@@ -146,11 +151,12 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
         delivery={hls ? 'hls' : 'webrtc'}
         hlsUrl={room.hlsUrl}
         audioMuted={audioMuted}
+        audioVolume={audioVolume}
         onHlsUnavailable={onHlsUnavailable}
         livekitToken={room.livekitToken}
       >
         {/* HLS viewers get their sound from the HLS player. */}
-        {!hls && <RoomAudio programOnly muted={audioMuted} />}
+        {!hls && <RoomAudio programOnly muted={audioMuted} volume={audioVolume} />}
         {!hls && <StartAudio label="Click to enable audio" className="hh-start-audio" />}
         {!hls && room.hlsFallback && <WeakConnectionWatcher onWeak={onWeak} />}
         {/* An OBS stream is H.264 as OBS sent it: a browser that can't show
@@ -173,13 +179,14 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
  * stays hidden and they can't ask to join the stage until they refresh. Falls
  * back to the join-time meta until the first metadata sync lands.
  */
-function StreamContextBridge({ roomName, isGuest, joinMeta, delivery, hlsUrl, audioMuted, onHlsUnavailable, livekitToken, children }: {
+function StreamContextBridge({ roomName, isGuest, joinMeta, delivery, hlsUrl, audioMuted, audioVolume, onHlsUnavailable, livekitToken, children }: {
   roomName: string;
   isGuest: boolean;
   joinMeta: unknown;
   delivery?: 'webrtc' | 'hls';
   hlsUrl?: string | null;
   audioMuted?: boolean;
+  audioVolume?: number;
   onHlsUnavailable?: () => void;
   livekitToken?: string | null;
   children: ReactNode;
@@ -204,6 +211,7 @@ function StreamContextBridge({ roomName, isGuest, joinMeta, delivery, hlsUrl, au
       delivery,
       hlsUrl,
       audioMuted,
+      audioVolume,
       onHlsUnavailable,
     }}>
       {children}
@@ -376,13 +384,13 @@ export function StreamVideo({ showLiveBadge = true, showBoostGoal = true, boostL
   const track = showingVertical ? verticalTrack : program;
   const live = useStreamLive();
   const settled = useConnectionSettled();
-  const { delivery, hlsUrl, audioMuted, onHlsUnavailable } = useStreamContext();
+  const { delivery, hlsUrl, audioMuted, audioVolume, onHlsUnavailable } = useStreamContext();
   const placeholder = live ? 'Stream is starting…' : (settled ? 'The streamer is offline' : 'Connecting…');
   return (
     <div className={`hh-stream-video${showingVertical && delivery !== 'hls' ? ' hh-stream-video--vertical' : ''}`}>
       {delivery === 'hls' && hlsUrl ? (
         live
-          ? <HlsStreamVideo url={hlsUrl} muted={audioMuted} onUnavailable={onHlsUnavailable} />
+          ? <HlsStreamVideo url={hlsUrl} muted={audioMuted} volume={audioVolume} onUnavailable={onHlsUnavailable} />
           : <div className="hh-stream-video__placeholder">{placeholder}</div>
       ) : track ? (
         <VideoTrack key={showingVertical ? 'vertical' : 'program'} trackRef={track} className="hh-stream-video__el" />
