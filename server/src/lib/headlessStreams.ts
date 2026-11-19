@@ -308,7 +308,7 @@ export async function startHeadlessStream(template: TemplateDoc, offerSdp: strin
       language: template.language || undefined,
       mode: 'standalone',
       tags: template.tags,
-      boost: template.boost,
+      boost: { ...template.boost, goal: template.boost.goal ?? undefined },
       origin,
       extra: {
         headless: true,

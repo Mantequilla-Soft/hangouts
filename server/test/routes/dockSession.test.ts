@@ -8,6 +8,7 @@ import { makeToken } from '../setup.js';
 import { memoryPointsStore, memoryPollArchive, resetPolls, setPollStores } from '../../src/lib/polls.js';
 import { resetPollBroadcasts } from '../../src/routes/polls.js';
 import { verifySessionToken } from '../../src/lib/session.js';
+import { memoryClipStore, setClipStore, clipStore, type StreamClip } from '../../src/lib/streamClips.js';
 
 const lk = vi.hoisted(() => ({ rooms: new Map<string, { name: string; metadata: string }>() }));
 
@@ -53,6 +54,7 @@ beforeEach(async () => {
   resetPolls();
   resetPollBroadcasts();
   setPollStores({ points: memoryPointsStore(), archive: memoryPollArchive() });
+  setClipStore(memoryClipStore());
   const store = await import('../../src/lib/streamTemplates.js') as unknown as { _dockKeys: Map<string, unknown> };
   store._dockKeys.clear();
 });
@@ -123,5 +125,34 @@ describe('a dock session', () => {
     const token = (await dockSession(await dockKey())).json().token;
     const res = await app.inject({ method: 'POST', url: '/rooms/alice-room/polls', headers: bearer(token), payload: { question: 'x?', options: ['a', 'b'], durationSec: 60 }, remoteAddress: ip() });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('the dock\'s clip suggestions', () => {
+  let seq = 0;
+  const clip = (over: Partial<StreamClip>): StreamClip => ({
+    id: `c${++seq}`, room: 'badadib-old', host: 'badadib', clipper: 'viewer1', source: 'viewer', file: `c${seq}.mp4`,
+    offsetSec: 60, durationSec: 30, status: 'ready',
+    createdAt: new Date(Date.now() - 60_000 + seq), expiresAt: new Date(Date.now() + 3_600_000), ...over,
+  });
+  const ask = (headers: { authorization: string }) => app.inject({ method: 'GET', url: '/dock/clips', headers, remoteAddress: ip() });
+
+  it('counts the ready clips viewers made of the host\'s newest clipped stream', async () => {
+    const store = await clipStore();
+    await store.insert(clip({ room: 'badadib-older', createdAt: new Date(Date.now() - 600_000) }));
+    await store.insert(clip({}));
+    await store.insert(clip({ clipper: 'viewer2' }));
+    await store.insert(clip({ clipper: 'viewer2', status: 'pending' }));
+    await store.insert(clip({ clipper: 'badadib', source: 'host' }));
+    await store.insert(clip({ clipper: null, source: 'auto' }));
+    const token = (await dockSession(await dockKey())).json().token;
+    const res = await ask(bearer(token));
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ room: 'badadib-old', count: 2, clippers: 2 });
+  });
+
+  it('says none when no viewer clipped, and needs the dock session or a login', async () => {
+    expect((await ask(login)).json()).toEqual({ room: null, count: 0, clippers: 0 });
+    expect((await app.inject({ method: 'GET', url: '/dock/clips', remoteAddress: ip() })).statusCode).toBe(401);
   });
 });

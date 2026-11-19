@@ -27,7 +27,7 @@ export interface BoostGoal {
   position?: GoalPosition;
 }
 
-const isGoalPosition = (v: unknown): v is GoalPosition =>
+export const isGoalPosition = (v: unknown): v is GoalPosition =>
   typeof v === 'string' && (GOAL_POSITIONS as readonly string[]).includes(v);
 
 export interface BoostAlertSettings {
