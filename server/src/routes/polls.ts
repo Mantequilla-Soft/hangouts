@@ -175,7 +175,7 @@ export const pollRoutes: FastifyPluginAsync = async (fastify) => {
   // Host: start a poll or a prediction.
   fastify.post('/rooms/:name/polls', {
     preHandler: [requireAuth, checkBan],
-    config: { rateLimit: { max: 20, timeWindow: '5 minutes' } },
+    config: { rateLimit: { max: 20, timeWindow: '5 minutes' }, dock: true },
     schema: {
       params: nameParam,
       body: {
@@ -241,7 +241,7 @@ export const pollRoutes: FastifyPluginAsync = async (fastify) => {
   for (const action of ['end', 'resolve', 'cancel'] as const) {
     fastify.post(`/rooms/:name/polls/:id/${action}`, {
       preHandler: [requireAuth, checkBan],
-      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' }, dock: true },
       schema: {
         params: idParams,
         body: action === 'resolve'

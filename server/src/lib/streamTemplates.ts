@@ -32,6 +32,10 @@ interface SecretDoc {
   enc: string;
   createdAt: Date;
   rotatedAt: Date;
+  /** The OBS dock's control key: same scheme, reset on its own. */
+  dockHash?: string;
+  dockEnc?: string;
+  dockRotatedAt?: Date;
 }
 
 /** Thrown when Mongo isn't configured/reachable — routes answer 503. */
@@ -227,4 +231,83 @@ export async function checkStreamSecret(owner: string, presented: string): Promi
   // Still run an HMAC when there's no doc, so "no such owner" and "wrong
   // secret" take the same time.
   return verifyStreamSecret(presented, doc?.hash ?? '0'.repeat(64)) && !!doc;
+}
+
+// ── OBS dock control key ─────────────────────────────────────────────────────
+// `<owner>.<secret>`: the dock link carries it and trades it for a dock session
+// (lib/session.ts) that may run the owner's live controls and nothing else.
+// Kept apart from the streaming secret, so a dock link that leaked is reset
+// without touching OBS's stream key.
+
+const dockKeyOf = (owner: string, secret: string) => `${owner}.${secret}`;
+
+/** A first secrets doc made for the dock key still needs a (matching) streaming secret. */
+function newStreamSecretFields(): { hash: string; enc: string } {
+  const secret = generateStreamSecret();
+  return { hash: hashStreamSecret(secret), enc: encryptStreamSecret(secret) };
+}
+
+/** The owner's dock key, created on first use. */
+export async function getOrCreateDockKey(owner: string): Promise<string> {
+  const c = await cols();
+  let doc: SecretDoc | null;
+  try {
+    doc = await c.secrets.findOne({ owner });
+    if (!doc?.dockEnc) {
+      const secret = generateStreamSecret();
+      const now = new Date();
+      // Only when there is none yet: two first requests read back the same key.
+      await c.secrets.updateOne(
+        { owner, dockEnc: { $exists: false } },
+        {
+          $set: { dockHash: hashStreamSecret(secret), dockEnc: encryptStreamSecret(secret), dockRotatedAt: now },
+          $setOnInsert: { owner, ...newStreamSecretFields(), createdAt: now, rotatedAt: now },
+        },
+        { upsert: true },
+      ).catch((err) => { if (!isDupKey(err)) throw err; });
+      doc = await c.secrets.findOne({ owner });
+    }
+  } catch (err) { return resetConnection(err, 'getOrCreateDockKey'); }
+  if (!doc?.dockEnc) throw new StoreUnavailableError();
+  return dockKeyOf(owner, decryptStreamSecret(doc.dockEnc));
+}
+
+/** Replace the owner's dock key: old links and their dock sessions stop at once. */
+export async function resetDockKey(owner: string): Promise<string> {
+  const c = await cols();
+  const secret = generateStreamSecret();
+  const now = new Date();
+  try {
+    await c.secrets.updateOne(
+      { owner },
+      {
+        $set: { dockHash: hashStreamSecret(secret), dockEnc: encryptStreamSecret(secret), dockRotatedAt: now },
+        $setOnInsert: { owner, ...newStreamSecretFields(), createdAt: now, rotatedAt: now },
+      },
+      { upsert: true },
+    );
+    return dockKeyOf(owner, secret);
+  } catch (err) { return resetConnection(err, 'resetDockKey'); }
+}
+
+/** A presented dock key: its owner and the key's version, or null. Constant time per owner. */
+export async function checkDockKey(key: string): Promise<{ owner: string; version: number } | null> {
+  const dot = typeof key === 'string' ? key.lastIndexOf('.') : -1;
+  if (dot <= 0) return null;
+  const owner = key.slice(0, dot).toLowerCase();
+  const secret = key.slice(dot + 1);
+  const c = await cols();
+  let doc: SecretDoc | null;
+  try { doc = await c.secrets.findOne({ owner }); } catch (err) { return resetConnection(err, 'checkDockKey'); }
+  const ok = verifyStreamSecret(secret, doc?.dockHash ?? '0'.repeat(64));
+  return ok && doc?.dockRotatedAt ? { owner, version: doc.dockRotatedAt.getTime() } : null;
+}
+
+/** The current dock key's version (its rotation time), or null without one. */
+export async function dockKeyVersion(owner: string): Promise<number | null> {
+  const c = await cols();
+  try {
+    const doc = await c.secrets.findOne({ owner }, { projection: { dockRotatedAt: 1 } });
+    return doc?.dockRotatedAt ? doc.dockRotatedAt.getTime() : null;
+  } catch (err) { return resetConnection(err, 'dockKeyVersion'); }
 }

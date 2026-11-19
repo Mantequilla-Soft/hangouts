@@ -9,8 +9,10 @@ import {
 import {
   listTemplates, countTemplates, getTemplate, insertTemplate, updateTemplate, deleteTemplate,
   getOrCreateStreamSecret, resetStreamSecret, StoreUnavailableError, type TemplateDoc,
+  getOrCreateDockKey, resetDockKey, checkDockKey,
 } from '../lib/streamTemplates.js';
 import { chatOverlayKey, parseChatOverlayKey } from '../lib/streamSecrets.js';
+import { createDockToken } from '../lib/session.js';
 import { findLiveRoomForHost } from '../lib/chatOverlay.js';
 import { isTemplateBusy, getHeadlessStatus, getLastHeadlessEnd, streamCapMs } from '../lib/headlessStreams.js';
 
@@ -175,6 +177,35 @@ export const templateRoutes: FastifyPluginAsync = async (fastify) => {
     const room = await findLiveRoomForHost(username).catch(() => null);
     return reply.send({ live: !!room, room });
   });
+
+  // ── OBS dock control key ──────────────────────────────────────────────────
+  // The dock link's key (lib/streamTemplates.ts), shown to its owner only.
+  fastify.get('/dock-key', {
+    ...auth,
+    config: { rateLimit: { max: 30, timeWindow: '5 minutes' } },
+  }, async (request, reply) => guard(reply, async () => {
+    reply.header('Cache-Control', 'no-store');
+    return reply.send({ key: await getOrCreateDockKey(request.username) });
+  }));
+
+  fastify.post('/dock-key/reset', {
+    ...auth,
+    config: { rateLimit: { max: 10, timeWindow: '5 minutes' } },
+  }, async (request, reply) => guard(reply, async () => {
+    reply.header('Cache-Control', 'no-store');
+    return reply.send({ key: await resetDockKey(request.username) });
+  }));
+
+  // Public: the dock trades its key for a dock session. The key is the proof.
+  fastify.post('/dock/session', {
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+    schema: { body: { type: 'object', required: ['key'], properties: { key: { type: 'string', maxLength: 128 } } } },
+  }, async (request, reply) => guard(reply, async () => {
+    const found = await checkDockKey((request.body as { key: string }).key);
+    if (!found) return fail(reply, 401, 'invalid_key', 'This dock link is not valid any more');
+    reply.header('Cache-Control', 'no-store');
+    return reply.send({ token: await createDockToken(found.owner, found.version), username: found.owner });
+  }));
 
   fastify.get('/stream-secret', {
     ...auth,

@@ -324,7 +324,7 @@ export function PollHostPanel({ roomName }: { roomName: string }) {
             </div>
           ))}
           {kind === 'poll' && options.length < 4 && (
-            <button type="button" className="hh-btn hh-btn--small" onClick={() => setOptions((all) => [...all, ''])}>＋ Add option</button>
+            <button type="button" className="hh-btn hh-btn--small" onClick={() => setOptions((all) => [...all, ''])}>+ Add option</button>
           )}
           <div className="hh-pollhost__durations" role="radiogroup" aria-label={kind === 'poll' ? 'Timer' : 'Time to stake'}>
             <span>{kind === 'poll' ? 'Timer' : 'Time to stake'}</span>
