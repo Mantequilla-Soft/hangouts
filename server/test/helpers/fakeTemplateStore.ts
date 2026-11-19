@@ -13,6 +13,8 @@ import {
 export function createFakeStore() {
   const templates = new Map<string, TemplateDoc>();
   const secrets = new Map<string, { hash: string; plain: string }>();
+  const dockKeys = new Map<string, { plain: string; version: number }>();
+  let dockClock = Date.now();
   class StoreUnavailableError extends Error {}
 
   const clash = (owner: string, slug: string, exceptId?: string) =>
@@ -74,5 +76,23 @@ export function createFakeStore() {
       const s = secrets.get(owner);
       return !!s && verifyStreamSecret(presented, s.hash);
     },
+    getOrCreateDockKey: async (owner: string) => {
+      let d = dockKeys.get(owner);
+      if (!d) { d = { plain: generateStreamSecret(), version: ++dockClock }; dockKeys.set(owner, d); }
+      return `${owner}.${d.plain}`;
+    },
+    resetDockKey: async (owner: string) => {
+      const d = { plain: generateStreamSecret(), version: ++dockClock };
+      dockKeys.set(owner, d);
+      return `${owner}.${d.plain}`;
+    },
+    checkDockKey: async (key: string) => {
+      const dot = key.lastIndexOf('.');
+      if (dot <= 0) return null;
+      const d = dockKeys.get(key.slice(0, dot));
+      return d && d.plain === key.slice(dot + 1) ? { owner: key.slice(0, dot), version: d.version } : null;
+    },
+    dockKeyVersion: async (owner: string) => dockKeys.get(owner)?.version ?? null,
+    _dockKeys: dockKeys,
   };
 }

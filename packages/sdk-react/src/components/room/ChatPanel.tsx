@@ -3,7 +3,9 @@ import { useLocalParticipant, useLocalParticipantPermissions, useParticipants } 
 import { useChat, dropChatMessage } from '../../hooks/useChat.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { fillLabel, liveLabels, type LiveLabels } from '../../lib/liveLabels.js';
-import { StreamPollCard } from './StreamPolls.js';
+import { PollResult, StreamPollCard } from './StreamPolls.js';
+import { usePolls } from '../../hooks/usePolls.js';
+import { endedAt, type PollView } from '../../lib/polls.js';
 import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
 import { useModerators } from '../../hooks/useModerators.js';
@@ -200,6 +202,20 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
   const canModerate = isHost || isCurrentUserMod;
   const [modTarget, setModTarget] = useState<ModTarget | null>(null);
   const canChat = readOnly ? false : (permissions ? (permissions.canPublishData ?? false) : !isGuest);
+  // The running poll sits above the messages; finished ones are entries among
+  // them, at the time they ended, and stay there (folded after five minutes).
+  const polls = usePolls(showPolls && streamRoom ? streamRoom : '', { history: showPolls && !!streamRoom });
+  const lines = useMemo(() => {
+    type Line = { kind: 'msg'; msg: typeof messages[number] } | { kind: 'poll'; poll: PollView };
+    const out: Line[] = [];
+    let r = 0;
+    for (const msg of messages) {
+      while (r < polls.results.length && endedAt(polls.results[r]) <= msg.timestamp) out.push({ kind: 'poll', poll: polls.results[r++] });
+      out.push({ kind: 'msg', msg });
+    }
+    while (r < polls.results.length) out.push({ kind: 'poll', poll: polls.results[r++] });
+    return out;
+  }, [messages, polls.results]);
 
   // The name to match against incoming @mentions for highlight
   const localName = localParticipant
@@ -249,7 +265,7 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
   useEffect(() => {
     const el = messagesRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [messages.length]);
+  }, [messages.length, polls.results.length]);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -286,27 +302,42 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
           </button>
         )}
       </div>
-      {showPolls && streamRoom && <StreamPollCard roomName={streamRoom} labels={liveLabelsProp} className="hh-chat__poll" />}
+      {showPolls && streamRoom && <StreamPollCard roomName={streamRoom} labels={liveLabelsProp} className="hh-chat__poll" polls={polls} showFinished={false} />}
       <div className="hh-chat__messages" ref={messagesRef}>
-        {messages.length === 0 && (
+        {lines.length === 0 && (
           <div className="hh-chat__empty">No messages yet</div>
         )}
-        {messages.map((msg) => msg.system?.kind === 'raid' ? (
-          <div key={msg.id} className="hh-chat__msg hh-chat__msg--system hh-chat__msg--raid" role="status">
-            <span className="hh-chat__system-icon" aria-hidden="true">🚀</span>
-            <span className="hh-chat__msg-text">{fillLabel(L.raidLine, { name: msg.system.from, count: msg.system.viewers })}</span>
-          </div>
-        ) : (
-          <ChatBubble
-            key={msg.id}
-            id={msg.id}
-            identity={msg.identity}
-            name={msg.name}
-            text={msg.text}
-            localName={localName}
-            onModerate={canModerate && msg.identity !== hostIdentity && msg.identity !== localParticipant?.identity ? setModTarget : undefined}
-          />
-        ))}
+        {lines.map((line) => {
+          if (line.kind === 'poll') {
+            return (
+              <div key={`poll-${line.poll.id}`} className="hh-chat__result">
+                <PollResult
+                  poll={line.poll}
+                  labels={liveLabelsProp}
+                  myVote={polls.poll?.id === line.poll.id ? polls.myVote : null}
+                  myStake={polls.poll?.id === line.poll.id ? polls.myStake : null}
+                />
+              </div>
+            );
+          }
+          const msg = line.msg;
+          return msg.system?.kind === 'raid' ? (
+            <div key={msg.id} className="hh-chat__msg hh-chat__msg--system hh-chat__msg--raid" role="status">
+              <span className="hh-chat__system-icon" aria-hidden="true">🚀</span>
+              <span className="hh-chat__msg-text">{fillLabel(L.raidLine, { name: msg.system.from, count: msg.system.viewers })}</span>
+            </div>
+          ) : (
+            <ChatBubble
+              key={msg.id}
+              id={msg.id}
+              identity={msg.identity}
+              name={msg.name}
+              text={msg.text}
+              localName={localName}
+              onModerate={canModerate && msg.identity !== hostIdentity && msg.identity !== localParticipant?.identity ? setModTarget : undefined}
+            />
+          );
+        })}
       </div>
       {!canChat ? (
         /* An EMPTY notice means "render nothing" — `??` only falls back on

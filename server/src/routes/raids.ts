@@ -99,7 +99,7 @@ const nameParam = { type: 'object', required: ['name'], properties: { name: { ty
 export const raidRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/rooms/:name/raid/targets', {
     preHandler: [requireAuth],
-    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' }, dock: true },
     schema: { params: nameParam },
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
@@ -128,7 +128,7 @@ export const raidRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/rooms/:name/raid', {
     preHandler: [requireAuth, checkBan],
     // A backstop per address; the per-host cooldown in lib/raids.ts is the real limit.
-    config: { rateLimit: { max: 20, timeWindow: '10 minutes' } },
+    config: { rateLimit: { max: 20, timeWindow: '10 minutes' }, dock: true },
     schema: {
       params: nameParam,
       body: { type: 'object', required: ['target'], properties: { target: { type: 'string', maxLength: 128 } } },
@@ -178,7 +178,7 @@ export const raidRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.delete('/rooms/:name/raid', {
     preHandler: [requireAuth],
-    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' }, dock: true },
     schema: { params: nameParam },
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
@@ -193,7 +193,7 @@ export const raidRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/raids/settings', {
     preHandler: [requireAuth],
-    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' }, dock: true },
   }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     return reply.send({ acceptRaids: await acceptsRaids(request.username) });
@@ -201,7 +201,7 @@ export const raidRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.put('/raids/settings', {
     preHandler: [requireAuth, checkBan],
-    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' }, dock: true },
     schema: { body: { type: 'object', required: ['acceptRaids'], properties: { acceptRaids: { type: 'boolean' } } } },
   }, async (request, reply) => {
     const { acceptRaids } = request.body as { acceptRaids: boolean };

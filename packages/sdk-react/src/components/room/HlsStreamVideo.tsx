@@ -24,6 +24,8 @@ export interface HlsStreamVideoProps {
   url: string;
   /** Silence the sound (e.g. while the page plays an ad over the stream). */
   muted?: boolean;
+  /** The viewer's own level, 0 to 1. iOS ignores it (the hardware buttons rule there). */
+  volume?: number;
   /** Shown over the video until the first frame plays. */
   placeholder?: string;
   /** Label of the button shown when the browser blocked sound on autoplay. */
@@ -33,7 +35,7 @@ export interface HlsStreamVideoProps {
 }
 
 export function HlsStreamVideo({
-  url, muted = false, placeholder = 'Stream is starting…', startAudioLabel = 'Click to enable audio', onUnavailable,
+  url, muted = false, volume, placeholder = 'Stream is starting…', startAudioLabel = 'Click to enable audio', onUnavailable,
 }: HlsStreamVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -125,6 +127,11 @@ export function HlsStreamVideo({
     const video = videoRef.current;
     if (video && !blockedSound) video.muted = muted;
   }, [muted, blockedSound]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && typeof volume === 'number') video.volume = Math.min(1, Math.max(0, volume));
+  }, [volume, attempt]);
 
   const enableSound = () => {
     const video = videoRef.current;

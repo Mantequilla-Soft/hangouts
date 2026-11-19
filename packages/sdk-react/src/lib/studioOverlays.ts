@@ -19,14 +19,17 @@ export const MAX_OVERLAY_TEMPLATES = 12;
 export const BRB_MUSIC = ['off', 'calm', 'lofi', 'bright', 'file'] as const;
 export const TICKER_SPEEDS = ['slow', 'normal', 'fast'] as const;
 export const TICKER_POSITIONS = ['bottom', 'top'] as const;
+/** Where the countdown chip sits over the picture while live (the slates keep it big in the middle). */
+export const COUNTDOWN_POSITIONS = ['top-right', 'top-left', 'bottom-right', 'bottom-left', 'center'] as const;
 export type BrbMusic = typeof BRB_MUSIC[number];
 export type TickerSpeed = typeof TICKER_SPEEDS[number];
 export type TickerPosition = typeof TICKER_POSITIONS[number];
+export type CountdownPosition = typeof COUNTDOWN_POSITIONS[number];
 
 export interface OverlayConfig {
   lowerThird: { name: string; title: string };
   ticker: { text: string; speed: TickerSpeed; position: TickerPosition };
-  countdown: { label: string; minutes: number };
+  countdown: { label: string; minutes: number; position: CountdownPosition };
   brb: { message: string; music: BrbMusic; volume: number };
   /** Fade between scenes, and in and out of the slates. */
   fade: boolean;
@@ -50,7 +53,7 @@ export interface OverlayLive {
 export const DEFAULT_OVERLAY_CONFIG: OverlayConfig = {
   lowerThird: { name: '', title: '' },
   ticker: { text: '', speed: 'normal', position: 'bottom' },
-  countdown: { label: '', minutes: 5 },
+  countdown: { label: '', minutes: 5, position: 'top-right' },
   brb: { message: '', music: 'off', volume: 0.5 },
   fade: true,
 };
@@ -93,7 +96,11 @@ export function cleanOverlayConfig(raw: unknown): OverlayConfig {
       speed: pick(tk.speed, TICKER_SPEEDS, 'normal'),
       position: pick(tk.position, TICKER_POSITIONS, 'bottom'),
     },
-    countdown: { label: cleanText(cd.label, 40), minutes: Math.round(clamp(cd.minutes, 1, 180, 5)) },
+    countdown: {
+      label: cleanText(cd.label, 40),
+      minutes: Math.round(clamp(cd.minutes, 1, 180, 5)),
+      position: pick(cd.position, COUNTDOWN_POSITIONS, 'top-right'),
+    },
     brb: {
       message: cleanText(brb.message, 80),
       music: pick(brb.music, BRB_MUSIC, 'off'),
@@ -318,6 +325,7 @@ export function drawLowerThird(
 export function drawCountdown(
   ctx: CanvasRenderingContext2D, w: number, h: number,
   label: string, remainingMs: number, onSlate: boolean, accent = '', topInset = 0,
+  position: CountdownPosition = 'top-right', bottomInset = 0,
 ): void {
   const k = overlayScale(w, h);
   const time = formatCountdown(remainingMs);
@@ -344,8 +352,10 @@ export function drawCountdown(
   const labelLine = label ? fitText(ctx, label, w * 0.4) : '';
   const labelW = labelLine ? ctx.measureText(labelLine).width + 10 * k : 0;
   const chipW = padX * 2 + labelW + timeW;
-  const x = w - margin - chipW;
-  const y = topInset + margin;
+  const x = position === 'center' ? (w - chipW) / 2
+    : position.endsWith('left') ? margin : w - margin - chipW;
+  const y = position === 'center' ? (h - chipH) / 2
+    : position.startsWith('bottom') ? h - bottomInset - margin - chipH : topInset + margin;
   ctx.fillStyle = PANEL;
   if (typeof ctx.roundRect === 'function') { ctx.beginPath(); ctx.roundRect(x, y, chipW, chipH, chipH / 2); ctx.fill(); }
   else ctx.fillRect(x, y, chipW, chipH);
@@ -407,9 +417,12 @@ export function createTextOverlayLayers(
       const remaining = live.countdownEndsAt - info.wall;
       if (remaining < -COUNTDOWN_LINGER_MS) return false;
       const c = getConfig();
-      // Over the picture the chip sits top right: under a ticker that runs along the top.
-      const inset = live.tickerOn && c.ticker.text && c.ticker.position === 'top' ? tickerHeight(w, h) : 0;
-      drawCountdown(ctx, w, h, c.countdown.label, remaining, info.state !== 'live', info.accent, inset);
+      // Over the picture the chip sits where the host put it, clear of a ticker
+      // running along that edge.
+      const band = live.tickerOn && c.ticker.text ? tickerHeight(w, h) : 0;
+      const top = c.ticker.position === 'top' ? band : 0;
+      const bottom = c.ticker.position === 'bottom' ? band : 0;
+      drawCountdown(ctx, w, h, c.countdown.label, remaining, info.state !== 'live', info.accent, top, c.countdown.position, bottom);
       return true;
     },
   };

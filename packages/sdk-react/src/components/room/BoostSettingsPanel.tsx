@@ -79,9 +79,12 @@ interface Props {
    *  floating dialog: no close button, Escape or outside click, it stays
    *  open after saving, and it has a History tab (BoostHistoryList). */
   embedded?: boolean;
+  /** The payout account is shown but not sent (the OBS dock: its link may
+   *  change the settings, never where the money goes). */
+  payoutLocked?: boolean;
 }
 
-export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, embedded = false }: Props) {
+export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, embedded = false, payoutLocked = false }: Props) {
   const { apiClient, apiBaseUrl } = useHangoutsContext();
   const panelRef = useRef<HTMLDivElement>(null);
   const goal = readBoostGoal(currentConfig);
@@ -163,7 +166,7 @@ export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, 
         {
           enabled,
           minBoostUsd: parsed,
-          creatorPayoutAccount: payoutAccount.trim() || undefined,
+          ...(payoutLocked ? {} : { creatorPayoutAccount: payoutAccount.trim() || undefined }),
           goal: goalUpdate,
           tiers,
           alerts: { sound, tts, ttsMinHbd: ttsMinNum },
@@ -179,7 +182,7 @@ export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, 
     } finally {
       setSaving(false);
     }
-  }, [apiBaseUrl, apiClient, roomName, enabled, minUsd, payoutAccount, goalTitle, goalTarget, goalPosition, tiers, sound, tts, ttsMin, presets, onSaved, onClose, embedded]);
+  }, [apiBaseUrl, apiClient, roomName, enabled, minUsd, payoutAccount, goalTitle, goalTarget, goalPosition, tiers, sound, tts, ttsMin, presets, onSaved, onClose, embedded, payoutLocked]);
 
   const panel = (
     <div
@@ -333,14 +336,19 @@ export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, 
             </label>
             <label className="hh-boost-settings__field">
               <span className="hh-boost-settings__label">Payout account (optional)</span>
-              <span className="hh-boost-settings__hint">Hive account that receives the host share. Defaults to your account.</span>
+              <span className="hh-boost-settings__hint">
+                {payoutLocked
+                  ? 'Hive account that receives the host share. Change it in the 3Speak studio.'
+                  : 'Hive account that receives the host share. Defaults to your account.'}
+              </span>
               <input
                 className="hh-boost-settings__input"
                 type="text"
                 placeholder="your-hive-account"
                 value={payoutAccount}
                 onChange={(e) => setPayoutAccount(e.target.value)}
-                disabled={saving}
+                disabled={saving || payoutLocked}
+                readOnly={payoutLocked}
               />
             </label>
           </>

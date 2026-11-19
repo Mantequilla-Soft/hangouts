@@ -857,6 +857,8 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
   // Update boost/superchat config for an existing room (host only).
   fastify.patch('/rooms/:name/boost', {
     preHandler: [requireAuth],
+    // The OBS dock may change the boost settings, never where the money goes.
+    config: { dock: true },
     schema: {
       params: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
       body: {
@@ -908,6 +910,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
     // an unlocked read-modify-write here raced the studio's broadcast heartbeat
     // and go-live stamps (whichever wrote last erased the others).
     let forbidden = false;
+    let payoutLocked = false;
     let boost: Record<string, unknown> | undefined;
     try {
       await mutateRoomMetadata(name, (meta) => {
@@ -915,6 +918,11 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
         const existing = (meta.boost && typeof meta.boost === 'object' && !Array.isArray(meta.boost))
           ? meta.boost as Record<string, unknown>
           : {};
+        if (request.dockSession && body.creatorPayoutAccount !== undefined
+          && (body.creatorPayoutAccount || undefined) !== (existing.creatorPayoutAccount || undefined)) {
+          payoutLocked = true;
+          return null;
+        }
         boost = extras.apply({
           ...existing,
           ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
@@ -933,6 +941,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.notFound('Room not found');
     }
     if (forbidden) return reply.forbidden('Only the host can update boost settings');
+    if (payoutLocked) return reply.forbidden('The payout account can only be changed in the studio');
     return reply.send({ boost });
   });
 

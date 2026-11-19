@@ -16,7 +16,7 @@ describe('cleanOverlayConfig', () => {
     expect(cleanOverlayConfig(null)).toEqual({
       lowerThird: { name: '', title: '' },
       ticker: { text: '', speed: 'normal', position: 'bottom' },
-      countdown: { label: '', minutes: 5 },
+      countdown: { label: '', minutes: 5, position: 'top-right' },
       brb: { message: '', music: 'off', volume: 0.5 },
       fade: true,
     });
@@ -25,7 +25,7 @@ describe('cleanOverlayConfig', () => {
     const c = cleanOverlayConfig({
       lowerThird: { name: 'badadib', title: 'Live from the studio', extra: 1 },
       ticker: { text: 'Boost to support', speed: 'fast', position: 'top' },
-      countdown: { label: 'Starting in', minutes: 999 },
+      countdown: { label: 'Starting in', minutes: 999, position: 'bottom-left' },
       brb: { message: 'Back soon', music: 'lofi', volume: 3 },
       fade: false,
       junk: true,
@@ -33,12 +33,12 @@ describe('cleanOverlayConfig', () => {
     expect(c).toEqual({
       lowerThird: { name: 'badadib', title: 'Live from the studio' },
       ticker: { text: 'Boost to support', speed: 'fast', position: 'top' },
-      countdown: { label: 'Starting in', minutes: 180 },
+      countdown: { label: 'Starting in', minutes: 180, position: 'bottom-left' },
       brb: { message: 'Back soon', music: 'lofi', volume: 1 },
       fade: false,
     });
-    expect(cleanOverlayConfig({ ticker: { speed: 'warp', position: 'left' }, brb: { music: 'rock', volume: -1 }, countdown: { minutes: 0.2 } }))
-      .toMatchObject({ ticker: { speed: 'normal', position: 'bottom' }, brb: { music: 'off', volume: 0 }, countdown: { minutes: 1 } });
+    expect(cleanOverlayConfig({ ticker: { speed: 'warp', position: 'left' }, brb: { music: 'rock', volume: -1 }, countdown: { minutes: 0.2, position: 'left' } }))
+      .toMatchObject({ ticker: { speed: 'normal', position: 'bottom' }, brb: { music: 'off', volume: 0 }, countdown: { minutes: 1, position: 'top-right' } });
   });
 });
 

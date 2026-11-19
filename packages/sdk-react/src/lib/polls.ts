@@ -70,3 +70,34 @@ export function payoutFor(p: PollView, stake: PollStake): number {
   if (winPool <= 0) return stake.amount;
   return Math.floor((stake.amount * pot) / winPool);
 }
+
+/** A finished poll's result stays open in the chat this long, then folds to one line. */
+export const RESULT_OPEN_MS = 5 * 60_000;
+
+/** When a finished poll ended (an older server sent no endedAt: its timer end). */
+export function endedAt(p: PollView): number {
+  return p.endedAt ?? p.endsAt;
+}
+
+/** The stream's finished polls, oldest first: `p` added or updated in place. Unfinished ones are not results. */
+export function addResult(list: PollView[], p: PollView): PollView[] {
+  if (!isFinished(p)) return list;
+  const i = list.findIndex((x) => x.id === p.id);
+  const next = i >= 0 ? list.map((x, j) => (j === i ? p : x)) : [...list, p];
+  return next.sort((a, b) => endedAt(a) - endedAt(b));
+}
+
+/** The server's list of a stream's finished polls (GET /rooms/:name/polls). */
+export function parsePollList(raw: unknown): PollView[] {
+  const list = (raw as { polls?: unknown })?.polls;
+  if (!Array.isArray(list)) return [];
+  return list.map(parsePoll).filter((p): p is PollView => !!p).reduce(addResult, [] as PollView[]);
+}
+
+/** One line for a folded result: who won, the leading option(s), or that it was called off. */
+export function resultSummary(p: PollView, L: { outcomeWon: string; finalResults: string; cancelled: string }): string {
+  if (p.status === 'cancelled') return L.cancelled;
+  const won = p.winner !== undefined ? [p.winner] : leaders(p);
+  if (!won.length) return L.finalResults;
+  return L.outcomeWon.replace('{option}', won.map((i) => p.options[i]?.label ?? '').join(' / '));
+}

@@ -3,7 +3,12 @@ import { createPortal } from 'react-dom';
 import type { StudioOverlaysApi } from '../../hooks/useStudioOverlays.js';
 import { BUILTIN_TRACKS } from '../../lib/brbMusic.js';
 import { StudioSubtabs, type StudioSubtab } from './StudioSubtabs.js';
-import { editText, formatCountdown, type BrbMusic, type TickerPosition, type TickerSpeed } from '../../lib/studioOverlays.js';
+import { editText, formatCountdown, type BrbMusic, type CountdownPosition, type TickerPosition, type TickerSpeed } from '../../lib/studioOverlays.js';
+
+/** The countdown chip's places over the picture, in the order of the buttons. */
+const COUNTDOWN_PLACES: Array<[CountdownPosition, string]> = [
+  ['top-left', 'Top left'], ['top-right', 'Top right'], ['center', 'Middle'], ['bottom-left', 'Bottom left'], ['bottom-right', 'Bottom right'],
+];
 
 /** Lower-third "show for" choices, in seconds (null = until hidden). */
 const SHOW_FOR: Array<{ s: number | null; label: string }> = [
@@ -191,9 +196,18 @@ export function StudioOverlaysPanel({ api, onClose, streamState, embedded = fals
                 </label>
               </div>
               <div className="hh-overlays__row">
+                <div className="hh-overlays__seg hh-overlays__seg--wrap" role="group" aria-label="Position while live">
+                  {COUNTDOWN_PLACES.map(([p, name]) => (
+                    <button key={p} type="button" className={config.countdown.position === p ? 'is-active' : ''}
+                      aria-pressed={config.countdown.position === p}
+                      onClick={() => set('countdown', { position: p })}>{name}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="hh-overlays__row">
                 {countdownLeft != null && countdownLeft > -4000
                   ? <span className="hh-overlays__count">{formatCountdown(countdownLeft)}</span>
-                  : <span className="hh-overlays__hint">Big on the slates, a small clock top right while live.</span>}
+                  : <span className="hh-overlays__hint">Big on the slates; while live, a small clock where you put it.</span>}
                 {live.countdownEndsAt != null && countdownLeft != null && countdownLeft > -4000
                   ? <button type="button" className="hh-btn hh-btn--secondary hh-btn--small" onClick={api.stopCountdown}>Stop</button>
                   : <button type="button" className="hh-btn hh-btn--primary hh-btn--small" onClick={api.startCountdown}>Start</button>}

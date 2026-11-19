@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { usePolls, type CreatePollInput } from '../../hooks/usePolls.js';
 import { clockLabel, fillLabel, liveLabels, type LiveLabels } from '../../lib/liveLabels.js';
-import { isFinished, leaders, optionShare, payoutFor, type PollStake, type PollView } from '../../lib/polls.js';
+import { RESULT_OPEN_MS, endedAt, isFinished, leaders, optionShare, payoutFor, resultSummary, type PollStake, type PollView } from '../../lib/polls.js';
 import { useStreamContext } from './StandaloneWatch.js';
 
 /** A clock that ticks while `on`, for the time left. */
@@ -31,12 +31,14 @@ export interface PollCardViewProps {
   onVote?: (option: number) => void;
   onStake?: (option: number, amount: number) => void;
   onDismiss?: () => void;
+  /** A result in the chat: folds it to one line. */
+  onCollapse?: () => void;
 }
 
 /** The poll or prediction card (no state of its own beyond the stake box). */
 export function PollCardView({
   poll, now, labels, myVote = null, myStake = null, balance = null, canVote, hostView = false, busy = false, error = null,
-  onVote, onStake, onDismiss,
+  onVote, onStake, onDismiss, onCollapse,
 }: PollCardViewProps) {
   const L = liveLabels(labels);
   const [amount, setAmount] = useState('');
@@ -66,6 +68,9 @@ export function PollCardView({
         <span className="hh-poll__status num" role="timer">{status}</span>
         {onDismiss && finished && (
           <button type="button" className="hh-poll__close" onClick={onDismiss} aria-label={L.close} title={L.close}>✕</button>
+        )}
+        {onCollapse && (
+          <button type="button" className="hh-poll__close" onClick={onCollapse} aria-expanded="true" aria-label={L.hideResult} title={L.hideResult}>▴</button>
         )}
       </header>
       <p className="hh-poll__question">{poll.question}</p>
@@ -139,23 +144,81 @@ export function PollCardView({
   );
 }
 
+export interface PollResultProps {
+  poll: PollView;
+  labels?: Partial<LiveLabels>;
+  myVote?: number | null;
+  myStake?: PollStake | null;
+  /** For tests: the clock the five minutes are counted on. */
+  now?: number;
+}
+
+/**
+ * A finished poll or prediction as an entry in the chat. Its full card for
+ * five minutes after it ended, then one line (who won) that opens it again.
+ * Folding or opening it by hand sticks.
+ */
+export function PollResult({ poll, labels, myVote = null, myStake = null, now }: PollResultProps) {
+  const L = liveLabels(labels);
+  const age = (now ?? Date.now()) - endedAt(poll);
+  const [autoFolded, setAutoFolded] = useState(age >= RESULT_OPEN_MS);
+  const [byHand, setByHand] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (autoFolded) return undefined;
+    const t = setTimeout(() => setAutoFolded(true), Math.max(0, RESULT_OPEN_MS - (Date.now() - endedAt(poll))));
+    return () => clearTimeout(t);
+  }, [autoFolded, poll]);
+  const folded = byHand ?? autoFolded;
+  const prediction = poll.kind === 'prediction';
+
+  if (folded) {
+    return (
+      <button type="button" className={`hh-poll-line hh-poll-line--${poll.kind}`} aria-expanded="false" title={L.showResult} onClick={() => setByHand(false)}>
+        <span className="hh-poll__badge">{prediction ? L.predictionBadge : L.pollBadge}</span>
+        <span className="hh-poll-line__question">{poll.question}</span>
+        <span className="hh-poll-line__outcome">{resultSummary(poll, L)}</span>
+        <span className="hh-poll-line__chev" aria-hidden="true">▾</span>
+      </button>
+    );
+  }
+  return (
+    <PollCardView
+      poll={poll}
+      now={now ?? Date.now()}
+      labels={labels}
+      myVote={myVote}
+      myStake={myStake}
+      canVote={false}
+      hostView
+      onCollapse={() => setByHand(true)}
+    />
+  );
+}
+
 export interface StreamPollCardProps {
   /** Defaults to the stream's room (inside StandaloneWatch). */
   roomName?: string;
   labels?: Partial<LiveLabels>;
   className?: string;
+  /** A usePolls() the parent already holds (ChatPanel), instead of a second one. */
+  polls?: ReturnType<typeof usePolls>;
+  /** Keep a finished poll's results on the card for a while (default). The
+   *  chat sets false: it shows them among the messages instead. */
+  showFinished?: boolean;
 }
 
 /**
  * The viewer's card for the poll or prediction running in the stream. Renders
  * nothing when none is running. ChatPanel shows it above the messages.
  */
-export function StreamPollCard({ roomName, labels, className }: StreamPollCardProps) {
+export function StreamPollCard({ roomName, labels, className, polls: given, showFinished = true }: StreamPollCardProps) {
   const ctxRoom = useStreamContext().roomName;
   const room = roomName ?? ctxRoom;
-  const polls = usePolls(room);
+  const own = usePolls(given ? '' : room);
+  const polls = given ?? own;
   const now = useNow(!!polls.poll && polls.poll.status === 'open');
   if (!room || !polls.poll) return null;
+  if (!showFinished && isFinished(polls.poll)) return null;
   return (
     <div className={className}>
       <PollCardView
@@ -261,7 +324,7 @@ export function PollHostPanel({ roomName }: { roomName: string }) {
             </div>
           ))}
           {kind === 'poll' && options.length < 4 && (
-            <button type="button" className="hh-btn hh-btn--small" onClick={() => setOptions((all) => [...all, ''])}>＋ Add option</button>
+            <button type="button" className="hh-btn hh-btn--small" onClick={() => setOptions((all) => [...all, ''])}>+ Add option</button>
           )}
           <div className="hh-pollhost__durations" role="radiogroup" aria-label={kind === 'poll' ? 'Timer' : 'Time to stake'}>
             <span>{kind === 'poll' ? 'Timer' : 'Time to stake'}</span>

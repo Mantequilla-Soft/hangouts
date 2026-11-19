@@ -2,7 +2,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useDataChannel } from '@livekit/components-react';
 import { HangoutsContext } from '../context/HangoutsContext.js';
 import { readPollPacket, type DataSender } from '../lib/dataTrust.js';
-import { isFinished, parsePoll, type PollKind, type PollStake, type PollView } from '../lib/polls.js';
+import { addResult, isFinished, parsePoll, parsePollList, type PollKind, type PollStake, type PollView } from '../lib/polls.js';
 
 export interface CreatePollInput {
   kind: PollKind;
@@ -14,16 +14,23 @@ export interface CreatePollInput {
 /** How long a finished poll's results stay on the viewer's card. */
 export const FINISHED_VISIBLE_MS = 30_000;
 
+export interface UsePollsOptions {
+  /** Also keep `results`: the stream's finished polls, the earlier ones read
+   *  once from the server, the later ones as they finish. For the chat. */
+  history?: boolean;
+}
+
 /**
  * The poll or prediction running in `roomName`: fetched once on mount, then
  * kept current from the `poll` data topic the server broadcasts on every
  * change. Viewer actions (vote, stake) and host actions (create, end, resolve,
  * cancel) go to the hangouts server with the session.
  */
-export function usePolls(roomName: string) {
+export function usePolls(roomName: string, { history = false }: UsePollsOptions = {}) {
   const ctx = useContext(HangoutsContext);
   const apiBaseUrl = ctx?.apiBaseUrl;
   const [poll, setPoll] = useState<PollView | null>(null);
+  const [results, setResults] = useState<PollView[]>([]);
   const [myVote, setMyVote] = useState<number | null>(null);
   const [myStake, setMyStake] = useState<PollStake | null>(null);
   const [balance, setBalance] = useState<number | null>(null);
@@ -44,6 +51,7 @@ export function usePolls(roomName: string) {
     }
     pollIdRef.current = next?.id ?? null;
     setPoll(next);
+    if (next && isFinished(next)) setResults((list) => addResult(list, next));
   }, []);
 
   const refresh = useCallback(async () => {
@@ -61,6 +69,21 @@ export function usePolls(roomName: string) {
 
   // `isAuthenticated` too: signing in mid-stream brings back "you voted".
   useEffect(() => { void refresh(); }, [refresh, ctx?.isAuthenticated]);
+
+  // The results from before this viewer came in, once per stream.
+  useEffect(() => {
+    if (!history || !roomName || !apiBaseUrl) return undefined;
+    let gone = false;
+    setResults([]);
+    fetch(`${apiBaseUrl}/rooms/${encodeURIComponent(roomName)}/polls`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (gone || !body) return;
+        setResults((now) => parsePollList(body).concat(now).reduce(addResult, [] as PollView[]));
+      })
+      .catch(() => { /* an older server: only what finishes from now on */ });
+    return () => { gone = true; };
+  }, [history, roomName, apiBaseUrl]);
 
   // Server only: a poll card a participant published (fake results) is dropped.
   const onMessage = useCallback((msg: { payload: Uint8Array; from?: DataSender }) => {
@@ -132,7 +155,7 @@ export function usePolls(roomName: string) {
   const dismiss = useCallback(() => take(null), [take]);
 
   return {
-    poll, myVote, myStake, balance, busy, error,
+    poll, results, myVote, myStake, balance, busy, error,
     isAuthenticated: !!ctx?.isAuthenticated,
     vote, stake, create, end, resolve, cancel, dismiss, refresh,
   };
