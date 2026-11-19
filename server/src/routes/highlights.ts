@@ -148,6 +148,25 @@ export const highlightRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ clips: clips.map(clipView), keepHours: config.CLIP_KEEP_HOURS });
   });
 
+  // The OBS dock's "your viewers' clips" card (a dock session or a login): the
+  // host's newest stream with ready clips their viewers made. The dock shows it
+  // once that stream is over and its VOD is up (the dock checks the VOD).
+  fastify.get('/dock/clips', {
+    preHandler: [requireAuth],
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' }, dock: true },
+  }, async (request, reply) => {
+    const store = await clipStore();
+    const host = request.username;
+    const suggested = (await store.listForHost(host)).filter((c) => (
+      c.source === 'viewer' && !!c.clipper && c.clipper !== host && clipStatusOf(c).status === 'ready'
+    ));
+    reply.header('Cache-Control', 'private, no-store');
+    const room = suggested[0]?.room ?? null;
+    if (!room) return reply.send({ room: null, count: 0, clippers: 0 });
+    const ofRoom = suggested.filter((c) => c.room === room);
+    return reply.send({ room, count: ofRoom.length, clippers: new Set(ofRoom.map((c) => c.clipper)).size });
+  });
+
   fastify.post('/clips/:id/vertical', {
     preHandler: [requireAuth],
     config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
