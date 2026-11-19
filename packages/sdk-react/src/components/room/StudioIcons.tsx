@@ -68,6 +68,15 @@ export const IconBroadcast = (p: SVGProps<SVGSVGElement>) => (
 );
 
 
+/** Turn the stream between upright and sideways: a phone with a turn arrow. */
+export const IconRotate = (p: SVGProps<SVGSVGElement>) => (
+  <Svg {...p}>
+    <rect x="8" y="3" width="8" height="14" rx="1.5" />
+    <path d="M4 14a8 8 0 0 0 8 7M19 9l1.5 3 1.5-3" />
+    <path d="M20.5 12A8.5 8.5 0 0 0 16 4.8" />
+  </Svg>
+);
+
 /** Portrait / landscape aspect toggle. */
 export const IconAspect = (p: SVGProps<SVGSVGElement>) => (
   <Svg {...p}>
