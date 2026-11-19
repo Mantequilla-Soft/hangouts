@@ -62,8 +62,13 @@ const ingressClient = new IngressClient(
 const POLL_MS = 2500;
 /** OBS connected (or tried) but nothing was ever published. */
 const NEVER_PUBLISHED_MS = 60_000;
-/** Live, then the ingress stopped publishing (OBS crash, network): give up after this. */
-const LOST_GRACE_MS = 20_000;
+/**
+ * Live, then the ingress stopped publishing (OBS crash, network): give up after
+ * this. Until then OBS reconnecting RESUMES the same room (resumeHeadlessStream):
+ * a new room would orphan the Hive post, whose embed then said the stream had
+ * ended, and Hive refuses a second post within 5 minutes anyway.
+ */
+const LOST_GRACE_MS = 45_000;
 /** BUFFERING is the ingress waiting on media — usually transient, so longer. */
 const BUFFERING_GRACE_MS = 60_000;
 /** How often a live session re-asserts `broadcasting` (the studio's 15s heartbeat). */
@@ -112,6 +117,8 @@ interface Session {
   notPublishingSince: number | null;
   lastMetaCheck: number;
   ingress: IngressSummary | null;
+  /** Set while OBS reconnects into this session's room. */
+  resuming?: boolean;
   /** Published video size (top simulcast layer), sampled from the room. */
   video: { width: number; height: number } | null;
   announced: { ok: boolean; reason?: string } | null;
@@ -265,6 +272,12 @@ export async function startHeadlessStream(template: TemplateDoc, offerSdp: strin
   // Check-and-reserve with no await in between: two simultaneous connects for
   // one template (OBS retrying fast) must not both get a room.
   if (byTemplate.has(templateId)) {
+    const current = sessions.get(byTemplate.get(templateId)!);
+    // OBS coming back while its live session waits out the lost-signal grace:
+    // same room, same post, same recording.
+    if (current && current.state === 'live' && current.notPublishingSince !== null && !current.resuming) {
+      return resumeHeadlessStream(current, offerSdp);
+    }
     return { ok: false, status: 409, error: 'already_live', message: 'This template is already streaming' };
   }
   byTemplate.set(templateId, RESERVED);
@@ -306,86 +319,148 @@ export async function startHeadlessStream(template: TemplateDoc, offerSdp: strin
     });
     roomName = room.name;
 
-    const passthrough = obsPassthrough();
-    const info = await ingressClient.createIngress(IngressInput.WHIP_INPUT, {
-      name: `headless-${roomName}`,
-      roomName,
-      // AS the host — see the module comment.
-      participantIdentity: owner,
-      participantName: owner,
-      // H.264 as OBS sends it (obsPassthrough), or re-encoded to VP8, which
-      // every browser shows.
-      enableTranscoding: !passthrough,
-      video: new IngressVideoOptions({
-        name: 'studio-program',
-        source: TrackSource.CAMERA,
-        ...(passthrough ? {} : {
-          encodingOptions: {
-            case: 'options' as const,
-            value: new IngressVideoEncodingOptions({
-              videoCodec: VideoCodec.VP8,
-              frameRate: 30,
-              // No explicit layers: pinning them made the pipeline fail to
-              // start ("source encoder not ready") — see POST /rooms/:name/ingress.
-            }),
-          },
-        }),
-      }),
-      // The watch page plays ONLY microphone tracks named studio-mix.
-      audio: new IngressAudioOptions({ name: 'studio-mix', source: TrackSource.MICROPHONE }),
-    });
-    ingressId = info.ingressId;
-
-    const base = config.INGRESS_WHIP_INTERNAL_URL.replace(/\/$/, '');
-    let res: Response;
-    try {
-      res = await fetch(`${base}/${encodeURIComponent(info.streamKey)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/sdp' },
-        body: offerSdp,
-        signal: AbortSignal.timeout(15_000),
-      });
-    } catch (err) {
-      log.warn(err, 'ingress WHIP POST failed');
+    const linked = await connectIngress(roomName, owner, offerSdp);
+    if (!linked.ok) {
+      ingressId = linked.ingressId;
       await release();
-      return { ok: false, status: 502, error: 'ingress_unreachable', message: 'The ingest server did not answer' };
+      return linked.result;
     }
-    const answer = await res.text();
-    if (!res.ok) {
-      log.warn({ status: res.status, room: roomName }, 'ingress rejected the offer');
-      await release();
-      // A 4xx is the client's offer (bad SDP etc.) — say so; 5xx is ours.
-      return res.status >= 400 && res.status < 500
-        ? { ok: false, status: res.status, error: 'offer_rejected', message: answer.slice(0, 300) || 'Offer rejected' }
-        : { ok: false, status: 502, error: 'ingress_error', message: 'The ingest server failed' };
-    }
-
-    const loc = res.headers.get('location');
-    let resourceUrl: string | null = null;
-    if (loc) { try { resourceUrl = new URL(loc, `${base}/`).toString(); } catch { /* keep null */ } }
-
-    const headers: Record<string, string> = {};
-    for (const h of PASS_HEADERS) {
-      const v = res.headers.get(h);
-      if (v) headers[h] = v;
-    }
+    ingressId = linked.ingressId;
+    const { resourceUrl, answer, headers, status } = linked;
 
     const capMs = streamCapMs(premium);
     const session: Session = {
       key, templateId, template, owner, roomName, ingressId, resourceUrl, premium, capMs,
       createdAt: Date.now(), liveAt: null, state: 'connecting',
       publishingSince: null, notPublishingSince: null, lastMetaCheck: 0,
-      ingress: summarize(info), video: null, announced: null,
+      ingress: summarize(linked.info), video: null, announced: null,
     };
     sessions.set(key, session);
     byTemplate.set(templateId, key);
     ensureTimer();
     log.info('session started', { room: roomName, owner, template: templateId, premium });
-    return { ok: true, status: res.status === 200 ? 201 : res.status, answer, headers, sessionToken: token };
+    return { ok: true, status, answer, headers, sessionToken: token };
   } catch (err) {
     log.warn(err, 'headless start failed');
     await release();
     return { ok: false, status: 503, error: 'start_failed', message: 'Could not start the stream' };
+  }
+}
+
+type IngressLink =
+  | { ok: true; ingressId: string; resourceUrl: string | null; answer: string; headers: Record<string, string>; status: number; info: IngressInfo }
+  | { ok: false; ingressId: string | null; result: StartResult };
+
+/**
+ * A WHIP ingress into `roomName` as the host, with OBS's offer handed to it.
+ * On failure the ingress (if made) is left for the caller to delete.
+ */
+async function connectIngress(roomName: string, owner: string, offerSdp: string): Promise<IngressLink> {
+  const passthrough = obsPassthrough();
+  const info = await ingressClient.createIngress(IngressInput.WHIP_INPUT, {
+    name: `headless-${roomName}`,
+    roomName,
+    // AS the host — see the module comment.
+    participantIdentity: owner,
+    participantName: owner,
+    // H.264 as OBS sends it (obsPassthrough), or re-encoded to VP8, which
+    // every browser shows.
+    enableTranscoding: !passthrough,
+    video: new IngressVideoOptions({
+      name: 'studio-program',
+      source: TrackSource.CAMERA,
+      ...(passthrough ? {} : {
+        encodingOptions: {
+          case: 'options' as const,
+          value: new IngressVideoEncodingOptions({
+            videoCodec: VideoCodec.VP8,
+            frameRate: 30,
+            // No explicit layers: pinning them made the pipeline fail to
+            // start ("source encoder not ready") — see POST /rooms/:name/ingress.
+          }),
+        },
+      }),
+    }),
+    // The watch page plays ONLY microphone tracks named studio-mix.
+    audio: new IngressAudioOptions({ name: 'studio-mix', source: TrackSource.MICROPHONE }),
+  });
+  const ingressId = info.ingressId;
+
+  const base = config.INGRESS_WHIP_INTERNAL_URL.replace(/\/$/, '');
+  let res: Response;
+  try {
+    res = await fetch(`${base}/${encodeURIComponent(info.streamKey)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/sdp' },
+      body: offerSdp,
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err) {
+    log.warn(err, 'ingress WHIP POST failed');
+    return { ok: false, ingressId, result: { ok: false, status: 502, error: 'ingress_unreachable', message: 'The ingest server did not answer' } };
+  }
+  const answer = await res.text();
+  if (!res.ok) {
+    log.warn({ status: res.status, room: roomName }, 'ingress rejected the offer');
+    // A 4xx is the client's offer (bad SDP etc.) — say so; 5xx is ours.
+    return {
+      ok: false, ingressId,
+      result: res.status >= 400 && res.status < 500
+        ? { ok: false, status: res.status, error: 'offer_rejected', message: answer.slice(0, 300) || 'Offer rejected' }
+        : { ok: false, status: 502, error: 'ingress_error', message: 'The ingest server failed' },
+    };
+  }
+
+  const loc = res.headers.get('location');
+  let resourceUrl: string | null = null;
+  if (loc) { try { resourceUrl = new URL(loc, `${base}/`).toString(); } catch { /* keep null */ } }
+
+  const headers: Record<string, string> = {};
+  for (const h of PASS_HEADERS) {
+    const v = res.headers.get(h);
+    if (v) headers[h] = v;
+  }
+  return { ok: true, ingressId, resourceUrl, answer, headers, status: res.status === 200 ? 201 : res.status, info };
+}
+
+/**
+ * OBS reconnected (its output dropped, or the streamer restarted it) while the
+ * live session was waiting out the lost-signal grace: a new ingress into the
+ * SAME room. Viewers stay in the room, the Hive post keeps pointing at a live
+ * stream, the VOD egress (which records the room) carries on, and the go-live
+ * extras do not run again. OBS gets a new session token; the old one is dead.
+ */
+async function resumeHeadlessStream(s: Session, offerSdp: string): Promise<StartResult> {
+  s.resuming = true;
+  try {
+    const linked = await connectIngress(s.roomName, s.owner, offerSdp);
+    if (!linked.ok) {
+      if (linked.ingressId) await ingressClient.deleteIngress(linked.ingressId).catch(() => { /* gone */ });
+      return linked.result;
+    }
+    // Torn down meanwhile (grace ran out during the handshake): drop the new ingress.
+    if (s.state !== 'live') {
+      await ingressClient.deleteIngress(linked.ingressId).catch(() => { /* gone */ });
+      return { ok: false, status: 409, error: 'already_live', message: 'This template is already streaming' };
+    }
+    await ingressClient.deleteIngress(s.ingressId).catch(() => { /* already gone */ });
+    const token = randomBytes(24).toString('base64url');
+    const key = hashSessionToken(token);
+    sessions.delete(s.key);
+    s.key = key;
+    s.ingressId = linked.ingressId;
+    s.resourceUrl = linked.resourceUrl;
+    s.ingress = summarize(linked.info);
+    // A full grace for the new connection to start publishing.
+    s.notPublishingSince = Date.now();
+    sessions.set(key, s);
+    byTemplate.set(s.templateId, key);
+    // Restart reconcile re-adopts a room by this key.
+    await mutateRoomMetadata(s.roomName, (m) => ({ ...m, whipSession: key })).catch((err) => log.warn(err, `whipSession update failed for ${s.roomName}`));
+    log.info('session resumed', { room: s.roomName, owner: s.owner, template: s.templateId });
+    return { ok: true, status: linked.status, answer: linked.answer, headers: linked.headers, sessionToken: token };
+  } finally {
+    s.resuming = false;
   }
 }
 

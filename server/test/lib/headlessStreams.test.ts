@@ -311,13 +311,13 @@ describe('session lifecycle', () => {
     expect(hs.getLastHeadlessEnd(t._id.toHexString())).toBeNull();
   });
 
-  it('tears down 20s after the ingress stops publishing, and stamps lastLiveAt', async () => {
+  it('tears down 45s after the ingress stops publishing, and stamps lastLiveAt', async () => {
     const { t, room, ingressId } = await started();
     setIngress(ingressId, IngressState_Status.ENDPOINT_PUBLISHING);
     publishHost(room);
     await vi.advanceTimersByTimeAsync(2600);
     setIngress(ingressId, IngressState_Status.ENDPOINT_COMPLETE);
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(40_000);
     expect(lk.rooms.size).toBe(1);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(lk.rooms.size).toBe(0);
@@ -325,6 +325,59 @@ describe('session lifecycle', () => {
     const rec = await import('../../src/routes/recording.js');
     expect(rec.stopStandaloneVod).toHaveBeenCalledWith(room);
     expect((await store.getTemplateById(t._id.toHexString()))!.lastLiveAt).toBeInstanceOf(Date);
+  });
+
+  it('OBS reconnecting during the grace resumes the SAME room: no new room, no second go-live', async () => {
+    const { t, r, room, ingressId } = await started({ announce: { ...defaultTemplateFields('alice').announce, enabled: true, community: 'hive-181335' } });
+    setIngress(ingressId, IngressState_Status.ENDPOINT_PUBLISHING);
+    publishHost(room);
+    await vi.advanceTimersByTimeAsync(2600);
+    const liveAt = meta(room).liveAt;
+    const announces = () => fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/api/openpods/announce')).length;
+    expect(announces()).toBe(1);
+
+    // While still publishing, a second connect is a second OBS: refused.
+    expect(await hs.startHeadlessStream(t, 'x')).toMatchObject({ ok: false, status: 409 });
+
+    // OBS drops, then reconnects 30 s later.
+    setIngress(ingressId, IngressState_Status.ENDPOINT_COMPLETE);
+    await vi.advanceTimersByTimeAsync(30_000);
+    const again = await hs.startHeadlessStream(t, 'v=0\r\noffer2\r\n');
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(again.sessionToken).not.toBe(r.ok ? r.sessionToken : '');
+    expect([...lk.rooms.keys()]).toEqual([room]);
+    expect(lk.ingresses.has(ingressId)).toBe(false);
+    const [newIngress] = [...lk.ingresses.keys()];
+    expect(lk.ingresses.get(newIngress)!.roomName).toBe(room);
+    expect(meta(room).whipSession).toBe(createHash('sha256').update(again.sessionToken).digest('hex'));
+    // The old token is dead; the new one ends the stream.
+    expect(hs.getSessionByToken(r.ok ? r.sessionToken : '')).toBeNull();
+
+    // Publishing again: still live, same liveAt, no second announcement.
+    setIngress(newIngress, IngressState_Status.ENDPOINT_PUBLISHING);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect([...lk.rooms.keys()]).toEqual([room]);
+    expect(meta(room).liveAt).toBe(liveAt);
+    expect(announces()).toBe(1);
+    expect(hs.getHeadlessStatus(t._id.toHexString())).toMatchObject({ state: 'live', room });
+    expect(await hs.endWhipSession(again.sessionToken)).toBe(true);
+    expect(lk.rooms.size).toBe(0);
+  });
+
+  it('a reconnect that fails keeps the old session waiting out its grace', async () => {
+    const { t, room, ingressId } = await started();
+    setIngress(ingressId, IngressState_Status.ENDPOINT_PUBLISHING);
+    publishHost(room);
+    await vi.advanceTimersByTimeAsync(2600);
+    setIngress(ingressId, IngressState_Status.ENDPOINT_COMPLETE);
+    await vi.advanceTimersByTimeAsync(5_000);
+    fetchMock.mockImplementationOnce(async () => new Response('bad sdp', { status: 400 }));
+    expect(await hs.startHeadlessStream(t, 'garbage')).toMatchObject({ ok: false, status: 400 });
+    expect([...lk.ingresses.keys()]).toEqual([ingressId]);
+    expect([...lk.rooms.keys()]).toEqual([room]);
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(lk.rooms.size).toBe(0);
   });
 
   it('ends at the time cap and puts the owner on cooldown', async () => {
