@@ -5,6 +5,10 @@ import {
   PollError, activePoll, cancelPoll, createPoll, endPoll, listRoomPolls, onPollChange, pointsBalance,
   resolvePrediction, stake, toView, vote, type Poll, type PollKind,
 } from '../lib/polls.js';
+import {
+  BATTLE_POINTS, BOOST_POINTS_BASE, BOOST_POINTS_MAX, BOOST_POINTS_PER_HBD, CHAT_POINTS_PER_MIN_MAX, POINTS_BOOST_MIN,
+  POINTS_START, POINTS_TTL_DAYS, RAID_POINTS, STREAM_POINTS_PER_MIN, WATCH_POINTS_PER_MIN, pointsDetails, pointsHistory,
+} from '../lib/points.js';
 import { readRoomMeta, sendRoomData, sessionUser, streamOffset } from '../lib/liveRoom.js';
 
 /**
@@ -83,7 +87,7 @@ export const pollRoutes: FastifyPluginAsync = async (fastify) => {
     const user = await sessionUser(request);
     let balance: number | undefined;
     if (user && p?.kind === 'prediction') {
-      try { balance = (await pointsBalance(p.host, user)) - (p.stakes.get(user)?.amount ?? 0); } catch { /* unknown */ }
+      try { balance = (await pointsBalance(user)) - (p.stakes.get(user)?.amount ?? 0); } catch { /* unknown */ }
     }
     return reply.send({ poll: p ? toView(p) : null, ...mine(p, user), ...(balance !== undefined ? { balance } : {}) });
   });
@@ -98,14 +102,74 @@ export const pollRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ polls: await listRoomPolls(name) });
   });
 
-  // A viewer's points on this host's channel.
+  // The signed-in account's points (one balance across all streams).
+  fastify.get('/points', {
+    preHandler: [requireAuth],
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return reply.send({ balance: await pointsBalance(request.username) });
+  });
+
+  // Anyone's balance by account name (the 3Speak wallet shows it), with when
+  // it expires and what earns points, so the page needs no session here.
+  fastify.get('/users/:account/points', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    schema: { params: { type: 'object', required: ['account'], properties: { account: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9.-]{2,15}$' } } } },
+  }, async (request, reply) => {
+    const account = (request.params as { account: string }).account.toLowerCase();
+    const { balance, expiresAt } = await pointsDetails(account);
+    reply.header('Cache-Control', 'no-store');
+    return reply.send({
+      account,
+      balance,
+      expiresAt: expiresAt ? expiresAt.toISOString() : null,
+      start: POINTS_START,
+      ttlDays: POINTS_TTL_DAYS,
+      earn: {
+        watchPerMin: WATCH_POINTS_PER_MIN,
+        chatPerWord: 1,
+        chatPerMinMax: CHAT_POINTS_PER_MIN_MAX,
+        streamPerMin: STREAM_POINTS_PER_MIN,
+        raid: RAID_POINTS,
+        battle: BATTLE_POINTS,
+        boostBase: BOOST_POINTS_BASE,
+        boostPerHbd: BOOST_POINTS_PER_HBD,
+        boostMax: BOOST_POINTS_MAX,
+      },
+      boostMin: POINTS_BOOST_MIN,
+    });
+  });
+
+  // The wallet's points history: newest first, `before` (ms) pages back. Public
+  // like the chain log it mirrors (watching and chat rows name no stream).
+  fastify.get('/users/:account/points/history', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    schema: {
+      params: { type: 'object', required: ['account'], properties: { account: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9.-]{2,15}$' } } },
+      querystring: { type: 'object', properties: { before: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 } } },
+    },
+  }, async (request, reply) => {
+    const account = (request.params as { account: string }).account.toLowerCase();
+    const { before, limit = 30 } = request.query as { before?: number; limit?: number };
+    const rows = await pointsHistory(account, limit, before);
+    reply.header('Cache-Control', 'no-store');
+    return reply.send({
+      account,
+      items: rows.map((r) => ({ id: r.id, delta: r.delta, kind: r.kind, ...(r.ref ? { ref: r.ref } : {}), at: new Date(r.at).toISOString(), tx: r.tx })),
+      next: rows.length === limit ? rows[rows.length - 1].at : null,
+    });
+  });
+
+  // Older clients ask per channel: points are global now, the channel is ignored.
   fastify.get('/points/:channel', {
     preHandler: [requireAuth],
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     schema: { params: { type: 'object', required: ['channel'], properties: { channel: { type: 'string', maxLength: 32 } } } },
   }, async (request, reply) => {
     const { channel } = request.params as { channel: string };
-    return reply.send({ channel, balance: await pointsBalance(channel.toLowerCase(), request.username) });
+    reply.header('Cache-Control', 'no-store');
+    return reply.send({ channel, balance: await pointsBalance(request.username) });
   });
 
   // Host: start a poll or a prediction.

@@ -59,7 +59,7 @@ function keychainTransfer(
 }
 
 export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, labels }: Props) {
-  const { apiBaseUrl, username, aioha } = useHangoutsContext();
+  const { apiBaseUrl, apiClient, username, aioha } = useHangoutsContext();
   const L = useMemo(() => boostLabels(labels), [labels]);
   // The host's preset amounts (or the defaults), live from the room metadata.
   const { presets } = useRoomBoost();
@@ -87,7 +87,12 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, l
   const activeRecipient = recipient && recipients.includes(recipient) ? recipient : recipients[0] ?? null;
 
   const [amount, setAmount] = useState('');
-  const [asset, setAsset] = useState<'HBD' | 'HIVE'>('HBD');
+  const [asset, setAsset] = useState<'HBD' | 'HIVE' | 'POINTS'>('HBD');
+  const points = asset === 'POINTS';
+  // Paying with channel points: the server's minimum, how many points make
+  // 1 HBD (for the host's "minimum to show"), and the viewer's balance.
+  const [pointsCfg, setPointsCfg] = useState<{ min: number; perHbd: number } | null>(null);
+  const [balance, setBalance] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [status, setStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -96,8 +101,9 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, l
     setConfigLoading(true);
     setConfigError(null);
     fetch(`${apiBaseUrl}/boosts/config`)
-      .then((r) => r.json() as Promise<{ enabled: boolean; platformAccount: string; feePercent?: number }>)
+      .then((r) => r.json() as Promise<{ enabled: boolean; platformAccount: string; feePercent?: number; points?: { min: number; perHbd: number } }>)
       .then((cfg) => {
+        if (cfg.points && cfg.points.min > 0 && cfg.points.perHbd > 0) setPointsCfg(cfg.points);
         if (!cfg.enabled) {
           setConfigError(L.errNotEnabled);
           setPlatformAccount(null);
@@ -117,8 +123,57 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, l
       });
   }, [apiBaseUrl]);
 
+  // The balance, once the viewer picks points (and again after a points boost).
+  const authHeaders = useCallback((): Record<string, string> => {
+    const token = apiClient.getSessionToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }, [apiClient]);
+  useEffect(() => {
+    if (!points || !username) return;
+    fetch(`${apiBaseUrl}/points`, { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() as Promise<{ balance?: number }> : null))
+      .then((b) => { if (typeof b?.balance === 'number') setBalance(b.balance); })
+      .catch(() => { /* the server says so when they send */ });
+  }, [points, username, apiBaseUrl, authHeaders]);
+
+  // The smallest points boost: the server's minimum, or more when the host's
+  // "minimum to show" asks for it (a smaller one would never appear).
+  const pointsMin = pointsCfg
+    ? Math.max(pointsCfg.min, Math.ceil((boostConfig.minBoostUsd ?? 0) * pointsCfg.perHbd))
+    : 0;
+  const pointsPresets = pointsMin > 0 ? [pointsMin, pointsMin * 2, pointsMin * 4] : [];
+
+  const sendPoints = useCallback(async () => {
+    if (!username) { setError(L.errSignIn); return; }
+    const amt = Math.floor(Number(amount));
+    if (!Number.isFinite(amt) || amt <= 0) { setError(L.errAmount); return; }
+    if (amt < pointsMin) { setError(fillLabel(L.errPointsMinimum, { min: pointsMin.toLocaleString('en-US') })); return; }
+    if (balance !== null && amt > balance) { setError(fillLabel(L.errPointsBalance, { points: balance.toLocaleString('en-US') })); return; }
+    if (!message.trim()) { setError(L.errMessage); return; }
+    setStatus('sending');
+    setError(null);
+    try {
+      const res = await fetch(`${apiBaseUrl}/rooms/${encodeURIComponent(roomName)}/boosts/points`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({
+          amount: amt,
+          message: message.trim().slice(0, BOOST_MESSAGE_MAX),
+          ...(activeRecipient ? { recipient: activeRecipient } : {}),
+        }),
+      });
+      const body = await res.json().catch(() => ({})) as { balance?: number; message?: string };
+      if (!res.ok) throw new Error(body.message || L.errTransfer);
+      if (typeof body.balance === 'number') setBalance(body.balance);
+      setStatus('done');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : L.errTransfer);
+      setStatus('error');
+    }
+  }, [username, amount, pointsMin, balance, message, apiBaseUrl, roomName, activeRecipient, authHeaders, L]);
+
   const send = useCallback(async () => {
-    if (!username || !platformAccount) return;
+    if (!username || !platformAccount || asset === 'POINTS') return;
     const amtNum = parseFloat(amount);
     if (!Number.isFinite(amtNum) || amtNum <= 0) { setError(L.errAmount); return; }
     if (!message.trim()) { setError(L.errMessage); return; }
@@ -192,7 +247,7 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, l
               <StreamBoostGoal variant="inline" labels={labels} />
 
               <div className="hh-boost-dialog__presets" role="group" aria-label={L.presetsLabel}>
-                {presets.map((p) => (
+                {(points ? pointsPresets : presets).map((p) => (
                   <button
                     key={p}
                     type="button"
@@ -200,10 +255,10 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, l
                     aria-pressed={amountNum === p}
                     // Below the minimum a boost won't show on screen, so the
                     // dialog refuses it anyway (HBD only, see send()).
-                    disabled={status === 'sending' || (asset === 'HBD' && minUsd > 0 && p < minUsd)}
+                    disabled={status === 'sending' || (asset === 'HBD' && minUsd > 0 && p < minUsd) || (points && balance !== null && p > balance)}
                     onClick={() => { setAmount(String(p)); setError(null); }}
                   >
-                    {p} {asset}
+                    {points ? fillLabel(L.pointsAmount, { points: p.toLocaleString('en-US') }) : `${p} ${asset}`}
                   </button>
                 ))}
               </div>
@@ -212,8 +267,8 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, l
                 <input
                   className="hh-boost-dialog__amount"
                   type="number"
-                  min="0.001"
-                  step="0.001"
+                  min={points ? pointsMin || 1 : 0.001}
+                  step={points ? 1 : 0.001}
                   placeholder={L.customAmount}
                   aria-label={L.customAmount}
                   value={amount}
@@ -223,11 +278,12 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, l
                 <select
                   className="hh-boost-dialog__asset"
                   value={asset}
-                  onChange={(e) => setAsset(e.target.value as 'HBD' | 'HIVE')}
+                  onChange={(e) => { setAsset(e.target.value as 'HBD' | 'HIVE' | 'POINTS'); setAmount(''); setError(null); }}
                   disabled={status === 'sending'}
                 >
                   <option value="HBD">HBD</option>
                   <option value="HIVE">HIVE</option>
+                  {pointsCfg && <option value="POINTS">{L.assetPoints}</option>}
                 </select>
               </div>
 
@@ -249,17 +305,24 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, l
                 </div>
               )}
 
-              <p className="hh-boost-dialog__rate-hint">
-                {asset === 'HBD' ? L.rateHbd : L.rateHive}
-              </p>
+              {points ? (
+                <p className="hh-boost-dialog__rate-hint">
+                  {balance !== null && <strong>{fillLabel(L.pointsBalance, { points: balance.toLocaleString('en-US') })} </strong>}
+                  {L.pointsHint}
+                </p>
+              ) : (
+                <p className="hh-boost-dialog__rate-hint">
+                  {asset === 'HBD' ? L.rateHbd : L.rateHive}
+                </p>
+              )}
 
-              {boostConfig.minBoostUsd > 0 && (
+              {!points && boostConfig.minBoostUsd > 0 && (
                 <p className="hh-boost-dialog__hint">
                   {fillLabel(L.minimumHint, { min: boostConfig.minBoostUsd.toFixed(2) })}
                 </p>
               )}
 
-              {feePercent !== null && feePercent > 0 && (
+              {!points && feePercent !== null && feePercent > 0 && (
                 <p className="hh-boost-dialog__hint">
                   {fillLabel(L.feeHint, { fee: feePercent, recipient: activeRecipient ?? roomName.split('-')[0], share: 100 - feePercent })}
                   {Number.isFinite(amountNum) && amountNum > 0
@@ -280,7 +343,7 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, l
               <div className="hh-boost-dialog__char-count">{message.length} / {BOOST_MESSAGE_MAX}</div>
 
               {error && <p className="hh-boost-dialog__error">{error}</p>}
-              {configError && <p className="hh-boost-dialog__error">{configError}</p>}
+              {configError && !points && <p className="hh-boost-dialog__error">{configError}</p>}
 
               <BoostTopSupporters labels={labels} className="hh-boost-dialog__top" />
             </div>
@@ -291,8 +354,8 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, l
               </button>
               <button
                 className="hh-btn hh-btn--primary"
-                onClick={send}
-                disabled={status === 'sending' || configLoading || !platformAccount}
+                onClick={points ? sendPoints : send}
+                disabled={status === 'sending' || configLoading || (!points && !platformAccount)}
               >
                 {configLoading ? L.loading : status === 'sending' ? L.sending : L.send}
               </button>

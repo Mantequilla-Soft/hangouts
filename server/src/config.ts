@@ -41,6 +41,12 @@ const envSchema = z.object({
   BOOST_INGEST_KEY: z.string().default(''),
   BOOST_PLATFORM_ACCOUNT: z.string().default(''),
   BOOST_PLATFORM_ACTIVE_KEY: z.string().default(''),
+  // Channel points log on Hive (custom_json 3speak_points, lib/pointsLedger.ts).
+  // Signed with this account's posting key; without one, the boost wallet's
+  // active key when it is the same account; without either, nothing is logged
+  // (the rows wait in Mongo until a key is set).
+  POINTS_LOG_ACCOUNT: z.string().default('threespeak-pro'),
+  POINTS_LOG_POSTING_KEY: z.string().default(''),
   BOOST_PLATFORM_FEE_PERCENT: z.coerce.number().min(0).max(100).default(5),
   BOOST_HIVE_USD_FALLBACK: z.coerce.number().positive().default(0.25),
   BOOST_HIVE_USD_CACHE_MS: z.coerce.number().int().positive().default(120000),
@@ -117,6 +123,13 @@ const envSchema = z.object({
   // A WebRTC viewer whose connection stays poor may ask for HLS even below the
   // threshold. Only matters while HLS_VIEWER_THRESHOLD is set.
   HLS_WEAK_FALLBACK: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // OBS streams that go live straight from a template are forwarded as OBS
+  // encodes them (H.264), not re-encoded to VP8: about 0.1 of a CPU core per
+  // stream instead of one. A viewer whose browser can't show H.264 is moved to
+  // HLS (SDK lib/undecodableVideo.ts), so this only takes effect while
+  // HLS_VIEWER_THRESHOLD is set and HLS_WEAK_FALLBACK is on. 'false' = always
+  // re-encode, as before.
+  OBS_PASSTHROUGH: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   // Video bitrate of the HLS rendition in kbps (one rendition, 720p or the
   // stream's own size).
   HLS_VIDEO_BITRATE: z.coerce.number().int().min(300).max(8000).default(2000),

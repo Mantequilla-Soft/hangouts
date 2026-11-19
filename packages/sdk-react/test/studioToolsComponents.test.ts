@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { StreamHealthPanel } from '../src/components/room/StreamHealthPanel.js';
+import { StreamHealthPanel, StreamHealthDetails } from '../src/components/room/StreamHealthPanel.js';
 import { VerticalSettings } from '../src/components/room/VerticalCropBox.js';
 import { StudioOverlaysPanel } from '../src/components/room/StudioOverlaysPanel.js';
 import type { StreamHealthState } from '../src/hooks/useStreamHealth.js';
@@ -41,6 +41,18 @@ describe('StreamHealthPanel', () => {
     expect(html).toContain('Quality lowered');
     expect(html).not.toContain('hh-health__step');
   });
+  it('with onOpen (the desktop Health tab) the pill reports that tab, not a popover', () => {
+    const shut = renderToStaticMarkup(h(StreamHealthPanel, { badge: goodBadge, showLabel: true, state: healthState(), onOpen: vi.fn() }));
+    expect(shut).toContain('aria-expanded="false"');
+    const open = renderToStaticMarkup(h(StreamHealthPanel, { badge: goodBadge, showLabel: true, state: healthState(), onOpen: vi.fn(), active: true }));
+    expect(open).toContain('aria-expanded="true"');
+    expect(open).not.toContain('hh-health__panel');
+  });
+  it('the details show the numbers and the Auto quality switch', () => {
+    const html = renderToStaticMarkup(h(StreamHealthDetails, { state: healthState() }));
+    expect(html).toContain('Measuring');
+    expect(html).toContain('Auto quality');
+  });
 });
 
 const verticalApi = (over: Partial<VerticalOutputApi> = {}): VerticalOutputApi => ({
@@ -75,26 +87,34 @@ describe('StudioOverlaysPanel', () => {
     configRef: { current: DEFAULT_OVERLAY_CONFIG }, ...over,
   });
   it('renders every section with the host defaults as placeholders', () => {
+    const tab = (initialTab: 'show' | 'break' | 'templates') =>
+      renderToStaticMarkup(h(StudioOverlaysPanel, { api: api(), onClose: vi.fn(), streamState: 'standby', initialTab }));
     const html = renderToStaticMarkup(h(StudioOverlaysPanel, { api: api(), onClose: vi.fn(), streamState: 'standby' }));
-    for (const s of ['Templates', 'Lower third', 'Ticker', 'Countdown', 'Be right back', 'Fade between scenes']) expect(html).toContain(s);
+    // On screen first: lower third, ticker, countdown.
+    for (const s of ['Lower third', 'Ticker', 'Countdown']) expect(html).toContain(s);
+    expect(html).not.toContain('Be right back');
     expect(html).toContain('placeholder="@badadib"');
     expect(html).toContain('placeholder="Morning stream"');
-    expect(html).toContain('Calm pads (built in)');
     expect(html).toContain('Shows once you are live');
+    expect(tab('break')).toContain('Be right back');
+    expect(tab('break')).toContain('Calm pads (built in)');
+    expect(tab('templates')).toContain('Fade between scenes');
+    expect(tab('templates')).toContain('Template name');
   });
   it('lists templates and reflects what is on screen', () => {
-    const html = renderToStaticMarkup(h(StudioOverlaysPanel, {
+    const props = {
       api: api({
         templates: [{ id: 'show', name: 'Show', config: DEFAULT_OVERLAY_CONFIG }], activeTemplate: 'show',
         live: { ...OFF_LIVE, lowerThirdOn: true, lowerThirdAt: 1, tickerOn: true }, musicPlaying: true, musicFile: 'theme.mp3',
         config: { ...DEFAULT_OVERLAY_CONFIG, brb: { message: '', music: 'file', volume: 0.4 } },
       }),
-      onClose: vi.fn(), streamState: 'live',
-    }));
-    expect(html).toContain('hh-overlays__chip is-active');
-    expect(html).toContain('>Hide<');
-    expect(html).toContain('Your file: theme.mp3');
-    expect(html).toContain('Playing to your viewers now');
-    expect(html).toContain('Music volume 40%');
+      onClose: vi.fn(), streamState: 'live' as const,
+    };
+    expect(renderToStaticMarkup(h(StudioOverlaysPanel, { ...props, initialTab: 'templates' }))).toContain('hh-overlays__chip is-active');
+    expect(renderToStaticMarkup(h(StudioOverlaysPanel, props))).toContain('>Hide<');
+    const brb = renderToStaticMarkup(h(StudioOverlaysPanel, { ...props, initialTab: 'break' }));
+    expect(brb).toContain('Your file: theme.mp3');
+    expect(brb).toContain('Playing to your viewers now');
+    expect(brb).toContain('Music volume 40%');
   });
 });

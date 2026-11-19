@@ -14,6 +14,7 @@ import type { LiveLabels } from '../../lib/liveLabels.js';
 import { RaidBanner, type RaidTargetInfo } from './RaidBanner.js';
 import { StreamBattleBar } from './StreamBattleBar.js';
 import type { BattleLabels } from '../../lib/battle.js';
+import { useUndecodableVideo } from '../../lib/undecodableVideo.js';
 
 /**
  * Composable watch-side of a standalone stream. Unlike <StandaloneViewer>
@@ -152,6 +153,9 @@ export function StandaloneWatch({ roomName, children, connecting, audioMuted = f
         {!hls && <RoomAudio programOnly muted={audioMuted} />}
         {!hls && <StartAudio label="Click to enable audio" className="hh-start-audio" />}
         {!hls && room.hlsFallback && <WeakConnectionWatcher onWeak={onWeak} />}
+        {/* An OBS stream is H.264 as OBS sent it: a browser that can't show
+            that gets the same HLS (re-encoded, plays everywhere). */}
+        {!hls && room.hlsFallback && <UndecodableVideoWatcher onUndecodable={onWeak} />}
         {/* HLS viewers are in the room for data too, so they get the raid. */}
         {onRaid && <RaidBanner roomName={roomName} onRaid={onRaid} labels={liveLabels} />}
         <BoostStoreProvider roomName={roomName} minBoostUsd={room.roomMeta?.boost?.minBoostUsd ?? 0}>
@@ -238,6 +242,18 @@ function WeakConnectionWatcher({ onWeak }: { onWeak: () => void }) {
       clearInterval(timer);
     };
   }, [lkRoom, onWeak]);
+  return null;
+}
+
+/**
+ * Moves a WebRTC viewer to HLS when this browser can't show the program video
+ * at all (lib/undecodableVideo.ts): an H.264 OBS stream in a Firefox without
+ * its OpenH264 add-on stays black otherwise. Fires once per mount.
+ */
+function UndecodableVideoWatcher({ onUndecodable }: { onUndecodable: () => void }) {
+  const program = useProgramTrack();
+  const pub = program?.publication?.kind === 'video' ? program.publication as RemoteTrackPublication : null;
+  useUndecodableVideo(pub, onUndecodable);
   return null;
 }
 

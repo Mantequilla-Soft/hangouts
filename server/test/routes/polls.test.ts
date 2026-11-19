@@ -117,6 +117,14 @@ describe('poll routes', () => {
     expect(bal.json()).toEqual({ channel: 'badadib', balance: POINTS_START + 300 });
     const lost = await app.inject({ method: 'GET', url: '/points/BadAdib', headers: auth.fan2 });
     expect(lost.json().balance).toBe(POINTS_START - 300);
+    const own = await app.inject({ method: 'GET', url: '/points', headers: auth.fan });
+    expect(own.json()).toEqual({ balance: POINTS_START + 300 });
+    // The wallet reads anyone's balance without a session, with the earning rules.
+    const pub = await app.inject({ method: 'GET', url: '/users/Fan/points' });
+    expect(pub.json()).toMatchObject({ account: 'fan', balance: POINTS_START + 300, start: POINTS_START, ttlDays: 90, boostMin: 2500 });
+    expect(Date.parse(pub.json().expiresAt)).toBeGreaterThan(Date.now() + 89 * 24 * 60 * 60 * 1000);
+    expect(pub.json().earn).toMatchObject({ watchPerMin: 10, streamPerMin: 100, raid: 500, boostMax: 2000 });
+    expect((await app.inject({ method: 'GET', url: '/users/x/points' })).statusCode).toBe(400);
 
     const list = await app.inject({ method: 'GET', url: `/rooms/${ROOM}/polls` });
     expect(list.json().polls).toHaveLength(1);

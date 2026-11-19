@@ -1,6 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import type { Collection } from 'mongodb';
 import { getLiveDb } from './mongoDb.js';
+import { POINTS_START, applyPointsNow, memoryPointsStore, pointsBalance, pointsStore, setPointsStore, type PointsStore } from './points.js';
+
+// The points live in lib/points.ts now; kept here for older imports.
+export { POINTS_START, memoryPointsStore, pointsBalance, type PointsStore };
 
 /**
  * Polls and predictions in a live stream.
@@ -10,10 +14,10 @@ import { getLiveDb } from './mongoDb.js';
  *               it is open; the host resolves it and the winners split the
  *               whole pot in proportion to their stake.
  *
- * Points are kept per viewer per channel (the host's account), starting at
- * POINTS_START. A prediction changes balances only when it is resolved, in one
- * batch, so a server restart mid-prediction loses the prediction but never
- * anybody's points.
+ * Points are one balance per account across all streams (lib/points.ts). A
+ * prediction changes balances only when it is resolved, in one batch, so a
+ * server restart mid-prediction loses the prediction but never anybody's
+ * points.
  *
  * One poll or prediction runs per room at a time. Live state is in memory;
  * finished results are archived (TTL one year) so they can be shown with the
@@ -25,7 +29,6 @@ export type PollKind = 'poll' | 'prediction';
  *  for the host. closed: a poll that ended. resolved/cancelled: a prediction's end. */
 export type PollStatus = 'open' | 'locked' | 'closed' | 'resolved' | 'cancelled';
 
-export const POINTS_START = Math.max(1, Number(process.env.POINTS_START ?? 1000) || 1000);
 export const POLL_MIN_SEC = 15;
 export const POLL_MAX_SEC = 600;
 export const PREDICTION_MAX_SEC = 1800;
@@ -34,7 +37,6 @@ export const OPTION_MAX = 60;
 /** A prediction nobody resolved is cancelled (refunded by doing nothing) after this. */
 const UNRESOLVED_MS = 3 * 60 * 60 * 1000;
 const ARCHIVE_TTL_MS = 365 * 24 * 60 * 60 * 1000;
-const POINTS_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 /** How many polls one room may run; a stream is a few hours, this is plenty. */
 const MAX_PER_ROOM = 60;
 
@@ -116,33 +118,14 @@ export function toView(p: Poll): PollView {
 
 // ── stores ────────────────────────────────────────────────────────────────
 
-export interface PointsStore {
-  get(channel: string, user: string): Promise<number>;
-  /** Add `delta` to each user's balance (starting from POINTS_START). */
-  apply(channel: string, deltas: Map<string, number>): Promise<void>;
-}
-
 export interface PollArchive {
   save(view: PollView): Promise<void>;
   list(room: string): Promise<PollView[]>;
 }
 
-interface PointsDoc { channel: string; user: string; balance: number; updatedAt: Date; expiresAt: Date }
 interface ArchiveDoc extends PollView { expiresAt: Date }
 
-let pointsCol: Collection<PointsDoc> | null = null;
 let archiveCol: Collection<ArchiveDoc> | null = null;
-
-async function pointsCollection(): Promise<Collection<PointsDoc> | null> {
-  if (pointsCol) return pointsCol;
-  const db = await getLiveDb();
-  if (!db) return null;
-  const c = db.collection<PointsDoc>('stream-points');
-  await c.createIndex({ channel: 1, user: 1 }, { unique: true }).catch(() => undefined);
-  await c.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }).catch(() => undefined);
-  pointsCol = c;
-  return c;
-}
 
 async function archiveCollection(): Promise<Collection<ArchiveDoc> | null> {
   if (archiveCol) return archiveCol;
@@ -154,21 +137,6 @@ async function archiveCollection(): Promise<Collection<ArchiveDoc> | null> {
   await c.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }).catch(() => undefined);
   archiveCol = c;
   return c;
-}
-
-/** In memory: tests, and a server with no Mongo configured. */
-export function memoryPointsStore(): PointsStore & { balances: Map<string, number> } {
-  const balances = new Map<string, number>();
-  return {
-    balances,
-    async get(channel, user) { return balances.get(`${channel}|${user}`) ?? POINTS_START; },
-    async apply(channel, deltas) {
-      for (const [user, d] of deltas) {
-        const k = `${channel}|${user}`;
-        balances.set(k, Math.max(0, (balances.get(k) ?? POINTS_START) + d));
-      }
-    },
-  };
 }
 
 export function memoryPollArchive(): PollArchive & { docs: PollView[] } {
@@ -183,36 +151,6 @@ export function memoryPollArchive(): PollArchive & { docs: PollView[] } {
   };
 }
 
-const mongoPoints: PointsStore = {
-  async get(channel, user) {
-    const c = await pointsCollection();
-    if (!c) return fallbackPoints.get(channel, user);
-    const doc = await c.findOne({ channel, user }, { projection: { balance: 1 } });
-    return doc ? doc.balance : POINTS_START;
-  },
-  async apply(channel, deltas) {
-    const c = await pointsCollection();
-    if (!c) return fallbackPoints.apply(channel, deltas);
-    if (deltas.size === 0) return;
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + POINTS_TTL_MS);
-    // One bulk write per resolution. The pipeline update starts a viewer who
-    // never had a row at POINTS_START and never lets a balance go below zero.
-    await c.bulkWrite([...deltas].map(([user, delta]) => ({
-      updateOne: {
-        filter: { channel, user },
-        update: [{
-          $set: {
-            channel, user, updatedAt: now, expiresAt,
-            balance: { $max: [0, { $add: [{ $ifNull: ['$balance', POINTS_START] }, delta] }] },
-          },
-        }],
-        upsert: true,
-      },
-    })), { ordered: false });
-  },
-};
-
 const mongoArchive: PollArchive = {
   async save(view) {
     const c = await archiveCollection();
@@ -226,21 +164,16 @@ const mongoArchive: PollArchive = {
   },
 };
 
-const fallbackPoints = memoryPointsStore();
 const fallbackArchive = memoryPollArchive();
 
-let points: PointsStore = mongoPoints;
 let archive: PollArchive = mongoArchive;
 
 /** Tests swap the stores. */
 export function setPollStores(next: { points?: PointsStore; archive?: PollArchive }): void {
-  if (next.points) points = next.points;
+  if (next.points) setPointsStore(next.points);
   if (next.archive) archive = next.archive;
 }
 
-export function pointsBalance(channel: string, user: string): Promise<number> {
-  return points.get(channel, user);
-}
 
 // ── live state ────────────────────────────────────────────────────────────
 
@@ -371,7 +304,7 @@ export async function stake(room: string, id: string, user: string, option: numb
   const amt = Math.floor(Number(amount));
   if (!Number.isFinite(amt) || amt < 1) throw new PollError(400, 'Stake at least 1 point.');
   if (p.stakes.get(user) && p.stakes.get(user)!.option !== option) throw new PollError(409, 'You already picked the other outcome.');
-  const balance = await points.get(p.host, user);
+  const balance = await pointsStore().get(user);
   // Read the stake AFTER the await: two quick taps must not both spend the
   // same points, and the window may have closed meanwhile.
   takingPart(p);
@@ -411,7 +344,7 @@ export async function resolvePrediction(room: string, id: string, winner: number
   if (p.kind !== 'prediction') throw new PollError(400, 'Only a prediction is resolved.');
   if (!Number.isInteger(winner) || winner < 0 || winner >= p.options.length) throw new PollError(400, 'No such outcome.');
   p.winner = winner;
-  await points.apply(p.host, payouts(p, winner));
+  await applyPointsNow(payouts(p, winner), 'prediction');
   await finish(p, 'resolved');
   return p;
 }

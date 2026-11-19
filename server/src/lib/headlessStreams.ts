@@ -15,6 +15,19 @@ import { startStandaloneVod, stopStandaloneVod } from '../routes/recording.js';
 import { startDvrSession, stopDvrSession } from '../routes/dvr.js';
 
 /**
+ * Forward a headless stream's video as OBS encodes it (H.264) instead of
+ * re-encoding it to VP8. Re-encoding took about a CPU core per stream, and on
+ * a busy box it fell behind (stutter, delay). The price: a browser without
+ * H.264 (Firefox before its OpenH264 add-on, LibreWolf, codec-less Chromium)
+ * shows nothing over WebRTC, so its viewers are moved to HLS, which is
+ * re-encoded and plays everywhere (SDK lib/undecodableVideo.ts). Without that
+ * fallback (HLS off) every stream is re-encoded, as before.
+ */
+export function obsPassthrough(): boolean {
+  return config.OBS_PASSTHROUGH && config.HLS_VIEWER_THRESHOLD !== null && config.HLS_WEAK_FALLBACK;
+}
+
+/**
  * Headless OBS streams: go live from OBS alone, no browser studio.
  *
  * OBS speaks WHIP to /whip/<owner>/<slug> (routes/whip.ts). For each connect we
@@ -293,27 +306,30 @@ export async function startHeadlessStream(template: TemplateDoc, offerSdp: strin
     });
     roomName = room.name;
 
+    const passthrough = obsPassthrough();
     const info = await ingressClient.createIngress(IngressInput.WHIP_INPUT, {
       name: `headless-${roomName}`,
       roomName,
       // AS the host — see the module comment.
       participantIdentity: owner,
       participantName: owner,
-      // Transcode to VP8: H.264 passthrough leaves viewers without H.264
-      // decode (many Firefox builds) on a black screen.
-      enableTranscoding: true,
+      // H.264 as OBS sends it (obsPassthrough), or re-encoded to VP8, which
+      // every browser shows.
+      enableTranscoding: !passthrough,
       video: new IngressVideoOptions({
         name: 'studio-program',
         source: TrackSource.CAMERA,
-        encodingOptions: {
-          case: 'options',
-          value: new IngressVideoEncodingOptions({
-            videoCodec: VideoCodec.VP8,
-            frameRate: 30,
-            // No explicit layers: pinning them made the pipeline fail to
-            // start ("source encoder not ready") — see POST /rooms/:name/ingress.
-          }),
-        },
+        ...(passthrough ? {} : {
+          encodingOptions: {
+            case: 'options' as const,
+            value: new IngressVideoEncodingOptions({
+              videoCodec: VideoCodec.VP8,
+              frameRate: 30,
+              // No explicit layers: pinning them made the pipeline fail to
+              // start ("source encoder not ready") — see POST /rooms/:name/ingress.
+            }),
+          },
+        }),
       }),
       // The watch page plays ONLY microphone tracks named studio-mix.
       audio: new IngressAudioOptions({ name: 'studio-mix', source: TrackSource.MICROPHONE }),

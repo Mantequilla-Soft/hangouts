@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConnectionState, useLocalParticipant, useParticipants, useRoomInfo, useTracks } from '@livekit/components-react';
-import { ConnectionQuality, ConnectionState, ParticipantEvent, Track } from 'livekit-client';
+import { ConnectionQuality, ConnectionState, ParticipantEvent, Track, type RemoteTrackPublication } from 'livekit-client';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { usePremiumStatus } from '../../hooks/usePremiumStatus.js';
 import { useWhipIngress } from '../../hooks/useWhipIngress.js';
+import { useUndecodableVideo } from '../../lib/undecodableVideo.js';
 import { PhoneScreenSourceDialog, DEFAULT_PHONE_SCREEN_LABELS, type PhoneScreenSourceLabels } from './PhoneScreenSourceDialog.js';
 import { useHandRaise } from '../../hooks/useHandRaise.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
@@ -26,11 +27,10 @@ import { BoostOverlay } from './BoostOverlay.js';
 import { useBoostStore } from '../../hooks/useBoosts.js';
 import { useRoomBoost, useGoalCelebration } from '../../hooks/useRoomBoost.js';
 import { useBoostAlerts } from '../../hooks/useBoostAlerts.js';
-import { boostTier, boostTierColorVar, pickPinnedBoosts, readBoostConfig, parseRoomMeta } from '../../lib/boostGoals.js';
+import { boostAmountText, boostTier, boostTierColorVar, pickPinnedBoosts, readBoostConfig, parseRoomMeta } from '../../lib/boostGoals.js';
 import { playBoostChime } from '../../lib/boostChime.js';
 import { StreamBoostGoal } from './StreamBoostGoal.js';
 import { nodeIn } from '../../lib/audioNodeCache.js';
-import { BoostHistoryPanel } from './BoostHistoryPanel.js';
 import { BoostSettingsPanel } from './BoostSettingsPanel.js';
 import { StudioLivePanel, IconLive } from './StudioLivePanel.js';
 import { BattlePanel, BattleInviteCard } from './BattlePanel.js';
@@ -48,7 +48,8 @@ import { useVerticalOutput } from '../../hooks/useVerticalOutput.js';
 import { VerticalCropBox, VerticalSettings } from './VerticalCropBox.js';
 import { STUDIO_PROGRAM_TRACK, STUDIO_VERTICAL_TRACK, followTarget, sceneRegions } from '../../lib/verticalCrop.js';
 import { useStreamHealth } from '../../hooks/useStreamHealth.js';
-import { StreamHealthPanel } from './StreamHealthPanel.js';
+import { StreamHealthPanel, StreamHealthDetails } from './StreamHealthPanel.js';
+import { StudioSubtabs } from './StudioSubtabs.js';
 import { useStudioCaptions, type StudioCaptionsOptions } from '../../hooks/useStudioCaptions.js';
 import { LiveCaptionsToggle } from './LiveCaptionsToggle.js';
 import type { CaptionCue } from '../../lib/liveCaptions.js';
@@ -462,7 +463,7 @@ function drawBoostCard(
   ctx.fillStyle = tiered ? (lvl === 0 ? '#fff' : style.accent) : '#ff5a6e';
   const title = `\u{1F680} @${boost.displayName || boost.sender}`;
   ctx.fillText(title, x + pad, y + pad + titlePx * 0.85);
-  const amount = `${boost.amount} ${boost.asset}`;
+  const amount = boostAmountText(boost);
   const amtW = ctx.measureText(amount).width;
   ctx.fillStyle = '#fff';
   ctx.fillText(amount, x + w - pad - amtW, y + pad + titlePx * 0.85);
@@ -829,15 +830,27 @@ export interface StandaloneStudioProps {
 
 
 /** The studio's right-rail panels, top to bottom in the vertical tab strip. */
-type RailTab = 'chat' | 'post' | 'live' | 'overlays' | 'boosts' | 'settings';
+type RailTab = 'chat' | 'post' | 'live' | 'overlays' | 'boosts' | 'health' | 'settings';
 const RAIL_TABS: { id: RailTab; icon: string; label: string; title: string }[] = [
   { id: 'chat', icon: '💬', label: 'Chat', title: 'Chat' },
   { id: 'post', icon: '📝', label: 'Post', title: 'The announcement post' },
   { id: 'live', icon: '📊', label: 'Live', title: 'Polls, predictions and raids' },
   { id: 'overlays', icon: 'Aa', label: 'Overlays', title: 'Lower third, ticker, countdown, be right back' },
-  { id: 'boosts', icon: '🚀', label: 'Boosts', title: 'Boost settings: goal, alerts, amounts' },
+  { id: 'boosts', icon: '🚀', label: 'Boosts', title: 'Boosts: goal, history, alerts, amounts' },
+  { id: 'health', icon: '📶', label: 'Health', title: 'Stream health: upload, frame rate, loss, Auto quality' },
   { id: 'settings', icon: '⚙️', label: 'Settings', title: 'Stream settings' },
 ];
+
+/** Set in this browser once OBS's H.264 could not be shown here: its OBS
+ *  address is re-encoded (VP8) from then on. */
+const OBS_VP8_KEY = 'hh-obs-vp8';
+function obsNeedsVp8(): boolean {
+  try { return localStorage.getItem(OBS_VP8_KEY) === '1'; } catch { return false; }
+}
+function rememberObsNeedsVp8(): void {
+  try { localStorage.setItem(OBS_VP8_KEY, '1'); } catch { /* private mode: asks again next time */ }
+}
+
 export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium: isPremiumOverride, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false, obsBaseUrl = 'https://hangout.3speak.tv', phoneSourceLabels, captions }: StandaloneStudioProps) {
   // Resolves itself unless the integrator forces it. Starts false, so the
   // free-tier watermark and the short cap apply until premium is confirmed —
@@ -1020,7 +1033,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [auxGain, setAuxGain] = useState(() => savedNum(savedSetup.auxGain, 0, 1.5, 1));
   const [auxMuted, setAuxMuted] = useState(() => savedSetup.auxMuted === true);
   const [mediaError, setMediaError] = useState('');
-  const [boostHistoryOpen, setBoostHistoryOpen] = useState(false);
   // Boost settings, changeable mid-stream: on/off, the minimum to show a boost
   // on screen, the payout account. Read live from the room metadata, so the
   // button and the panel follow what the server stored (the panel's save goes
@@ -1055,6 +1067,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const [obsBusy, setObsBusy] = useState(false);
   const [obsError, setObsError] = useState('');
   const [obsLive, setObsLive] = useState(false);
+  // This browser couldn't show OBS's H.264 as it is, so the OBS address was
+  // swapped for a re-encoded (VP8) one: the dialog asks for the new address.
+  const [obsSwitched, setObsSwitched] = useState(false);
   // Bumped to force the OBS-detection effect to re-run and re-add the source
   // after the host removed the tile while OBS is still publishing (the effect
   // otherwise only wakes on a remoteTracks change, which a steady OBS feed
@@ -1126,6 +1141,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // Once live the post is locked, so the studio flips to chat (effect below).
   const [rightTab, setRightTab] = useState<RailTab>(() => (streamState === 'standby' ? 'post' : 'chat'));
   const postLocked = streamState !== 'standby';
+  // Sub-tabs of the Post and Settings panels; the first holds what is needed most.
+  const [postTab, setPostTab] = useState<'post' | 'more'>('post');
+  const [settingsTab, setSettingsTab] = useState<'quality' | 'recording' | 'more'>('quality');
 
   // ---- panel sizing ------------------------------------------------------
   const [leftW, setLeftW] = useState(() => savedNum(savedSetup.leftW, 150, 340, 184));
@@ -2385,6 +2403,31 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const OBS_SOURCE_ID = 'obs';
   const remoteTracks = useTracks([Track.Source.Camera, Track.Source.Microphone], { onlySubscribed: false });
 
+  // OBS's H.264 that this browser can't show: remember it, swap the OBS
+  // address for a re-encoded one and ask for it in the OBS dialog.
+  const obsVideoPub = useMemo(() => (remoteTracks.find(
+    (t) => t.participant.identity.startsWith('obs-ingress-') && t.publication?.kind === 'video',
+  )?.publication ?? null) as RemoteTrackPublication | null, [remoteTracks]);
+  const switchObsToVp8 = useCallback(async () => {
+    rememberObsNeedsVp8();
+    setObsBusy(true);
+    setObsError('');
+    try {
+      const info = await startWhipIngress({ transcode: true });
+      if (!info) throw new Error('Could not set up OBS ingest');
+      setObsInfo(info);
+      setObsSwitched(true);
+    } catch (err) {
+      setObsError(err instanceof Error ? err.message : 'Could not set up OBS ingest');
+    } finally {
+      setObsBusy(false);
+      setExternalKind('obs');
+      externalKindRef.current = 'obs';
+      setObsOpen(true);
+    }
+  }, [startWhipIngress]);
+  useUndecodableVideo(obsVideoPub, () => { void switchObsToVp8(); });
+
   // One collab guest at a time. The button also disables on `guestIdentity`,
   // but that state only lands once the guest's track ARRIVES — so two quick taps
   // on different raised hands would promote both before it populates. Gate
@@ -2730,21 +2773,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     setObsBusy(true);
     setObsError('');
     try {
-      // Always VP8, deliberately not H.264 passthrough.
-      //
-      // OBS publishes H.264, which plenty of Firefox builds cannot receive at
-      // all — the SFU then refuses to bind the track ("codec is not supported
-      // by remote") and the source is black forever. Two attempts at
-      // detecting that browser-side both failed: getCapabilities() and a
-      // recvonly-offer SDP probe BOTH report H.264 support in a Firefox whose
-      // real subscriber answer offers only VP8/VP9/AV1. Since there is no
-      // trustworthy signal, take the codec every browser can decode.
-      //
-      // The cost is ingress CPU (whip_cpu_cost 1 vs 0.1 for passthrough) on
-      // what is an uncommon path. It buys nothing in quality either way: the
-      // studio composites this into its canvas and re-encodes before viewers
-      // ever see it.
-      const info = await startWhipIngress({ transcode: true });
+      // H.264 as OBS sends it, not re-encoded: re-encoding cost the server
+      // about a CPU core per OBS source, and the studio re-encodes its canvas
+      // anyway. A browser that can't show H.264 (Firefox without OpenH264
+      // and the like) can't be told apart up front: getCapabilities() and an
+      // SDP probe both claim H.264 there. So the studio watches instead (the
+      // effect below): no frame from an H.264 OBS source within a few seconds
+      // switches this browser to a VP8 address, for good (OBS_VP8_KEY).
+      const info = await startWhipIngress({ transcode: obsNeedsVp8() });
       if (!info) throw new Error(whipError || 'Could not set up OBS ingest');
       setObsInfo(info);
       setObsOpen(true);
@@ -2756,24 +2792,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     }
   }, [startWhipIngress, whipError, roomName]);
 
-  // Same ingress as OBS (VP8, for the same browser reasons), asked for as the
-  // free phone/tablet source.
-  const openPhoneSetup = useCallback(async () => {
-    setExternalKind('phone');
-    externalKindRef.current = 'phone';
-    setObsBusy(true);
-    setObsError('');
-    try {
-      const info = await startWhipIngress({ transcode: true, source: 'phone' });
-      if (!info) throw new Error(whipError || 'Could not set up the phone source');
-      setObsInfo(info);
-    } catch (err) {
-      setObsError(err instanceof Error ? err.message : 'Could not set up the phone source');
-    } finally {
-      setObsOpen(true);
-      setObsBusy(false);
-    }
-  }, [startWhipIngress, whipError]);
+  // The phone / tablet screen: a guide to mirror it to this computer, then the
+  // window is shared like any other (addShare). No ingress, no app on the phone.
+  const [phoneGuideOpen, setPhoneGuideOpen] = useState(false);
 
   useEffect(() => {
     // Match on the PUBLICATION only — deliberately NOT on `publication.track`,
@@ -4042,6 +4063,16 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
 
   const renderPostEditor = (inModal: boolean) => (
     <div className={`hh-post${inModal ? ' hh-post--modal' : ''}`}>
+      {/* In the rail, the integrator's extras get their own sub-tab; the
+          large editor shows everything. */}
+      {!inModal && renderPostExtras && (
+        <StudioSubtabs
+          tabs={[{ id: 'post', label: 'Post' }, { id: 'more', label: 'More' }]}
+          active={postTab}
+          onChange={setPostTab}
+          label="Post"
+        />
+      )}
       <div className="hh-post__head">
         <span className="hh-post__title-label">Stream post {postLocked && <em>(locked — live)</em>}</span>
         {/* Saves itself — no Save button. This just reports what's happening. */}
@@ -4054,59 +4085,63 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           <button className="hh-post__expand" onClick={() => setPostModalOpen(true)} title="Open in a larger editor">⤢</button>
         )}
       </div>
-      <input className="hh-post__input" type="text" placeholder="Post title" value={postTitle}
-        maxLength={120} disabled={postLocked} onChange={(e) => setPostTitle(e.target.value)} />
+      {(inModal || postTab === 'post' || !renderPostExtras) && (
+        <>
+          <input className="hh-post__input" type="text" placeholder="Post title" value={postTitle}
+            maxLength={120} disabled={postLocked} onChange={(e) => setPostTitle(e.target.value)} />
 
-      <div className="hh-post__thumb">
-        {postThumb ? (
-          <div className="hh-post__thumb-preview" style={{ backgroundImage: `url(${postThumb})` }}>
-            {!postLocked && <button className="hh-post__thumb-remove" onClick={() => setPostThumb('')} title="Remove thumbnail">×</button>}
+          <div className="hh-post__thumb">
+            {postThumb ? (
+              <div className="hh-post__thumb-preview" style={{ backgroundImage: `url(${postThumb})` }}>
+                {!postLocked && <button className="hh-post__thumb-remove" onClick={() => setPostThumb('')} title="Remove thumbnail">×</button>}
+              </div>
+            ) : (
+              <button className="hh-post__thumb-add" disabled={postLocked || postThumbUploading || !imageServerApiKey}
+                onClick={pickThumbnail}
+                title={imageServerApiKey ? 'Upload a thumbnail' : 'Image uploads not configured'}>
+                {postThumbUploading ? 'Uploading…' : '+ Thumbnail'}
+              </button>
+            )}
           </div>
-        ) : (
-          <button className="hh-post__thumb-add" disabled={postLocked || postThumbUploading || !imageServerApiKey}
-            onClick={pickThumbnail}
-            title={imageServerApiKey ? 'Upload a thumbnail' : 'Image uploads not configured'}>
-            {postThumbUploading ? 'Uploading…' : '+ Thumbnail'}
-          </button>
-        )}
-      </div>
 
-      <div className="hh-post__desc">
-        <div className="hh-post__desc-tabs">
-          <button className={!descPreview ? 'is-active' : ''} onClick={() => setDescPreview(false)} disabled={postLocked}>Write</button>
-          <button className={descPreview ? 'is-active' : ''} onClick={() => setDescPreview(true)}>Preview</button>
-          <span className="hh-post__desc-hint">Markdown</span>
-        </div>
-        {descPreview
-          ? <div className="hh-post__desc-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(postDesc || '_Nothing yet._') }} />
-          : <textarea className="hh-post__desc-input" placeholder="Description (markdown supported)" value={postDesc}
-              disabled={postLocked} rows={inModal ? 12 : 4} onChange={(e) => setPostDesc(e.target.value)} />}
-      </div>
+          <div className="hh-post__desc">
+            <div className="hh-post__desc-tabs">
+              <button className={!descPreview ? 'is-active' : ''} onClick={() => setDescPreview(false)} disabled={postLocked}>Write</button>
+              <button className={descPreview ? 'is-active' : ''} onClick={() => setDescPreview(true)}>Preview</button>
+              <span className="hh-post__desc-hint">Markdown</span>
+            </div>
+            {descPreview
+              ? <div className="hh-post__desc-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(postDesc || '_Nothing yet._') }} />
+              : <textarea className="hh-post__desc-input" placeholder="Description (markdown supported)" value={postDesc}
+                  disabled={postLocked} rows={inModal ? 12 : 4} onChange={(e) => setPostDesc(e.target.value)} />}
+          </div>
 
-      <div className="hh-post__tags">
-        <div className="hh-post__tag-chips">
-          {postTags.map((t) => (
-            <span key={t} className="hh-post__tag">{t}{!postLocked && <button onClick={() => setPostTags((p) => p.filter((x) => x !== t))}>×</button>}</span>
-          ))}
-        </div>
-        {!postLocked && postTags.length < MAX_TAGS && (
-          <input className="hh-post__tag-input" type="text" placeholder={`Add tag — space to add (${postTags.length}/${MAX_TAGS})`} value={tagInput}
-            onChange={(e) => {
-              // Space (or comma) commits the tag; the separator itself is
-              // consumed, not carried into the next tag.
-              const v = e.target.value;
-              if (/[\s,]/.test(v)) addTag(v);
-              else setTagInput(v);
-            }}
-            onKeyDown={(e) => { if (e.key === ',') { e.preventDefault(); addTag(); } }}
-            onBlur={() => addTag()} />
-        )}
-      </div>
+          <div className="hh-post__tags">
+            <div className="hh-post__tag-chips">
+              {postTags.map((t) => (
+                <span key={t} className="hh-post__tag">{t}{!postLocked && <button onClick={() => setPostTags((p) => p.filter((x) => x !== t))}>×</button>}</span>
+              ))}
+            </div>
+            {!postLocked && postTags.length < MAX_TAGS && (
+              <input className="hh-post__tag-input" type="text" placeholder={`Add tag — space to add (${postTags.length}/${MAX_TAGS})`} value={tagInput}
+                onChange={(e) => {
+                  // Space (or comma) commits the tag; the separator itself is
+                  // consumed, not carried into the next tag.
+                  const v = e.target.value;
+                  if (/[\s,]/.test(v)) addTag(v);
+                  else setTagInput(v);
+                }}
+                onKeyDown={(e) => { if (e.key === ',') { e.preventDefault(); addTag(); } }}
+                onBlur={() => addTag()} />
+            )}
+          </div>
+        </>
+      )}
 
       {/* Integrator-owned extras (e.g. 3Speak community / payout /
           beneficiaries for the Hive announcement) — still editable here in
           the studio, right up until the host hits Start. */}
-      {renderPostExtras && <div className="hh-post__extras">{renderPostExtras}</div>}
+      {renderPostExtras && (inModal || postTab === 'more') && <div className="hh-post__extras">{renderPostExtras}</div>}
     </div>
   );
 
@@ -4115,94 +4150,107 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // out of the post tab, which locks once the stream is live.
   const renderSettings = () => (
     <div className="hh-post hh-settings">
-      <div className="hh-settings__group">
-        <div className="hh-settings__title"><span className="hh-settings__icon hh-settings__icon--quality" aria-hidden="true">📶</span>Broadcast quality</div>
-        <p className="hh-settings__intro">Higher quality looks better but needs more upload. Change it any time, it applies live.</p>
-        {QUALITY_OPTIONS.map((o) => {
-          const locked = !!o.pro && !isPremium;
-          return (
-            <button
-              key={o.value}
-              type="button"
-              className={`hh-optsheet__opt${streamQuality === o.value ? ' hh-optsheet__opt--on' : ''}`}
-              disabled={locked}
-              onClick={() => setStreamQuality(o.value)}
-            >
-              <span className="hh-optsheet__opt-label">
-                {o.label}{locked ? ' 🔒' : ''}{streamQuality === o.value ? ' ✓' : ''}
+      <StudioSubtabs
+        tabs={[{ id: 'quality', label: 'Quality' }, { id: 'recording', label: 'Recording' }, { id: 'more', label: 'More' }]}
+        active={settingsTab}
+        onChange={setSettingsTab}
+        label="Settings"
+      />
+      {settingsTab === 'quality' && (
+        <>
+          <div className="hh-settings__group">
+            <div className="hh-settings__title"><span className="hh-settings__icon hh-settings__icon--quality" aria-hidden="true">📶</span>Broadcast quality</div>
+            <p className="hh-settings__intro">Higher quality looks better but needs more upload. Change it any time, it applies live.</p>
+            {QUALITY_OPTIONS.map((o) => {
+              const locked = !!o.pro && !isPremium;
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  className={`hh-optsheet__opt${streamQuality === o.value ? ' hh-optsheet__opt--on' : ''}`}
+                  disabled={locked}
+                  onClick={() => setStreamQuality(o.value)}
+                >
+                  <span className="hh-optsheet__opt-label">
+                    {o.label}{locked ? ' 🔒' : ''}{streamQuality === o.value ? ' ✓' : ''}
+                  </span>
+                  <span className="hh-optsheet__opt-desc">{o.desc}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="hh-settings__group">
+            <div className="hh-settings__title"><span className="hh-settings__icon hh-settings__icon--priority" aria-hidden="true">🎚️</span>Quality priority</div>
+            <p className="hh-settings__intro">When the connection or device can’t send a picture that’s both smooth and sharp, this decides which one wins.</p>
+            {PRIORITY_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                className={`hh-optsheet__opt${degradePref === o.value ? ' hh-optsheet__opt--on' : ''}`}
+                onClick={() => chooseDegradePref(o.value)}
+              >
+                <span className="hh-optsheet__opt-label">{o.label}{degradePref === o.value ? ' ✓' : ''}</span>
+                <span className="hh-optsheet__opt-desc">{o.desc}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {settingsTab === 'recording' && (
+        <div className="hh-settings__group">
+          {/* Publish the recording as this session's video when the stream ends,
+              so the same link plays the VOD afterwards instead of a dead stream.
+              Everyone (owner, 2026-10-21): a free replay is as long as a free
+              stream, and the server stops the recording there too. */}
+          {onStreamVod && canPublishVod && (
+            <label className="hh-post__vod">
+              <input
+                type="checkbox"
+                checked={autoVod}
+                disabled={streamState !== 'standby'}
+                onChange={(e) => setAutoVod(e.target.checked)}
+              />
+              <span>
+                🎬 Replace the stream with a video when it ends
+                <em className="hh-post__vod-hint">
+                  {streamState !== 'standby'
+                    ? 'Locked while the stream is running.'
+                    : isPremium
+                      ? 'Records the whole broadcast and adds it as the VOD on your announcement post.'
+                      : `Records the broadcast (up to ${FREE_STREAM_CAP_LABEL}) and adds it as the VOD on your announcement post.`}
+                </em>
               </span>
-              <span className="hh-optsheet__opt-desc">{o.desc}</span>
-            </button>
-          );
-        })}
-      </div>
+            </label>
+          )}
 
-      <div className="hh-settings__group">
-        <div className="hh-settings__title"><span className="hh-settings__icon hh-settings__icon--priority" aria-hidden="true">🎚️</span>Quality priority</div>
-        <p className="hh-settings__intro">When the connection or device can’t send a picture that’s both smooth and sharp, this decides which one wins.</p>
-        {PRIORITY_OPTIONS.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            className={`hh-optsheet__opt${degradePref === o.value ? ' hh-optsheet__opt--on' : ''}`}
-            onClick={() => chooseDegradePref(o.value)}
-          >
-            <span className="hh-optsheet__opt-label">{o.label}{degradePref === o.value ? ' ✓' : ''}</span>
-            <span className="hh-optsheet__opt-desc">{o.desc}</span>
-          </button>
-        ))}
-      </div>
-
-      <VerticalSettings api={vertical} />
-      <LiveCaptionsToggle captions={studioCaptions} />
-
-      <div className="hh-settings__group">
-        <div className="hh-settings__title">🎬 Recording</div>
-        {/* Publish the recording as this session's video when the stream ends,
-            so the same link plays the VOD afterwards instead of a dead stream.
-            Everyone (owner, 2026-10-21): a free replay is as long as a free
-            stream, and the server stops the recording there too. */}
-        {onStreamVod && canPublishVod && (
-          <label className="hh-post__vod">
+          {/* Pro: let viewers clip the last 30s. Toggleable ANY time — turning it
+              off stops the DVR recording, so the viewer "30 sec" button vanishes. */}
+          <label className={`hh-post__vod${isPremium ? '' : ' hh-post__vod--locked'}`}>
             <input
               type="checkbox"
-              checked={autoVod}
-              disabled={streamState !== 'standby'}
-              onChange={(e) => setAutoVod(e.target.checked)}
+              checked={allowClips && isPremium}
+              disabled={!isPremium}
+              onChange={(e) => setAllowClips(e.target.checked)}
             />
             <span>
-              🎬 Replace the stream with a video when it ends
+              ✂ Let viewers clip the last 30 seconds
+              {!isPremium && ' 🔒'}
               <em className="hh-post__vod-hint">
-                {streamState !== 'standby'
-                  ? 'Locked while the stream is running.'
-                  : isPremium
-                    ? 'Records the whole broadcast and adds it as the VOD on your announcement post.'
-                    : `Records the broadcast (up to ${FREE_STREAM_CAP_LABEL}) and adds it as the VOD on your announcement post.`}
+                {!isPremium
+                  ? 'Only available with 3Speak Pro — viewers can save and share a 30-second clip of your live stream.'
+                  : 'Viewers get a “30 sec” button to save and share a clip. Turn this off to hide it.'}
               </em>
             </span>
           </label>
-        )}
-
-        {/* Pro: let viewers clip the last 30s. Toggleable ANY time — turning it
-            off stops the DVR recording, so the viewer "30 sec" button vanishes. */}
-        <label className={`hh-post__vod${isPremium ? '' : ' hh-post__vod--locked'}`}>
-          <input
-            type="checkbox"
-            checked={allowClips && isPremium}
-            disabled={!isPremium}
-            onChange={(e) => setAllowClips(e.target.checked)}
-          />
-          <span>
-            ✂ Let viewers clip the last 30 seconds
-            {!isPremium && ' 🔒'}
-            <em className="hh-post__vod-hint">
-              {!isPremium
-                ? 'Only available with 3Speak Pro — viewers can save and share a 30-second clip of your live stream.'
-                : 'Viewers get a “30 sec” button to save and share a clip. Turn this off to hide it.'}
-            </em>
-          </span>
-        </label>
-      </div>
+        </div>
+      )}
+      {settingsTab === 'more' && (
+        <>
+          <VerticalSettings api={vertical} />
+          <LiveCaptionsToggle captions={studioCaptions} />
+        </>
+      )}
     </div>
   );
 
@@ -4500,7 +4548,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         {/* H20: the pill opens the stream health panel (bitrate, frame rate,
             dropped frames, loss, what viewers get, Auto quality). */}
         {(connQuality !== ConnectionQuality.Unknown || health.health) && (
-          <StreamHealthPanel badge={connBadge} showLabel={!isMobile || connBad} state={health} />
+          <StreamHealthPanel
+            badge={connBadge}
+            showLabel={!isMobile || connBad}
+            state={health}
+            // Desktop: the details live in the rail's Health tab.
+            onOpen={isMobile ? undefined : () => { setRightTab('health'); if (chatCollapsed) setRailPeek(true); }}
+            active={rightTab === 'health' && (!chatCollapsed || railPeek)}
+          />
         )}
         {/* Title eats a whole row on a phone and isn't needed there (the host
             knows their own stream) — desktop keeps it. */}
@@ -4579,37 +4634,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             </>
           )}
           {!isMobile && shareUrl && <button className="hh-btn hh-btn--secondary hh-btn--small hh-studio__share-btn" onClick={copyShareUrl}>{copied ? <><span className="hh-studio__icon" aria-hidden="true">✓</span>Copied</> : <><span className="hh-studio__icon" aria-hidden="true">🔗</span>Share</>}</button>}
-          {!isMobile && (
-            <button
-              className={`hh-btn hh-btn--small hh-studio__overlays-btn ${rightTab === 'overlays' && (!chatCollapsed || railPeek) ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
-              onClick={() => { setRightTab('overlays'); if (chatCollapsed) setRailPeek(true); }}
-              title="Overlays: lower third, ticker, countdown, be right back"
-              aria-label="Overlays"
-            >
-              <span className="hh-studio__icon" aria-hidden="true">Aa</span>Overlays
-            </button>
-          )}
-          {!isMobile && (
-            <button
-              className={`hh-btn hh-btn--small hh-studio__battle-btn ${battleOpen || battle.onAir ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
-              onClick={() => setBattleOpen((v) => !v)}
-              title="Live battle"
-              aria-label="Live battle"
-            >
-              <span className="hh-studio__icon" aria-hidden="true">⚔️</span>
-            </button>
-          )}
-          {!isMobile && <button className={`hh-btn hh-btn--small hh-studio__boost-history-btn ${boostHistoryOpen ? 'hh-btn--primary' : 'hh-btn--secondary'}`} onClick={() => setBoostHistoryOpen((v) => !v)} title="Boost history" aria-label="Boost history"><span className="hh-studio__icon" aria-hidden="true">💰</span></button>}
-          {!isMobile && (
-            <button
-              className={`hh-btn hh-btn--small hh-studio__boost-settings-btn${boostsOff ? ' hh-studio__boost-settings-btn--off' : ''} ${rightTab === 'boosts' && (!chatCollapsed || railPeek) ? 'hh-btn--primary' : 'hh-btn--secondary'}`}
-              onClick={() => { setRightTab('boosts'); if (chatCollapsed) setRailPeek(true); }}
-              title={boostsOff ? 'Boosts are off: open Boost settings' : 'Boost settings'}
-              aria-label="Boost settings"
-            >
-              <span className="hh-studio__icon" aria-hidden="true">🚀</span>{boostsOff ? 'off' : ''}
-            </button>
-          )}
           {onClose && (
             <button
               className="hh-studio__close"
@@ -5301,6 +5325,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             <div className="hh-studio__tab-body">
               {rightTab === 'chat' ? <ChatPanel /> : rightTab === 'settings' ? renderSettings()
                 : rightTab === 'live' ? <StudioLivePanel roomName={roomName} battle={liveBattle} />
+                : rightTab === 'health' ? <div className="hh-post hh-settings hh-studio__health"><StreamHealthDetails state={health} /></div>
                 : rightTab === 'overlays' ? (
                   <StudioOverlaysPanel embedded api={overlays} streamState={streamState} onClose={() => setRightTab('chat')} />
                 ) : rightTab === 'boosts' ? (
@@ -5346,6 +5371,8 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 {/* Unsent: the announcement goes out at Start, the last chance
                     to check the title, community and payout. */}
                 {t.id === 'post' && streamState === 'standby' && <span className="hh-studio__rbtn-dot" aria-hidden="true" />}
+                {/* A weak upload: worth a look at the numbers. */}
+                {t.id === 'health' && health.assessment && health.assessment.verdict !== 'good' && <span className="hh-studio__rbtn-dot" aria-hidden="true" />}
               </button>
             ))}
           </nav>
@@ -5430,12 +5457,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         </div>
       )}
 
-      {obsOpen && externalKind === 'phone' && (
+      {phoneGuideOpen && (
         <PhoneScreenSourceDialog
-          whipUrl={obsInfo?.whipUrl || ''}
-          connected={obsLive}
-          error={obsError}
-          onClose={() => setObsOpen(false)}
+          onShareWindow={() => { void addShare(); }}
+          onClose={() => setPhoneGuideOpen(false)}
           labels={phoneLabels}
         />
       )}
@@ -5452,6 +5477,13 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               <p className="hh-studio__obs-error">{obsError}</p>
             ) : (
               <>
+                {obsSwitched && (
+                  <p className="hh-studio__obs-error" role="status">
+                    This browser can't show OBS's video as OBS sends it, so you have a new
+                    address that converts it. Paste it into OBS as the <strong>Server</strong>{' '}
+                    and start streaming again. Chrome or Edge can show it without converting.
+                  </p>
+                )}
                 <p className="hh-studio__obs-lead">
                   In OBS: <strong>Settings → Stream</strong>, set <strong>Service</strong> to{' '}
                   <strong>WHIP</strong>, paste this as the <strong>Server</strong>, leave the
@@ -5520,13 +5552,12 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 </button>
               );
             })()}
-            {/* Free for every host: a screen-broadcast app on the phone or
-                tablet sends its screen over WHIP into the same slot as OBS. */}
-            <button className="hh-studio__add-item" disabled={obsBusy}
-              onClick={() => { setAddMenuOpen(false); void openPhoneSetup(); }}
+            {/* How to mirror a phone or tablet to this computer and share the
+                window (no app on the phone, nothing through our server). */}
+            <button className="hh-studio__add-item"
+              onClick={() => { setAddMenuOpen(false); setPhoneGuideOpen(true); }}
               title={phoneLabels.menuHint}>
               <span className="hh-studio__add-icon hh-studio__add-icon--phone" aria-hidden="true">📱</span>{phoneLabels.menuItem}
-              <span className="hh-studio__add-state">{obsLive && externalKind === 'phone' ? '✓' : ''}</span>
             </button>
             <button className="hh-studio__add-item" onClick={() => { setAddMenuOpen(false); mediaInputRef.current?.click(); }}>
               <span className="hh-studio__add-icon hh-studio__add-icon--media" aria-hidden="true">🖼️</span>Media file (image / GIF / video)
@@ -5562,7 +5593,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         </div>
       )}
 
-      {boostHistoryOpen && <BoostHistoryPanel onClose={() => setBoostHistoryOpen(false)} />}
       {overlaysOpen && <StudioOverlaysPanel api={overlays} streamState={streamState} onClose={() => setOverlaysOpen(false)} />}
       {battleOpen && (
         <BattlePanel

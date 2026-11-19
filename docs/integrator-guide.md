@@ -404,7 +404,7 @@ track, so whatever the host sees is what everyone gets.
 | Scenes | `cam`, `fullscreen` (one source), `overlay` (source plus a movable camera picture), `split` (side by side), `splitv` (stacked, used with a guest). The last setup is restored from browser storage. | |
 | Sources | Camera and mic, up to 4 screen shares, image, GIF and video files (100 MB), music files, extra audio inputs, all through a mixer with faders and meters. | |
 | OBS source (Pro) | A WHIP ingress joins as `obs-ingress-<room>`; the studio draws it as a source. | `POST /rooms/:name/ingress { source: 'obs' }` |
-| Phone or tablet screen (free) | The same ingress for a screen app such as Larix Screencaster: the dialog shows the WHIP URL and a QR code. | `POST /rooms/:name/ingress { source: 'phone' }` |
+| Phone or tablet screen (free) | A guide, per computer (Mac, Windows, Linux) and phone (iPhone/iPad, Android), to mirror the phone to this computer (AirPlay, an AirPlay receiver, UxPlay, scrcpy by cable or Wi-Fi, Wireless Display), then a button that opens the window share. No app on the phone, nothing through a server. Labels: `phoneSourceLabels`. | (window share; `POST /rooms/:name/ingress { source: 'phone' }` still serves a host's existing phone address) |
 | Quality | Low 640x360, medium 854x480, high 1280x720 (Pro). | |
 | Go live | Standby, live, paused. First live: `onStreamStart(post)`, `PATCH /live` (server stamps `liveAt`, applies the daily limit), VOD recording if chosen. `PATCH /broadcast` on every change and every 15 s. A reloaded studio resumes a stream that is still broadcasting. Caps: free 30 min, Pro 4 h. | `/post`, `/live`, `/broadcast` |
 | Collab guest | A viewer asks (`CollabRequest`, hand raise); the host approves one guest, who appears in `splitv` and hears `host-monitor`. | `PATCH .../permissions` |
@@ -452,6 +452,11 @@ For big audiences the server moves viewers from WebRTC to HLS.
   answer has `delivery: 'hls'` and `hlsUrl`.
 - `HLS_WEAK_FALLBACK` (default on): a WebRTC viewer whose connection stays poor for
   15 s may rejoin with `delivery: 'hls'` (the answer has `hlsFallback: true`).
+  The same goes for a viewer whose browser can't show the video at all: an OBS
+  stream is H.264 as OBS sent it (`OBS_PASSTHROUGH`), and a browser without H.264
+  (Firefox before its OpenH264 add-on, LibreWolf, Chromium without the licensed
+  codecs) decodes no frame. `StandaloneWatch` notices that after 12 s of visible
+  time and rejoins with `delivery: 'hls'` (SDK `lib/undecodableVideo.ts`).
 - One HLS egress per stream (2 s segments, one rendition at `HLS_VIDEO_BITRATE`),
   started by the first HLS viewer, stopped 5 minutes after the last one.
 - `HLS_PUBLIC_BASE` puts a CDN in front (origin = this API's `/rooms/:name/hls/*`).
@@ -625,6 +630,7 @@ value). Required ones have no default.
 | `HLS_VIEWER_THRESHOLD` | `50` | WebRTC viewers per stream before HLS. `0` = all HLS, empty = HLS off. |
 | `HLS_PUBLIC_BASE` | empty | CDN base for HLS; empty = this API. |
 | `HLS_WEAK_FALLBACK` | `true` | Poorly connected WebRTC viewers may ask for HLS. |
+| `OBS_PASSTHROUGH` | `true` | OBS streams that go live from a template keep OBS's H.264 (about 0.1 CPU core instead of one for re-encoding to VP8). Only while HLS and `HLS_WEAK_FALLBACK` are on, since viewers who can't show H.264 move to HLS. `false` = always re-encode. |
 | `HLS_VIDEO_BITRATE` | `2000` kbps | HLS rendition bitrate. |
 | `CAPTIONS_ENABLED` | `false` | Live caption slots. |
 | `CAPTIONS_MAX_STREAMS`, `CAPTIONS_SLOT_TTL_SEC` | `3`, `90` | Caption slots at once; slot lifetime without renewal. |
@@ -635,7 +641,13 @@ Read straight from the environment elsewhere (not in `config.ts`):
 |---|---|---|
 | `MAX_GUESTS_PER_ROOM` | `50` | WebRTC guest cap per room (`routes/rooms.ts`). |
 | `CHAT_BACKLOG_SIZE` | `300` | Lines kept per room (`lib/chatBacklog.ts`). |
-| `POINTS_START` | `1000` | Starting channel points (`lib/polls.ts`). |
+| `POINTS_START` | `1000` | Starting channel points (`lib/points.ts`). |
+| `POINTS_TTL_DAYS` | `90` | A balance untouched this long starts over at `POINTS_START`, logged as an `expire` movement. |
+| `POINTS_BOOST_MIN` | `2500` | The smallest boost paid with points. |
+| `POINTS_EARN_ENABLED` | `true` | `false` stops the once-a-minute watching and streaming points. |
+| `POINTS_BATCH_MIN` | `5` | Earnings are paid out and logged on Hive in batches this often. |
+| `POINTS_LOG_ACCOUNT` | `threespeak-pro` | Signs the custom_json points log. |
+| `POINTS_LOG_POSTING_KEY` | | Its posting key. Without it, the boost wallet's active key when it is the same account; without either, rows wait in Mongo. |
 | `RAID_COUNTDOWN_SEC`, `RAID_COOLDOWN_MIN` | `10`, `10` | Raid countdown and per-host cooldown (`lib/raids.ts`). |
 
 ## Mongo collections
@@ -651,7 +663,8 @@ All in the database named by `MONGODB_URI`. The server creates its indexes on fi
 | `studio-overlays` | A host's overlay templates. | 400 days after the last save |
 | `chat-backlog` | Recent chat lines per room (batched writes). | 1 day |
 | `stream-polls` | Finished polls and predictions. | 1 year |
-| `stream-points` | Channel points per viewer per host. | 1 year after the last change |
+| `points` | Channel points, one balance per Hive account. | none: a balance untouched for `POINTS_TTL_DAYS` is reset by a logged `expire` movement |
+| `points-ledger` | Every points movement (the wallet history), with the Hive tx that logged it. | 400 days |
 | `raid-settings` | "Accept raids" opt-out per host. | none |
 | `stream-highlights` | Highlight moments per room. | 30 days |
 | `stream-clips` | Kept clips (file on disk). | `CLIP_KEEP_HOURS` |

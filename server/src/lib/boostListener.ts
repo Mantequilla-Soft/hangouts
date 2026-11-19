@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { DataPacket_Kind } from '@livekit/protocol';
 import { utils } from '@hiveio/dhive';
 import type { RoomServiceClient } from 'livekit-server-sdk';
@@ -6,6 +7,7 @@ import { roomService } from './livekit.js';
 import { hiveClient } from './hive.js';
 import { getHiveUsdRate, hbdUsdRate } from './boostPricing.js';
 import {
+  boostDisplayMessage,
   parseBoostMemo,
   parseTransferAmount,
   splitBoostAmounts,
@@ -26,6 +28,7 @@ import {
 import { sendBoostPayout, sendBoostRefund } from './boostPayout.js';
 import { recordBoost } from './streamStats.js';
 import { recordBoostTally } from './boostGoals.js';
+import { POINTS_BOOST_MAX, POINTS_BOOST_MIN, POINTS_PER_HBD, applyPointsNow, earnForBoost, spendPoints } from './points.js';
 import { noteBoost } from './streamHighlights.js';
 import { recordBattleBoost } from './battles.js';
 
@@ -268,6 +271,8 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
     recordBoost(event.room, event.recipient, event.sender, event.usdAmount, event.message);
     // Highlight moments (H13): a boost spike suggests a clip.
     noteBoost(event.room, event.usdAmount);
+    // Channel points for the account that actually sent the money.
+    earnForBoost(input.from?.trim().toLowerCase() || memo.sender, usdAmount, memo.room);
   } catch (err) {
     await handleRejected(id, 'internal_error', log, err);
     return;
@@ -313,6 +318,85 @@ export async function processBoostTransfer(input: BoostTransferInput, log: (msg:
   } catch (err) {
     await handleRejected(id, 'payout_failed', log, err);
   }
+}
+
+export class PointsBoostError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+
+/**
+ * A boost paid with channel points: no money moves, nobody is paid. The points
+ * are spent (gone), the boost shows like any other (alert, history, the host's
+ * sound and read-aloud), but it does not count toward the HBD goal, the top
+ * supporters, a battle or the leaderboard, and earns no points back.
+ * POINTS_PER_HBD sets how big it looks and the host's "minimum to show".
+ */
+export async function processPointsBoost(input: {
+  room: string;
+  sender: string;
+  displayName?: string;
+  message: string;
+  amount: number;
+  recipient?: string;
+}, lk: RoomServiceClient = roomService): Promise<{ event: BoostEvent; balance: number }> {
+  const amount = Math.floor(Number(input.amount));
+  if (!Number.isFinite(amount) || amount < POINTS_BOOST_MIN) {
+    throw new PointsBoostError(400, `A points boost is at least ${POINTS_BOOST_MIN.toLocaleString('en-US')} points.`);
+  }
+  if (amount > POINTS_BOOST_MAX) throw new PointsBoostError(400, 'That is more points than one boost can take.');
+  const message = boostDisplayMessage(input.message);
+  if (!message) throw new PointsBoostError(400, 'Write a message for your boost.');
+
+  let meta: Record<string, unknown>;
+  try {
+    meta = await readRoomMetadata(input.room, lk);
+  } catch {
+    throw new PointsBoostError(404, 'This stream is not live.');
+  }
+  if (!boostEnabled(meta)) throw new PointsBoostError(409, 'The host switched boosts off.');
+  const hostAccount = payoutAccount(meta);
+  if (!hostAccount) throw new PointsBoostError(409, 'This stream cannot take boosts.');
+  const sender = input.sender.toLowerCase();
+  if (sender === hostAccount || sender === (typeof meta.host === 'string' ? meta.host.toLowerCase() : '')) {
+    throw new PointsBoostError(403, 'You cannot boost your own stream.');
+  }
+  const collabGuest = typeof meta.collabGuest === 'string' ? meta.collabGuest.trim().toLowerCase() : null;
+  const recipient = input.recipient && (input.recipient === hostAccount || input.recipient === collabGuest)
+    ? input.recipient
+    : hostAccount;
+
+  const balance = await spendPoints(sender, amount, input.room);
+  if (balance === null) throw new PointsBoostError(400, 'You do not have that many points.');
+
+  const usdAmount = Math.round((amount / POINTS_PER_HBD) * 1000) / 1000;
+  const minUsd = boostMinUsd(meta);
+  const now = Date.now();
+  const event: BoostEvent = {
+    type: 'boost',
+    id: `points-${now.toString(36)}-${randomBytes(4).toString('hex')}`,
+    room: input.room,
+    sender,
+    ...(input.displayName ? { displayName: input.displayName.slice(0, 64) } : {}),
+    message,
+    amount: String(amount),
+    asset: 'POINTS',
+    usdAmount,
+    feeAmount: '0',
+    payoutAmount: '0',
+    recipient,
+    txId: '',
+    blockNum: 0,
+    timestamp: now,
+    ...(minUsd > 0 && usdAmount < minUsd ? { belowMinimum: true } : {}),
+  };
+  try {
+    await publishBoost(input.room, event, lk);
+  } catch {
+    // Nothing reached the stream: give the points back.
+    await applyPointsNow(new Map([[sender, amount]]), 'refund', input.room).catch(() => undefined);
+    throw new PointsBoostError(503, 'The boost could not reach the stream. Your points are back.');
+  }
+  return { event, balance };
 }
 
 let started = false;

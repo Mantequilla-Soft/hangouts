@@ -18,6 +18,10 @@ import {
   type GoalPosition,
 } from '../../lib/boostGoals.js';
 
+import { playBoostChime, speakBoost } from '../../lib/boostChime.js';
+import { StudioSubtabs, type StudioSubtab } from './StudioSubtabs.js';
+import { BoostHistoryList } from './BoostHistoryPanel.js';
+
 const GOAL_POSITION_LABELS: Record<GoalPosition, string> = {
   bottom: 'Bottom',
   top: 'Top',
@@ -25,7 +29,9 @@ const GOAL_POSITION_LABELS: Record<GoalPosition, string> = {
   'bottom-right': 'Small, bottom right',
   'bottom-left': 'Small, bottom left',
 };
-import { playBoostChime, speakBoost } from '../../lib/boostChime.js';
+
+/** The panel's sub-tabs: the goal first, the history only in the studio. */
+type BoostSubtab = 'goal' | 'history' | 'alerts' | 'amounts';
 
 /** What PATCH /rooms/:name/boost takes. */
 export interface BoostSettingsUpdate {
@@ -70,8 +76,8 @@ interface Props {
   onClose: () => void;
   onSaved: (config: BoostRoomConfig) => void;
   /** In a panel of the host's page (the studio's Boosts tab) rather than a
-   *  floating dialog: no close button, Escape or outside click, and it stays
-   *  open after saving. */
+   *  floating dialog: no close button, Escape or outside click, it stays
+   *  open after saving, and it has a History tab (BoostHistoryList). */
   embedded?: boolean;
 }
 
@@ -97,6 +103,13 @@ export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [tab, setTab] = useState<BoostSubtab>('goal');
+  const tabs: StudioSubtab<BoostSubtab>[] = [
+    { id: 'goal', label: 'Goal' },
+    ...(embedded ? [{ id: 'history' as const, label: 'History' }] : []),
+    { id: 'alerts', label: 'Alerts' },
+    { id: 'amounts', label: 'Amounts' },
+  ];
 
   useEffect(() => {
     if (embedded) return undefined;
@@ -181,156 +194,170 @@ export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, 
           <button className="hh-boost-settings__close" onClick={onClose} aria-label="Close">✕</button>
         </div>
       )}
+      <StudioSubtabs tabs={tabs} active={tab} onChange={setTab} label="Boosts" />
+      {tab === 'history' ? (
+        <div className="hh-boost-settings__history">
+          <BoostHistoryList />
+        </div>
+      ) : (
       <div className="hh-boost-settings__body">
-        <label className="hh-boost-settings__row">
-          <span>Enable boosts</span>
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(e) => setEnabled(e.target.checked)}
-            disabled={saving}
-          />
-        </label>
-
-        <label className="hh-boost-settings__field">
-          <span className="hh-boost-settings__label">Minimum to show on screen (USD)</span>
-          <span className="hh-boost-settings__hint">Below this amount: host gets paid, message stays hidden. 0 = show all.</span>
-          <input
-            className="hh-boost-settings__input"
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="0.00"
-            value={minUsd}
-            onChange={(e) => setMinUsd(e.target.value)}
-            disabled={saving}
-          />
-        </label>
-
-        <label className="hh-boost-settings__field">
-          <span className="hh-boost-settings__label">Payout account (optional)</span>
-          <span className="hh-boost-settings__hint">Hive account that receives the host share. Defaults to your account.</span>
-          <input
-            className="hh-boost-settings__input"
-            type="text"
-            placeholder="your-hive-account"
-            value={payoutAccount}
-            onChange={(e) => setPayoutAccount(e.target.value)}
-            disabled={saving}
-          />
-        </label>
-
-        <div className="hh-boost-settings__section">
-          <span className="hh-boost-settings__section-title">Goal</span>
-          <span className="hh-boost-settings__hint">
-            Viewers see a bar filling up with the boosts paid to you on this stream. HIVE boosts count at their HBD value when they arrive. Leave the amount empty for no goal.
-          </span>
-          <label className="hh-boost-settings__field">
-            <span className="hh-boost-settings__label">What it's for</span>
-            <input
-              className="hh-boost-settings__input"
-              type="text"
-              maxLength={80}
-              placeholder="A new mic"
-              value={goalTitle}
-              onChange={(e) => setGoalTitle(e.target.value)}
-              disabled={saving}
-            />
-          </label>
-          <label className="hh-boost-settings__field">
-            <span className="hh-boost-settings__label">Goal amount (HBD)</span>
-            <input
-              className="hh-boost-settings__input"
-              type="number"
-              min="0"
-              step="0.001"
-              placeholder="50"
-              value={goalTarget}
-              onChange={(e) => setGoalTarget(e.target.value)}
-              disabled={saving}
-            />
-          </label>
-          <label className="hh-boost-settings__field">
-            <span className="hh-boost-settings__label">Where viewers see it</span>
-            <select
-              className="hh-boost-settings__input"
-              value={goalPosition}
-              onChange={(e) => setGoalPosition(e.target.value as GoalPosition)}
-              disabled={saving}
-            >
-              {GOAL_POSITIONS.map((p) => <option key={p} value={p}>{GOAL_POSITION_LABELS[p]}</option>)}
-            </select>
-          </label>
-        </div>
-
-        <div className="hh-boost-settings__section">
-          <span className="hh-boost-settings__section-title">On screen</span>
-          <label className="hh-boost-settings__row">
-            <span>Amount tiers</span>
-            <input type="checkbox" checked={tiers} onChange={(e) => setTiers(e.target.checked)} disabled={saving} />
-          </label>
-          <span className="hh-boost-settings__hint">
-            Bigger boosts stand out more and stay up longer: under 1 HBD 15 seconds, 1 to 5 HBD 30 seconds, 5 to 20 HBD 1 minute, 20 HBD and more 2 minutes. Off: every boost stays 30 seconds.
-          </span>
-        </div>
-
-        <div className="hh-boost-settings__section">
-          <span className="hh-boost-settings__section-title">Alerts in the studio</span>
-          <label className="hh-boost-settings__row">
-            <span>Play a sound for each boost</span>
-            <input type="checkbox" checked={sound} onChange={(e) => setSound(e.target.checked)} disabled={saving} />
-          </label>
-          <label className="hh-boost-settings__row">
-            <span>Read boosts aloud</span>
-            <input type="checkbox" checked={tts} onChange={(e) => setTts(e.target.checked)} disabled={saving} />
-          </label>
-          {tts && (
+        {tab === 'goal' && (
+          <>
+            <label className="hh-boost-settings__row">
+              <span>Enable boosts</span>
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(e) => setEnabled(e.target.checked)}
+                disabled={saving}
+              />
+            </label>
+            <div className="hh-boost-settings__section">
+              <span className="hh-boost-settings__hint">
+                Viewers see a bar filling up with the boosts paid to you on this stream. HIVE boosts count at their HBD value when they arrive. Leave the amount empty for no goal.
+              </span>
+              <label className="hh-boost-settings__field">
+                <span className="hh-boost-settings__label">What it's for</span>
+                <input
+                  className="hh-boost-settings__input"
+                  type="text"
+                  maxLength={80}
+                  placeholder="A new mic"
+                  value={goalTitle}
+                  onChange={(e) => setGoalTitle(e.target.value)}
+                  disabled={saving}
+                />
+              </label>
+              <label className="hh-boost-settings__field">
+                <span className="hh-boost-settings__label">Goal amount (HBD)</span>
+                <input
+                  className="hh-boost-settings__input"
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  placeholder="50"
+                  value={goalTarget}
+                  onChange={(e) => setGoalTarget(e.target.value)}
+                  disabled={saving}
+                />
+              </label>
+              <label className="hh-boost-settings__field">
+                <span className="hh-boost-settings__label">Where viewers see it</span>
+                <select
+                  className="hh-boost-settings__input"
+                  value={goalPosition}
+                  onChange={(e) => setGoalPosition(e.target.value as GoalPosition)}
+                  disabled={saving}
+                >
+                  {GOAL_POSITIONS.map((p) => <option key={p} value={p}>{GOAL_POSITION_LABELS[p]}</option>)}
+                </select>
+              </label>
+            </div>
+          </>
+        )}
+        {tab === 'alerts' && (
+          <>
+            <div className="hh-boost-settings__section">
+              <span className="hh-boost-settings__section-title">In the studio</span>
+              <label className="hh-boost-settings__row">
+                <span>Play a sound for each boost</span>
+                <input type="checkbox" checked={sound} onChange={(e) => setSound(e.target.checked)} disabled={saving} />
+              </label>
+              <label className="hh-boost-settings__row">
+                <span>Read boosts aloud</span>
+                <input type="checkbox" checked={tts} onChange={(e) => setTts(e.target.checked)} disabled={saving} />
+              </label>
+              {tts && (
+                <label className="hh-boost-settings__field">
+                  <span className="hh-boost-settings__label">Read aloud from (HBD)</span>
+                  <input
+                    className="hh-boost-settings__input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={ttsMin}
+                    onChange={(e) => setTtsMin(e.target.value)}
+                    disabled={saving}
+                  />
+                </label>
+              )}
+              <span className="hh-boost-settings__hint">They play on this device, not in the stream.</span>
+              {(sound || tts) && (
+                <button type="button" className="hh-btn hh-btn--secondary hh-btn--small hh-boost-settings__try" onClick={tryAlert}>
+                  Try it
+                </button>
+              )}
+            </div>
+            <div className="hh-boost-settings__section">
+              <span className="hh-boost-settings__section-title">On screen</span>
+              <label className="hh-boost-settings__row">
+                <span>Amount tiers</span>
+                <input type="checkbox" checked={tiers} onChange={(e) => setTiers(e.target.checked)} disabled={saving} />
+              </label>
+              <span className="hh-boost-settings__hint">
+                Bigger boosts stand out more and stay up longer: under 1 HBD 15 seconds, 1 to 5 HBD 30 seconds, 5 to 20 HBD 1 minute, 20 HBD and more 2 minutes. Off: every boost stays 30 seconds.
+              </span>
+            </div>
+          </>
+        )}
+        {tab === 'amounts' && (
+          <>
             <label className="hh-boost-settings__field">
-              <span className="hh-boost-settings__label">Read aloud from (HBD)</span>
+              <span className="hh-boost-settings__label">Minimum to show on screen (USD)</span>
+              <span className="hh-boost-settings__hint">Below this amount: host gets paid, message stays hidden. 0 = show all.</span>
               <input
                 className="hh-boost-settings__input"
                 type="number"
                 min="0"
                 step="0.01"
-                value={ttsMin}
-                onChange={(e) => setTtsMin(e.target.value)}
+                placeholder="0.00"
+                value={minUsd}
+                onChange={(e) => setMinUsd(e.target.value)}
                 disabled={saving}
               />
             </label>
-          )}
-          <span className="hh-boost-settings__hint">They play on this device, not in the stream.</span>
-          {(sound || tts) && (
-            <button type="button" className="hh-btn hh-btn--secondary hh-btn--small hh-boost-settings__try" onClick={tryAlert}>
-              Try it
-            </button>
-          )}
-        </div>
-
-        <label className="hh-boost-settings__field">
-          <span className="hh-boost-settings__label">Preset amounts</span>
-          <span className="hh-boost-settings__hint">
-            {`The quick picks in the viewers' boost dialog, up to ${MAX_BOOST_PRESETS}, separated by commas. Empty: ${DEFAULT_BOOST_PRESETS.join(', ')}.`}
-          </span>
-          <input
-            className="hh-boost-settings__input"
-            type="text"
-            inputMode="decimal"
-            placeholder={DEFAULT_BOOST_PRESETS.join(', ')}
-            value={presets}
-            onChange={(e) => setPresets(e.target.value)}
-            disabled={saving}
-          />
-        </label>
+            <label className="hh-boost-settings__field">
+              <span className="hh-boost-settings__label">Preset amounts</span>
+              <span className="hh-boost-settings__hint">
+                {`The quick picks in the viewers' boost dialog, up to ${MAX_BOOST_PRESETS}, separated by commas. Empty: ${DEFAULT_BOOST_PRESETS.join(', ')}.`}
+              </span>
+              <input
+                className="hh-boost-settings__input"
+                type="text"
+                inputMode="decimal"
+                placeholder={DEFAULT_BOOST_PRESETS.join(', ')}
+                value={presets}
+                onChange={(e) => setPresets(e.target.value)}
+                disabled={saving}
+              />
+            </label>
+            <label className="hh-boost-settings__field">
+              <span className="hh-boost-settings__label">Payout account (optional)</span>
+              <span className="hh-boost-settings__hint">Hive account that receives the host share. Defaults to your account.</span>
+              <input
+                className="hh-boost-settings__input"
+                type="text"
+                placeholder="your-hive-account"
+                value={payoutAccount}
+                onChange={(e) => setPayoutAccount(e.target.value)}
+                disabled={saving}
+              />
+            </label>
+          </>
+        )}
 
         {error && <p className="hh-boost-settings__error">{error}</p>}
         {saved && <p className="hh-boost-settings__saved">✓ Saved</p>}
       </div>
+      )}
+      {tab !== 'history' && (
       <div className="hh-boost-settings__footer">
         {!embedded && <button className="hh-btn hh-btn--secondary" onClick={onClose} disabled={saving}>Cancel</button>}
         <button className="hh-btn hh-btn--primary" onClick={save} disabled={saving}>
           {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
+      )}
     </div>
   );
   return embedded ? panel : createPortal(panel, document.body);

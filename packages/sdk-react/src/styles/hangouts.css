@@ -6079,44 +6079,74 @@
 
 /* --- Phone or tablet screen source (same WHIP ingress as OBS) --- */
 .hh-studio__phone-modal { max-height: 92vh; overflow-y: auto; }
-.hh-studio__phone-steps {
-  margin: 0 0.9rem 0.7rem;
-  padding-left: 1.2rem;
-}
-.hh-studio__phone-steps li { margin: 0.3rem 0; }
-.hh-studio__phone-qr {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  margin: 0 0.9rem 0.7rem;
-  font-size: 0.78rem;
-  opacity: 0.85;
-}
-/* Always black on white, whatever the theme: scanners need the contrast. */
-.hh-studio__phone-qr svg {
-  flex: none;
-  background: #fff;
-  border-radius: 6px;
-}
-@media (max-width: 480px) {
-  .hh-studio__phone-qr { flex-direction: column; align-items: flex-start; }
-}
-.hh-studio__phone-open { display: block; margin-top: 0.4rem; font-weight: 600; }
-.hh-studio__phone-tabs { display: flex; gap: 0.3rem; margin: 0 0.9rem 0.6rem; }
-.hh-studio__phone-tab {
+.hh-phone-guide { width: min(560px, calc(100vw - 32px)); }
+.hh-phone-guide__lead { margin: 0 0.9rem 0.6rem; font-size: 0.85rem; opacity: 0.85; }
+.hh-phone-guide__pick { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin: 0 0.9rem 0.4rem; }
+.hh-phone-guide__pick > div > span { display: block; margin-bottom: 0.25rem; font-size: 0.72rem; font-weight: 700; opacity: 0.7; }
+@media (max-width: 520px) { .hh-phone-guide__pick { grid-template-columns: 1fr; } }
+.hh-phone-guide__seg { display: flex; gap: 0.25rem; }
+.hh-phone-guide__opt {
   flex: 1;
-  padding: 0.4rem 0.6rem;
+  padding: 0.4rem 0.3rem;
   border: 1px solid var(--st-border, rgba(255, 255, 255, 0.12));
   border-radius: 9px;
   background: transparent;
   color: inherit;
   opacity: 0.7;
+  font-size: 0.8rem;
   font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
 }
-.hh-studio__phone-warn { font-weight: 700; }
-.hh-studio__phone-tab--active { opacity: 1; border-color: var(--st-accent, var(--hh-primary)); }
-.hh-studio__phone-field { display: block; margin: 0 0.9rem 0.2rem; font-size: 0.78rem; opacity: 0.75; }
+.hh-phone-guide__opt--on { opacity: 1; border-color: var(--st-accent, var(--hh-primary)); }
+.hh-phone-guide__section { margin: 0.5rem 0.9rem 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--st-border, rgba(255, 255, 255, 0.1)); }
+.hh-phone-guide__section h4 { margin: 0 0 0.5rem; font-size: 0.9rem; }
+.hh-phone-guide__steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+.hh-phone-guide__step { display: flex; gap: 0.6rem; align-items: flex-start; }
+.hh-phone-guide__num {
+  flex: none;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 0.3rem;
+  box-sizing: border-box;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--st-accent, var(--hh-primary));
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+.hh-phone-guide__step--alt .hh-phone-guide__num {
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--st-border, rgba(255, 255, 255, 0.2));
+  font-size: 0.66rem;
+  font-weight: 700;
+  opacity: 0.8;
+}
+.hh-phone-guide__step--alt { opacity: 0.85; }
+.hh-phone-guide__body { flex: 1; display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; font-size: 0.82rem; line-height: 1.4; }
+.hh-phone-guide__body > strong { font-size: 0.86rem; }
+.hh-phone-guide__body > a { font-weight: 700; }
+.hh-phone-guide__code {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+  padding: 0.3rem 0.3rem 0.3rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+}
+.hh-phone-guide__code code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+}
+.hh-phone-guide__share { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; font-size: 0.82rem; }
 
 /* The OBS ingest <video>. Must be a real, laid-out element in the document —
    Firefox won't decode a detached one — so it's hidden with opacity rather
@@ -7879,8 +7909,6 @@
 /* Leading symbols in studio labels sit in their own element (so an integrator
    can swap them for its icon set); this keeps the space the text used to have. */
 .hh-studio__icon { display: inline-block; margin-right: 0.35em; }
-.hh-studio__boost-history-btn .hh-studio__icon,
-.hh-studio__boost-settings-btn:not(.hh-studio__boost-settings-btn--off) .hh-studio__icon { margin-right: 0; }
 
 /* The throttling warning at the top of the scenes rail (desktop): full rail
    width instead of centred in the header. */

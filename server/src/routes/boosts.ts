@@ -1,6 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { config } from '../config.js';
-import { processBoostTransfer } from '../lib/boostListener.js';
+import { PointsBoostError, processBoostTransfer, processPointsBoost } from '../lib/boostListener.js';
+import { POINTS_BOOST_MIN, POINTS_PER_HBD } from '../lib/points.js';
+import { requireAuth } from '../middleware/requireAuth.js';
+import { checkBan } from '../middleware/checkBan.js';
 import { listBoostLedger } from '../lib/boostLedger.js';
 
 export const boostRoutes: FastifyPluginAsync = async (fastify) => {
@@ -56,7 +59,45 @@ export const boostRoutes: FastifyPluginAsync = async (fastify) => {
       enabled: config.BOOSTS_ENABLED,
       platformAccount: config.BOOST_PLATFORM_ACCOUNT,
       feePercent: config.BOOST_PLATFORM_FEE_PERCENT,
+      // Boosts paid with channel points (no money, no wallet needed).
+      points: { min: POINTS_BOOST_MIN, perHbd: POINTS_PER_HBD },
     });
+  });
+
+  // A boost paid with the signed-in account's channel points.
+  fastify.post('/rooms/:name/boosts/points', {
+    preHandler: [requireAuth, checkBan],
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    schema: {
+      params: { type: 'object', required: ['name'], properties: { name: { type: 'string', maxLength: 128 } } },
+      body: {
+        type: 'object',
+        required: ['amount', 'message'],
+        properties: {
+          amount: { type: 'integer', minimum: 1 },
+          message: { type: 'string', minLength: 1, maxLength: 280 },
+          displayName: { type: 'string', maxLength: 64 },
+          recipient: { type: 'string', maxLength: 16 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { name } = request.params as { name: string };
+    const body = request.body as { amount: number; message: string; displayName?: string; recipient?: string };
+    try {
+      const { event, balance } = await processPointsBoost({
+        room: name,
+        sender: request.username,
+        displayName: body.displayName,
+        message: body.message,
+        amount: body.amount,
+        recipient: body.recipient?.toLowerCase(),
+      });
+      return reply.code(201).send({ boost: event, balance });
+    } catch (err) {
+      if (err instanceof PointsBoostError) return reply.code(err.status).send({ message: err.message });
+      throw err;
+    }
   });
 
   fastify.get('/boosts/ledger', {
