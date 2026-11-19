@@ -29,6 +29,7 @@ describe('validateTemplateInput', () => {
     expect(r.slug).toBe('morning-show');
     expect(r.value.visibility).toBe('public');
     expect(r.value.boost.creatorPayoutAccount).toBe('alice');
+    expect(r.value.boost.goal).toBeNull();
     expect(r.value.recording).toEqual({ publishVod: false, allowClips: false });
     expect(r.value.announce.enabled).toBe(false);
   });
@@ -46,6 +47,10 @@ describe('validateTemplateInput', () => {
     [{ thumbnail: 'javascript:alert(1)' }, 'thumbnail'],
     [{ boost: { minBoostUsd: -1 } }, 'minBoostUsd'],
     [{ boost: { creatorPayoutAccount: 'Not A Name' } }, 'creatorPayoutAccount'],
+    [{ boost: { goal: { title: 'mic', targetHbd: 0 } } }, 'targetHbd'],
+    [{ boost: { goal: { title: 'x'.repeat(81), targetHbd: 5 } } }, 'goal.title'],
+    [{ boost: { goal: { targetHbd: 5, position: 'middle' } } }, 'goal.position'],
+    [{ boost: { goal: 'big' } }, 'boost.goal'],
     [{ recording: { publishVod: 'yes' } }, 'publishVod'],
     [{ announce: { community: 'my-community' } }, 'community'],
     [{ name: '🔥' }, 'letter or digit'],
@@ -90,3 +95,14 @@ describe('validateTemplateInput', () => {
     expect(r.ok && r.value.boost.creatorPayoutAccount).toBe('alice');
   });
 });
+
+describe('the template boost goal', () => {
+  it('keeps a goal (top right unless placed), and null removes it', () => {
+    const a = valid({ boost: { goal: { title: '  A new   mic ', targetHbd: 50.12345 } } });
+    expect(a.ok && a.value.boost.goal).toEqual({ title: 'A new mic', targetHbd: 50.123, position: 'top-right' });
+    const b = valid({ boost: { goal: { title: '', targetHbd: 5, position: 'bottom-left' } } });
+    expect(b.ok && b.value.boost.goal).toEqual({ title: '', targetHbd: 5, position: 'bottom-left' });
+    expect(valid({ boost: { goal: null } }).ok).toBe(true);
+  });
+});
+

@@ -1,4 +1,8 @@
 import { LANGUAGE_RE, ROOM_VISIBILITIES, type RoomVisibility } from './streamRoom.js';
+import { GOAL_POSITIONS, MAX_GOAL_HBD, MAX_GOAL_TITLE, isGoalPosition, type GoalPosition } from './boostGoals.js';
+
+/** Where a template's goal bar goes when it names no place: the studio's default. */
+const DEFAULT_GOAL_POSITION: GoalPosition = 'top-right';
 
 /**
  * Stream templates: validation + slug rules (pure — no I/O, unit-tested).
@@ -20,7 +24,13 @@ export interface TemplateFields {
   tags: string[];
   language: string;
   visibility: RoomVisibility;
-  boost: { enabled: boolean; minBoostUsd: number; creatorPayoutAccount: string };
+  boost: {
+    enabled: boolean;
+    minBoostUsd: number;
+    creatorPayoutAccount: string;
+    /** The goal bar every stream from this template starts with, or none. */
+    goal: { title: string; targetHbd: number; position: GoalPosition } | null;
+  };
   recording: { publishVod: boolean; allowClips: boolean };
   announce: {
     enabled: boolean;
@@ -63,7 +73,7 @@ export function defaultTemplateFields(owner: string): Omit<TemplateFields, 'name
     tags: [],
     language: '',
     visibility: 'public',
-    boost: { enabled: true, minBoostUsd: 0, creatorPayoutAccount: owner },
+    boost: { enabled: true, minBoostUsd: 0, creatorPayoutAccount: owner, goal: null },
     recording: { publishVod: false, allowClips: false },
     announce: {
       enabled: false,
@@ -181,6 +191,24 @@ export function validateTemplateInput(
       if (acct && !HIVE_ACCOUNT_RE.test(acct)) return fail('boost.creatorPayoutAccount must be a Hive account name');
       // Empty means "me", same as POST /rooms.
       out.boost.creatorPayoutAccount = acct || owner;
+    }
+    // The same rules as the live goal (PATCH /rooms/:name/boost): null removes it.
+    if (b.goal !== undefined) {
+      if (b.goal === null) {
+        out.boost.goal = null;
+      } else {
+        if (!isObj(b.goal)) return fail('boost.goal must be an object or null');
+        const g = b.goal;
+        const title = typeof g.title === 'string' ? g.title.replace(/\s+/g, ' ').trim() : '';
+        if (g.title !== undefined && typeof g.title !== 'string') return fail('boost.goal.title must be a string');
+        if (title.length > MAX_GOAL_TITLE) return fail(`boost.goal.title must be at most ${MAX_GOAL_TITLE} characters`);
+        if (typeof g.targetHbd !== 'number' || !Number.isFinite(g.targetHbd) || g.targetHbd <= 0 || g.targetHbd > MAX_GOAL_HBD) {
+          return fail('boost.goal.targetHbd must be a number above 0');
+        }
+        const position = g.position ?? DEFAULT_GOAL_POSITION;
+        if (!isGoalPosition(position)) return fail(`boost.goal.position must be one of ${GOAL_POSITIONS.join(', ')}`);
+        out.boost.goal = { title, targetHbd: Math.round(g.targetHbd * 1000) / 1000, position };
+      }
     }
   }
 
