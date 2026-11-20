@@ -21,7 +21,7 @@ import { useChat } from '../../hooks/useChat.js';
 import { MobileSheet } from './MobileSheet.js';
 import {
   IconAspect, IconAudio, IconBoost, IconChat, IconCheck, IconFlipCamera, IconGuest,
-  IconMirror, IconBroadcast, IconPause, IconPlay, IconPost, IconRotate, IconShare, IconStop, IconZoomIn, IconZoomOut,
+  IconBroadcast, IconPause, IconPlay, IconPost, IconRotate, IconShare, IconStop, IconZoomIn, IconZoomOut,
 } from './StudioIcons.js';
 import { BoostOverlay } from './BoostOverlay.js';
 import { useBoostStore } from '../../hooks/useBoosts.js';
@@ -48,7 +48,7 @@ import { useVerticalOutput } from '../../hooks/useVerticalOutput.js';
 import { VerticalCropBox, VerticalSettings } from './VerticalCropBox.js';
 import { STUDIO_PROGRAM_TRACK, STUDIO_VERTICAL_TRACK, followTarget, sceneRegions } from '../../lib/verticalCrop.js';
 import { useStreamHealth } from '../../hooks/useStreamHealth.js';
-import { StreamHealthPanel, StreamHealthDetails } from './StreamHealthPanel.js';
+import { StreamHealthPanel, StreamHealthDetails, StreamHealthRailButton } from './StreamHealthPanel.js';
 import { StudioSubtabs } from './StudioSubtabs.js';
 import { useStudioCaptions, type StudioCaptionsOptions } from '../../hooks/useStudioCaptions.js';
 import { LiveCaptionsToggle } from './LiveCaptionsToggle.js';
@@ -1178,7 +1178,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const isMobile = useIsMobile(PHONE_STUDIO_QUERY);
   const isMobileRef = useRef(isMobile);
   isMobileRef.current = isMobile;
-  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests' | 'settings' | 'live';
+  type MobileSheetId = 'chat' | 'post' | 'mic' | 'lens' | 'share' | 'guests' | 'settings' | 'live' | 'view';
   const [mobileSheet, setMobileSheet] = useState<MobileSheetId | null>(null);
 
   // Going live locks the post, and chat is what the host needs from then on:
@@ -1267,10 +1267,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   }, [streamState, isPremium, roomName, allowClips]);
   // Stop the recording (and its egress) when the studio goes away.
   useEffect(() => () => { if (dvrAutoRef.current) void dvrStopRef.current(); }, []);
-  // Mobile header starts COLLAPSED to a minimal bar (state + views + close) so
-  // it barely eats into the preview; the ⚠️ toggle expands it to reveal the
-  // "keep the screen on" warning.
-  const [headerOpen, setHeaderOpen] = useState(false);
   // Phones shoot both ways. The whole compositor (preview canvas, program
   // canvas, published track) swaps to 9:16 rather than letterboxing a portrait
   // camera into a landscape frame.
@@ -1312,6 +1308,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       chat: Math.round(vh * 0.62), post: Math.round(vh * 0.92),
       mic: Math.round(vh * 0.5), lens: Math.round(vh * 0.5), share: Math.round(vh * 0.42),
       guests: Math.round(vh * 0.45), settings: Math.round(vh * 0.75), live: Math.round(vh * 0.7),
+      view: Math.round(vh * 0.5),
     };
   });
 
@@ -3293,7 +3290,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const overlayLayersRef = useRef<OverlayLayerList | null>(null);
   if (!overlayLayersRef.current) overlayLayersRef.current = new OverlayLayerList();
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
-  const [overlaysOpen, setOverlaysOpen] = useState(false);
   const lpName = localParticipant?.name && localParticipant.name !== localParticipant.identity
     ? localParticipant.name : (localParticipant?.identity ? `@${localParticipant.identity}` : '');
   const overlays = useStudioOverlays({
@@ -4147,6 +4143,49 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // Settings tab (desktop rail) / sheet (phone): broadcast quality, what the
   // encoder gives up under load, and the Pro recording + clip switches. Kept
   // out of the post tab, which locks once the stream is live.
+  // Phone: Mirror and the stream's shape behind one button (View). The shape is
+  // set before going live: viewers and the post are told it once.
+  const renderViewSheet = () => (
+    <div className="hh-post hh-settings">
+      <div className="hh-settings__group">
+        <div className="hh-settings__title">Mirror</div>
+        <button
+          type="button"
+          className={`hh-optsheet__opt${camMirror ? ' hh-optsheet__opt--on' : ''}`}
+          disabled={!camOn}
+          aria-pressed={camMirror}
+          onClick={toggleCamMirror}
+        >
+          <span className="hh-optsheet__opt-label">Mirror the camera{camMirror ? ' ✓' : ''}</span>
+          <span className="hh-optsheet__opt-desc">The selfie view. Text on screen is never mirrored.</span>
+        </button>
+      </div>
+      <div className="hh-settings__group">
+        <div className="hh-settings__title">Stream shape</div>
+        {streamState === 'standby' ? (
+          <>
+            {([[true, 'Upright', 'A tall picture, like a short.'], [false, 'Sideways', 'A wide picture: turn the phone sideways.']] as const).map(([up, label, desc]) => (
+              <button
+                key={label}
+                type="button"
+                className={`hh-optsheet__opt${portrait === up ? ' hh-optsheet__opt--on' : ''}`}
+                aria-pressed={portrait === up}
+                onClick={() => { if (portrait !== up) { setMobileSheet(null); void rotateStudio(); } }}
+              >
+                <span className="hh-optsheet__opt-label">{label}{portrait === up ? ' ✓' : ''}</span>
+                <span className="hh-optsheet__opt-desc">{desc}</span>
+              </button>
+            ))}
+          </>
+        ) : (
+          <p className="hh-settings__intro">
+            {portrait ? 'This stream is upright.' : 'This stream is sideways.'} The shape is set before going live.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+
   const renderSettings = () => (
     <div className="hh-post hh-settings">
       <StudioSubtabs
@@ -4157,6 +4196,12 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
       />
       {settingsTab === 'quality' && (
         <>
+          {isMobile && (
+            <div className="hh-settings__group">
+              <div className="hh-settings__title">Connection</div>
+              <StreamHealthDetails state={health} />
+            </div>
+          )}
           <div className="hh-settings__group">
             <div className="hh-settings__title"><span className="hh-settings__icon hh-settings__icon--quality" aria-hidden="true">📶</span>Broadcast quality</div>
             <p className="hh-settings__intro">Higher quality looks better but needs more upload. Change it any time, it applies live.</p>
@@ -4542,14 +4587,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // Browsers throttle hidden tabs (timers, rAF), which stalls the compositor,
   // so this stays in the host's eyeline and can't be dismissed. Desktop: at the
   // top of the scenes rail, short; in the header when the rail is collapsed.
-  // Mobile: inside the expandable header (the ⚠️ toggle is the persistent cue).
+  // Mobile: written out in the header, between the state and the close button.
   const warnInRail = !isMobile && !leftCollapsed;
   const throttleWarning = (
     <span className={`hh-studio__warn${warnInRail ? ' hh-studio__warn--rail' : ''}`} role="alert">
-      <span className="hh-studio__warn-icon" aria-hidden="true">⚠️</span>
+      {!isMobile && <span className="hh-studio__warn-icon" aria-hidden="true">⚠️</span>}
       <span className="hh-studio__warn-text">
         {isMobile
-          ? 'Keep this screen on and stay in the app — locking the phone or switching apps stops your stream.'
+          ? 'Keep this screen on and stay in the app, or your stream stops.'
           : 'Keep this browser tab and browser in front, or your stream will stutter.'}
       </span>
     </span>
@@ -4557,7 +4602,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
 
   return (
     <div className="hh-studio">
-      <header className={`hh-studio__header${isMobile ? ' hh-studio__header--mobile' : ''}${isMobile && !headerOpen ? ' hh-studio__header--collapsed' : ''}`}>
+      <header className={`hh-studio__header${isMobile ? ' hh-studio__header--mobile' : ''}`}>
         {/* Mobile: just the dot/symbol — no word — to keep the header slim. */}
         <span className={`hh-studio__live${stateBadge.cls}`} title={stateBadge.tip}>
           {stateBadge.symbol}{!isMobile && ` ${stateBadge.word}`}
@@ -4567,7 +4612,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             static; the modifier class colours + fills them by quality. */}
         {/* H20: the pill opens the stream health panel (bitrate, frame rate,
             dropped frames, loss, what viewers get, Auto quality). */}
-        {(connQuality !== ConnectionQuality.Unknown || health.health) && (
+        {!isMobile && (connQuality !== ConnectionQuality.Unknown || health.health) && (
           <StreamHealthPanel
             badge={connBadge}
             showLabel={!isMobile || connBad}
@@ -4581,9 +4626,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             knows their own stream) — desktop keeps it. */}
         {!isMobile && <h2 className="hh-studio__title">{title}</h2>}
         {/* Browsers throttle timers/rAF in hidden tabs, stalling the compositor
-            — the host has to know. Always up on desktop; on mobile it lives
-            inside the expandable header (the ⚠️ toggle is the persistent cue). */}
-        {(isMobile ? headerOpen : !warnInRail) && throttleWarning}
+            — the host has to know. Always up: written out in the phone header,
+            in the header or the scenes rail on desktop. */}
+        {(isMobile || !warnInRail) && throttleWarning}
         <div className="hh-studio__header-actions">
           {(streamState === 'live' || streamState === 'paused') && streamStartedAtRef.current != null && (() => {
             const cap = resolveStreamCap(isPremium);
@@ -4600,54 +4645,11 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             );
           })()}
           {isMobile ? (
-            /* Compact icon buttons — a full dropdown makes the live header too
-               tall on a phone. The buttons stay put; collapsing only tucks away
-               the "keep the screen on" warning row. Each picker opens a bottom
-               popup with explanations. */
-            <>
-              {/* Viewer count — a button for visual consistency; tapping does
-                  nothing (there's no viewer list to open here). */}
-              <button className="hh-studio__hbtn hh-studio__hbtn--static hh-studio__hbtn--views" type="button" title="Viewers watching" aria-label={`${viewerCount} watching`}>
-                👁<span className="hh-studio__hbtn-val">{viewerCount}</span>
-              </button>
-              <button
-                className={`hh-studio__hbtn${overlaysOpen ? ' hh-studio__hbtn--on' : ''}`}
-                onClick={() => setOverlaysOpen((v) => !v)}
-                title="Overlays: lower third, ticker, countdown, be right back"
-                aria-label="Overlays"
-              >
-                <span className="hh-studio__hbtn-aa" aria-hidden="true">Aa</span>
-              </button>
-              <button
-                className={`hh-studio__hbtn${mobileSheet === 'settings' ? ' hh-studio__hbtn--on' : ''}`}
-                onClick={() => setMobileSheet((v) => (v === 'settings' ? null : 'settings'))}
-                title="Stream settings"
-                aria-label="Stream settings"
-              >
-                ⚙️<span className="hh-studio__hbtn-val">{QUALITY_OPTIONS.find((o) => o.value === streamQuality)?.short}</span>
-              </button>
-              {/* Persistent ⚠️ cue while collapsed — also expands the warning. */}
-              {!headerOpen && (
-                <button
-                  className="hh-studio__hbtn"
-                  onClick={() => setHeaderOpen(true)}
-                  title="Show the stream warning"
-                  aria-label="Show the stream warning"
-                >
-                  ⚠️
-                </button>
-              )}
-              {/* Expand/collapse the warning row. */}
-              <button
-                className="hh-studio__hbtn"
-                onClick={() => setHeaderOpen((v) => !v)}
-                title={headerOpen ? 'Hide the warning' : 'Show the warning'}
-                aria-label={headerOpen ? 'Collapse header' : 'Expand header'}
-                aria-expanded={headerOpen}
-              >
-                {headerOpen ? '▴' : '▾'}
-              </button>
-            </>
+            /* The phone header is the state, the warning and ✕ (plus the
+               viewer count once live); every control is on the rails. */
+            streamState !== 'standby' && (
+              <span className="hh-studio__viewers" title="Viewers watching"><span className="hh-studio__viewers-icon" aria-hidden="true">👁</span>{viewerCount}</span>
+            )
           ) : (
             <>
               <span className="hh-studio__viewers" title="Viewers watching"><span className="hh-studio__viewers-icon" aria-hidden="true">👁</span>{viewerCount}</span>
@@ -4771,28 +4773,31 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               <IconFlipCamera />
               <span className="hh-studio__rbtn-label">Flip</span>
             </button>
+            {/* Mirror and the stream's shape (Rotate) share one popup. */}
             <button
-              className={`hh-studio__rbtn${camMirror ? ' hh-studio__rbtn--on' : ''}`}
-              onClick={toggleCamMirror}
-              disabled={!camOn}
-              title={camMirror
-                ? 'Turn off the mirrored (selfie) view — text on screen is never mirrored'
-                : 'Mirror the camera image (selfie view) — text on screen stays unmirrored'}
+              className={`hh-studio__rbtn${mobileSheet === 'view' ? ' hh-studio__rbtn--on' : ''}`}
+              onClick={() => setMobileSheet((v) => (v === 'view' ? null : 'view'))}
+              title="Mirror the camera, stream upright or sideways"
             >
-              <IconMirror />
-              <span className="hh-studio__rbtn-label">Mirror</span>
+              <IconRotate />
+              <span className="hh-studio__rbtn-label">View</span>
             </button>
-            {/* The stream's shape is set before going live: viewers and the
-                post are told it once, at the start. */}
-            {streamState === 'standby' && (
+            {/* Connection bars: stream health and the quality settings. */}
+            <StreamHealthRailButton
+              badge={connBadge}
+              known={connQuality !== ConnectionQuality.Unknown}
+              state={health}
+              active={mobileSheet === 'settings'}
+              onClick={() => setMobileSheet((v) => (v === 'settings' ? null : 'settings'))}
+            />
+            {shareUrl && (
               <button
-                className={`hh-studio__rbtn${portrait ? '' : ' hh-studio__rbtn--on'}`}
-                onClick={() => { void rotateStudio(); }}
-                aria-pressed={!portrait}
-                title={portrait ? 'Stream in landscape (turn the phone sideways)' : 'Stream upright (portrait)'}
+                className={`hh-studio__rbtn${mobileSheet === 'share' ? ' hh-studio__rbtn--on' : ''}`}
+                onClick={() => setMobileSheet((v) => (v === 'share' ? null : 'share'))}
+                title="Share this stream"
               >
-                <IconRotate />
-                <span className="hh-studio__rbtn-label">{portrait ? 'Rotate' : 'Upright'}</span>
+                <IconShare />
+                <span className="hh-studio__rbtn-label">Share</span>
               </button>
             )}
           </div>
@@ -4822,14 +4827,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               )}
               <span className="hh-studio__rbtn-label">Chat</span>
             </button>
-            {/* Polls, predictions, raids and the live battle (StudioLivePanel). */}
+            {/* Polls, the overlays, raids and the live battle (StudioLivePanel). */}
             <button
               className={`hh-studio__rbtn${mobileSheet === 'live' || battleOpen ? ' hh-studio__rbtn--on' : ''}${battle.onAir ? ' hh-studio__rbtn--live' : ''}`}
               onClick={() => setMobileSheet((v) => (v === 'live' ? null : 'live'))}
-              title="Polls, predictions, raids and battles"
+              title="Polls, overlays, raids and battles"
             >
               <IconLive />
-              <span className="hh-studio__rbtn-label">Live</span>
+              <span className="hh-studio__rbtn-label">Polls</span>
             </button>
             {/* Unlisted streams are never announced — no post to write. */}
             {!isUnlisted && (
@@ -4856,16 +4861,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                   </span>
                 )}
                 <span className="hh-studio__rbtn-label">Guests</span>
-              </button>
-            )}
-            {shareUrl && (
-              <button
-                className={`hh-studio__rbtn${mobileSheet === 'share' ? ' hh-studio__rbtn--on' : ''}`}
-                onClick={() => setMobileSheet((v) => (v === 'share' ? null : 'share'))}
-                title="Share this stream"
-              >
-                <IconShare />
-                <span className="hh-studio__rbtn-label">Share</span>
               </button>
             )}
             {isPremium && (
@@ -4916,8 +4911,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 : mobileSheet === 'lens' ? 'Camera'
                 : mobileSheet === 'share' ? 'Share this stream'
                 : mobileSheet === 'guests' ? 'Requests to join'
-                : mobileSheet === 'settings' ? 'Stream settings'
-                : mobileSheet === 'live' ? 'Polls and raids' : 'Microphone'}
+                : mobileSheet === 'settings' ? 'Quality and settings'
+                : mobileSheet === 'view' ? 'Mirror and rotate'
+                : mobileSheet === 'live' ? 'Polls and overlays' : 'Microphone'}
               onClose={() => setMobileSheet(null)}
               height={sheetH[mobileSheet]}
               onHeightChange={(h) => setSheetH((prev) => ({ ...prev, [mobileSheet]: h }))}
@@ -4927,7 +4923,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               {mobileSheet === 'chat' && <ChatPanel readOnly readOnlyNotice="" />}
               {mobileSheet === 'post' && renderPostEditor(false)}
               {mobileSheet === 'settings' && renderSettings()}
-              {mobileSheet === 'live' && <StudioLivePanel roomName={roomName} battle={liveBattle} />}
+              {mobileSheet === 'live' && (
+                <StudioLivePanel
+                  roomName={roomName}
+                  battle={liveBattle}
+                  overlays={<StudioOverlaysPanel api={overlays} streamState={streamState} onClose={() => setMobileSheet(null)} embedded />}
+                />
+              )}
+              {mobileSheet === 'view' && renderViewSheet()}
               {mobileSheet === 'guests' && (
                 <div className="hh-guests">
                   {collabError && <p className="hh-guests__error">{collabError}</p>}
@@ -5626,7 +5629,6 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         </div>
       )}
 
-      {overlaysOpen && <StudioOverlaysPanel api={overlays} streamState={streamState} onClose={() => setOverlaysOpen(false)} />}
       {battleOpen && (
         <BattlePanel
           battle={battle}

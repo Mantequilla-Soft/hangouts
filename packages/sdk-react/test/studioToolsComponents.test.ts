@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { StreamHealthPanel, StreamHealthDetails } from '../src/components/room/StreamHealthPanel.js';
+import { StreamHealthPanel, StreamHealthDetails, StreamHealthRailButton } from '../src/components/room/StreamHealthPanel.js';
 import { VerticalSettings } from '../src/components/room/VerticalCropBox.js';
 import { StudioOverlaysPanel } from '../src/components/room/StudioOverlaysPanel.js';
 import type { StreamHealthState } from '../src/hooks/useStreamHealth.js';
@@ -52,6 +52,33 @@ describe('StreamHealthPanel', () => {
     const html = renderToStaticMarkup(h(StreamHealthDetails, { state: healthState() }));
     expect(html).toContain('Measuring');
     expect(html).toContain('Auto quality');
+  });
+});
+
+describe('StreamHealthRailButton (phone studio)', () => {
+  const rail = (over: Record<string, unknown> = {}) => renderToStaticMarkup(h(StreamHealthRailButton, {
+    badge: goodBadge, known: true, state: healthState(), active: false, onClick: vi.fn(), ...over,
+  }));
+  it('is a rail button with the bars as its glyph and no Good/Weak word', () => {
+    const html = rail();
+    expect(html).toContain('hh-studio__rbtn');
+    expect(html).toContain('>Quality<');
+    expect(html).not.toContain('>Good<');
+    expect(html.match(/fill:#27c093/g)).toHaveLength(3);
+    expect(html).toContain('aria-label="Connection: Good. Stream health and quality"');
+  });
+  it('lights two amber bars and pulses when our own reading is weak, with a dot for a lowered quality', () => {
+    const html = rail({ state: healthState({ level: 1, assessment: { verdict: 'weak', reasons: ['5% of packets lost'], cpu: false } }) });
+    expect(html.match(/fill:#f1c40f/g)).toHaveLength(2);
+    expect(html).toContain('hh-studio__rbtn-conn--poor');
+    expect(html).toContain('hh-studio__rbtn-dot');
+    expect(html).toContain('5% of packets lost');
+  });
+  it('stays grey until there is a reading, and shows when its sheet is open', () => {
+    const html = rail({ known: false, active: true });
+    expect(html).not.toMatch(/fill:#/);
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('hh-studio__rbtn--on');
   });
 });
 
