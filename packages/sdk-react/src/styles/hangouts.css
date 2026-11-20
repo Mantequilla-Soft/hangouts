@@ -6269,6 +6269,48 @@
    fits inside instead. */
 .hh-studio__canvas--contain { object-fit: contain; }
 
+/* Full screen on a phone, upright or sideways: the picture fills the screen
+   edge to edge (the frame's fitted 16:9 / 9:16 size is set inline, hence the
+   !important) and the header floats over it instead of taking a row of its
+   own. Everything along the top starts under it (--hh-phone-head). */
+.hh-studio { --hh-phone-head: 3.25rem; }
+.hh-studio__header--mobile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 45;
+  box-sizing: border-box;
+  min-height: var(--hh-phone-head);
+  padding: 6px max(0.5rem, env(safe-area-inset-right, 0px)) 6px max(0.5rem, env(safe-area-inset-left, 0px));
+  border-bottom: 0;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  /* Taps between its buttons reach the picture (tap to start the camera). */
+  pointer-events: none;
+}
+.hh-studio__header--mobile > * { pointer-events: auto; }
+.hh-studio__body--mobile .hh-studio__frame {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0;
+}
+.hh-studio__body--mobile .hh-studio__merror { top: var(--hh-phone-head); }
+.hh-studio__body--mobile .hh-studio__preflight { top: calc(var(--hh-phone-head) + 0.25rem); }
+.hh-studio__body--mobile .hh-boost-goal--pos-top,
+.hh-studio__body--mobile .hh-boost-goal--pos-top-right,
+.hh-studio__body--mobile .hh-battle-bar--overlay { top: calc(var(--hh-phone-head) + 8px); }
+/* The header's corner is taken: bottom centre, between the two rails. */
+.hh-studio__body--mobile .hh-studio__preview-tag {
+  top: auto;
+  right: auto;
+  left: 50%;
+  bottom: max(3.75rem, calc(0.75rem + env(safe-area-inset-bottom, 0px)));
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
 /* --- mobile action rail (structure only) ----------------------------------
    The VISUAL treatment is supplied by the integrator so it can match the host
    app — preview-3speak skins these classes with the same mixins its shorts
@@ -6301,34 +6343,8 @@
    icon tiles (the label stays as the tooltip). The panels they open are
    popups beside that column instead of bottom sheets (see .hh-sheet below). */
 @media (orientation: landscape) and (max-height: 500px) {
-  /* Height of the header floating over the picture: everything along the top
-     border starts under it. */
-  .hh-studio { --hh-land-head: 3.25rem; }
-  /* Full screen: the picture fills the phone edge to edge (a 20:9 screen crops
-     a sliver of the 16:9 frame top and bottom, as portrait does at the sides)
-     and the header floats over it instead of taking a row of its own. */
-  .hh-studio__header--mobile {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 45;
-    box-sizing: border-box;
-    min-height: var(--hh-land-head);
-    padding: 6px max(0.5rem, env(safe-area-inset-right, 0px)) 6px max(0.5rem, env(safe-area-inset-left, 0px));
-    border-bottom: 0;
-    background: transparent;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    /* Taps between its buttons reach the picture (tap to start the camera). */
-    pointer-events: none;
-  }
-  .hh-studio__header--mobile > * { pointer-events: auto; }
-  .hh-studio__body--mobile .hh-studio__frame {
-    width: 100% !important;
-    height: 100% !important;
-    border-radius: 0;
-  }
+  /* Fill the sideways screen too (portrait already covers): a 20:9 screen
+     crops a sliver of the 16:9 frame top and bottom. */
   .hh-studio__body--mobile .hh-studio__canvas { object-fit: cover; }
   /* Off the camera row: bottom left, clear of the controls. */
   .hh-studio__body--mobile .hh-studio__preview-tag {
@@ -6336,12 +6352,13 @@
     right: auto;
     bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
     left: max(0.75rem, env(safe-area-inset-left, 0px));
+    transform: none;
   }
   .hh-studio__body--mobile .hh-studio__rail {
     gap: 0.25rem;
   }
   .hh-studio__body--mobile .hh-studio__rail--right {
-    top: var(--hh-land-head);
+    top: var(--hh-phone-head);
     bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
     right: max(0.5rem, env(safe-area-inset-right, 0px));
     flex-direction: column;
@@ -6351,7 +6368,7 @@
     align-content: flex-start;
   }
   .hh-studio__body--mobile .hh-studio__rail--left {
-    top: var(--hh-land-head);
+    top: var(--hh-phone-head);
     bottom: auto;
     left: auto;
     right: calc(max(0.5rem, env(safe-area-inset-right, 0px)) + 2.5rem + 0.5rem);
@@ -6372,7 +6389,7 @@
   }
   /* The readiness card moves to the free left side, under the header. */
   .hh-studio__body--mobile .hh-studio__preflight {
-    top: calc(var(--hh-land-head) + 0.25rem);
+    top: calc(var(--hh-phone-head) + 0.25rem);
     left: max(0.75rem, env(safe-area-inset-left, 0px));
     transform: none;
     width: min(18rem, 45%);
@@ -6923,7 +6940,7 @@
 /* Sheets sit on the floor again now that the transport bar is gone. Their
    height is a share of the screen they opened on; a phone turned sideways
    afterwards keeps the sheet's head on screen. */
-.hh-studio__body--mobile .hh-sheet { bottom: 0; max-height: calc(100% - 2.5rem); }
+.hh-studio__body--mobile .hh-sheet { bottom: 0; max-height: calc(100% - var(--hh-phone-head)); }
 
 /* Sideways phone: a sheet is a popup at the right, beside the control column,
    as tall as the screen allows (above the keyboard when it is up: the inline
@@ -6931,7 +6948,7 @@
 @media (orientation: landscape) and (max-height: 500px) {
   .hh-studio__body--mobile .hh-sheet {
     /* Under the header and the camera row along the top. */
-    top: calc(var(--hh-land-head) + 2.5rem + 0.5rem);
+    top: calc(var(--hh-phone-head) + 2.5rem + 0.5rem);
     bottom: 0.5rem;
     left: auto;
     right: calc(max(0.5rem, env(safe-area-inset-right, 0px)) + 2.5rem + 0.5rem);
