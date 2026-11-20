@@ -7456,6 +7456,33 @@
   cursor: pointer;
 }
 .hh-optsheet__opt:last-child { margin-bottom: 0; }
+/* Camera popup: a lens row is the option plus a star (favourite) and a
+   rename button; renaming swaps the row for a name field. */
+.hh-lens-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: stretch;
+  margin-bottom: 0.5rem;
+}
+.hh-lens-row .hh-optsheet__opt { flex: 1; min-width: 0; margin-bottom: 0; }
+.hh-lens-row__btn,
+.hh-lens-row__input {
+  border: 1px solid var(--st-border-strong);
+  border-radius: 12px;
+  background: var(--hh-bg-secondary);
+  color: inherit;
+  font: inherit;
+}
+.hh-lens-row__btn {
+  flex: none;
+  width: 2.75rem;
+  min-height: 2.75rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+.hh-lens-row__btn--on { color: #f1c40f; }
+/* 16px: iOS zooms the page into a smaller field. */
+.hh-lens-row__input { flex: 1; min-width: 0; padding: 0.6rem 0.8rem; font-size: 16px; }
 /* Selected = red OUTLINE (house convention), not a fill. */
 .hh-optsheet__opt--on { border-color: var(--hh-primary); }
 .hh-optsheet__opt:disabled { opacity: 0.5; cursor: not-allowed; }

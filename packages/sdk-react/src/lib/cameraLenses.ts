@@ -18,10 +18,50 @@ export type LensKind = 'ultrawide' | 'main' | 'tele';
 export interface Lens {
   deviceId: string;
   facing: Facing | null;
-  /** What the camera popup calls it. */
+  /** What the camera popup calls it (the host's own name when set). */
   name: string;
+  /** What the phone calls it (shown under a name of the host's). */
+  osName: string;
   /** Only when the label says so (or it is Android's main camera of a side). */
   kind: LensKind | null;
+  /** Starred by the host: listed first. */
+  fav: boolean;
+}
+
+/** The host's own names and favourites, per camera (deviceId), kept in the
+ *  browser: the phone's names say little ("Back camera 3"), the host knows
+ *  which one is the wide one. */
+export type LensPrefs = Record<string, { name?: string; fav?: boolean }>;
+export const LENS_PREFS_KEY = 'hh-studio-cam-prefs';
+
+export function loadLensPrefs(storage: Pick<Storage, 'getItem'> | null = globalThis.localStorage ?? null): LensPrefs {
+  try {
+    const raw = JSON.parse(storage?.getItem(LENS_PREFS_KEY) || 'null');
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as LensPrefs : {};
+  } catch { return {}; }
+}
+
+export function saveLensPrefs(prefs: LensPrefs, storage: Pick<Storage, 'setItem'> | null = globalThis.localStorage ?? null): void {
+  try { storage?.setItem(LENS_PREFS_KEY, JSON.stringify(prefs)); } catch { /* private mode */ }
+}
+
+/** Set (or, empty, clear) the host's name for a camera. */
+export function renameLens(prefs: LensPrefs, deviceId: string, name: string): LensPrefs {
+  const clean = name.replace(/\s+/g, ' ').trim().slice(0, 40);
+  const { name: _old, ...rest } = prefs[deviceId] ?? {};
+  const entry = clean ? { ...rest, name: clean } : rest;
+  const next = { ...prefs };
+  if (Object.keys(entry).length) next[deviceId] = entry; else delete next[deviceId];
+  return next;
+}
+
+/** Star or unstar a camera. */
+export function toggleFavLens(prefs: LensPrefs, deviceId: string): LensPrefs {
+  const { fav, ...rest } = prefs[deviceId] ?? {};
+  const entry = fav ? rest : { ...rest, fav: true };
+  const next = { ...prefs };
+  if (Object.keys(entry).length) next[deviceId] = entry; else delete next[deviceId];
+  return next;
 }
 
 /**
@@ -60,7 +100,7 @@ const ANDROID = /camera2?\s*(\d+)\s*,\s*facing\s+(back|front)/i;
  * from. Android's numbered lenses become "Back camera" (the main one) and
  * "Back camera 2", "3" … in the phone's order; named labels are kept.
  */
-export function listLenses(devices: Pick<MediaDeviceInfo, 'deviceId' | 'kind' | 'label'>[]): Lens[] {
+export function listLenses(devices: Pick<MediaDeviceInfo, 'deviceId' | 'kind' | 'label'>[], prefs: LensPrefs = {}): Lens[] {
   const cams = devices.filter((d) => d.kind === 'videoinput' && d.deviceId);
   const android = cams
     .map((d) => ({ d, m: ANDROID.exec(d.label) }))
@@ -72,21 +112,29 @@ export function listLenses(devices: Pick<MediaDeviceInfo, 'deviceId' | 'kind' | 
       const side = android.filter((x) => x.facing === a.facing).sort((p, q) => p.n - q.n);
       const pos = side.indexOf(a);
       const base = a.facing === 'environment' ? 'Back camera' : 'Front camera';
-      return { deviceId: d.deviceId, facing: a.facing, name: pos === 0 ? base : `${base} ${pos + 1}`, kind: pos === 0 ? 'main' : null };
+      const osName = pos === 0 ? base : `${base} ${pos + 1}`;
+      return withPrefs({ deviceId: d.deviceId, facing: a.facing, osName, kind: pos === 0 ? 'main' : null });
     }
     const rank = lensWidthRank(d.label || '');
-    return {
+    return withPrefs({
       deviceId: d.deviceId,
       facing: facingOf(d.label || ''),
-      name: d.label || `Camera ${i + 1}`,
+      osName: d.label || `Camera ${i + 1}`,
       kind: rank === 0 ? 'ultrawide' : rank === 2 ? 'tele' : rank === 1 ? 'main' : null,
-    };
+    });
   });
-  const order = (l: Lens) => (l.facing === 'environment' ? 0 : l.facing === 'user' ? 2 : 1);
+  // Favourites first, then back, unknown and front cameras, each in the
+  // phone's order.
+  const order = (l: Lens) => (l.fav ? 0 : 1) * 10 + (l.facing === 'environment' ? 0 : l.facing === 'user' ? 2 : 1);
   return lenses
     .map((l, i) => ({ l, i }))
     .sort((p, q) => order(p.l) - order(q.l) || p.i - q.i)
     .map(({ l }) => l);
+
+  function withPrefs(l: Omit<Lens, 'name' | 'fav'>): Lens {
+    const p = prefs[l.deviceId];
+    return { ...l, name: p?.name || l.osName, fav: !!p?.fav };
+  }
 }
 
 /** Zoom with the lens's own zoom (hardware), else a crop of the frame (1–4×). */

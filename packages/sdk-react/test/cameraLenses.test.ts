@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { formatZoom, lensMatchesFacing, listLenses, SOFT_ZOOM, stepZoom, zoomStops } from '../src/lib/cameraLenses.js';
+import {
+  formatZoom, LENS_PREFS_KEY, lensMatchesFacing, listLenses, loadLensPrefs, renameLens, saveLensPrefs, SOFT_ZOOM, stepZoom,
+  toggleFavLens, zoomStops,
+} from '../src/lib/cameraLenses.js';
 
 const cam = (deviceId: string, label: string) => ({ deviceId, kind: 'videoinput' as const, label });
 
@@ -34,6 +37,34 @@ describe('listLenses', () => {
     expect(lensMatchesFacing('camera2 2, facing back', 'environment')).toBe(true);
     expect(lensMatchesFacing('camera2 1, facing front', 'environment')).toBe(false);
     expect(lensMatchesFacing('', 'user')).toBe(true);
+  });
+});
+
+describe('the host’s names and favourites', () => {
+  const devices = [cam('b0', 'camera2 0, facing back'), cam('b2', 'camera2 2, facing back'), cam('f', 'camera2 1, facing front')];
+  it('a name of the host’s replaces the phone’s, which stays as osName', () => {
+    const prefs = renameLens({}, 'b2', '  Ultra   wide ');
+    const l = listLenses(devices, prefs).find((x) => x.deviceId === 'b2')!;
+    expect([l.name, l.osName]).toEqual(['Ultra wide', 'Back camera 2']);
+    expect(renameLens(prefs, 'b2', '')).toEqual({});
+    expect(renameLens({}, 'b0', 'x'.repeat(60)).b0.name).toHaveLength(40);
+  });
+  it('favourites come first, front ones too, and unstarring keeps the name', () => {
+    let prefs = toggleFavLens({}, 'f');
+    expect(listLenses(devices, prefs).map((l) => [l.deviceId, l.fav])).toEqual([['f', true], ['b0', false], ['b2', false]]);
+    prefs = toggleFavLens(renameLens(prefs, 'f', 'Selfie'), 'f');
+    expect(prefs).toEqual({ f: { name: 'Selfie' } });
+    expect(toggleFavLens(toggleFavLens({}, 'b0'), 'b0')).toEqual({});
+  });
+  it('is kept in the browser, and a broken entry reads as none', () => {
+    const store = new Map<string, string>();
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, v); } };
+    saveLensPrefs({ b2: { name: 'Wide', fav: true } }, storage);
+    expect(loadLensPrefs(storage)).toEqual({ b2: { name: 'Wide', fav: true } });
+    store.set(LENS_PREFS_KEY, '[1,2]');
+    expect(loadLensPrefs(storage)).toEqual({});
+    store.set(LENS_PREFS_KEY, '{oops');
+    expect(loadLensPrefs(storage)).toEqual({});
   });
 });
 

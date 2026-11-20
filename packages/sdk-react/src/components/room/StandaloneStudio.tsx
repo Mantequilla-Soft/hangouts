@@ -44,7 +44,10 @@ import { useDvr } from '../../hooks/useDvr.js';
 import { OverlayLayerList, FadeTransition, type FrameInfo, type OutputShape } from '../../lib/studioOverlays.js';
 import { useStudioOverlays } from '../../hooks/useStudioOverlays.js';
 import { StudioOverlaysPanel } from './StudioOverlaysPanel.js';
-import { formatZoom, lensMatchesFacing, lensWidthRank, listLenses, SOFT_ZOOM, stepZoom, type Facing, type ZoomRange } from '../../lib/cameraLenses.js';
+import {
+  formatZoom, lensMatchesFacing, lensWidthRank, listLenses, loadLensPrefs, renameLens, saveLensPrefs, SOFT_ZOOM, stepZoom,
+  toggleFavLens, type Facing, type LensPrefs, type ZoomRange,
+} from '../../lib/cameraLenses.js';
 import { useVerticalOutput } from '../../hooks/useVerticalOutput.js';
 import { VerticalCropBox, VerticalSettings } from './VerticalCropBox.js';
 import { STUDIO_PROGRAM_TRACK, STUDIO_VERTICAL_TRACK, followTarget, sceneRegions } from '../../lib/verticalCrop.js';
@@ -72,6 +75,12 @@ const CAM_FACING_KEY = 'hh-studio-cam-facing';
 const CAM_MIRROR_KEY = 'hh-studio-cam-mirror';
 const MIC_DEVICE_KEY = 'hh-studio-mic-device';
 const ORIENTATION_KEY = 'hh-studio-orientation';
+/** A phone's stream shape (upright / sideways), its own key: the desktop one
+ *  is about the desktop studio. */
+const PHONE_SHAPE_KEY = 'hh-studio-phone-shape';
+const phoneShapeIsPortrait = () => {
+  try { return localStorage.getItem(PHONE_SHAPE_KEY) !== 'landscape'; } catch { return true; }
+};
 const CAM_DEVICE_KEY = 'hh-studio-cam-device';
 /** Quarter-turns needed to bring each sensor upright, per facing.
  *  Sensor mounting varies by device AND between the front/back sensors of the
@@ -1243,10 +1252,10 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // Phones shoot both ways. The whole compositor (preview canvas, program
   // canvas, published track) swaps to 9:16 rather than letterboxing a portrait
   // camera into a landscape frame.
-  // A phone opens upright; the Rotate button on the camera rail turns it to
-  // landscape before going live (rotateStudio).
+  // A phone opens in the shape it streamed last (upright unless the host chose
+  // sideways in the Camera popup, rotateStudio).
   const [portrait, setPortrait] = useState(() => {
-    if (typeof window !== 'undefined' && window.matchMedia?.(PHONE_STUDIO_QUERY).matches) return true;
+    if (typeof window !== 'undefined' && window.matchMedia?.(PHONE_STUDIO_QUERY).matches) return phoneShapeIsPortrait();
     try { return localStorage.getItem(ORIENTATION_KEY) === 'portrait'; } catch { return false; }
   });
   const portraitRef = useRef(portrait);
@@ -1895,6 +1904,13 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const zoomRangeRef = useRef<ZoomRange>(SOFT_ZOOM);
   /** The lens actually open (ticked in the camera popup). */
   const [openCamId, setOpenCamId] = useState('');
+  // The host's own names and favourites for the cameras, kept in the browser.
+  const [lensPrefs, setLensPrefs] = useState<LensPrefs>(() => loadLensPrefs());
+  const updateLensPrefs = useCallback((change: (p: LensPrefs) => LensPrefs) => {
+    setLensPrefs((prev) => { const next = change(prev); saveLensPrefs(next); return next; });
+  }, []);
+  /** The camera being renamed in the popup, and the name typed so far. */
+  const [lensEdit, setLensEdit] = useState<{ id: string; name: string } | null>(null);
 
   // Phones expose each LENS as its own videoinput (main, ultra-wide, tele), and
   // `facingMode` only ever reaches the default one. Enumerate them so the host
@@ -4142,25 +4158,64 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // out of the post tab, which locks once the stream is live.
   // Phone: Mirror and the stream's shape behind one button (View). The shape is
   // set before going live: viewers and the post are told it once.
-  const lenses = listLenses(videoInputs);
+  const lenses = listLenses(videoInputs, lensPrefs);
+  const saveLensName = () => {
+    if (!lensEdit) return;
+    updateLensPrefs((p) => renameLens(p, lensEdit.id, lensEdit.name));
+    setLensEdit(null);
+  };
   const renderViewSheet = () => (
     <div className="hh-post hh-settings">
       <div className="hh-settings__group">
         <div className="hh-settings__title">Camera</div>
         {lenses.map((l) => {
           const on = (openCamId || camDeviceId) === l.deviceId;
+          const renamed = l.name !== l.osName;
+          const tag = l.kind === 'ultrawide' ? ' (wide)' : l.kind === 'tele' ? ' (zoom)' : l.kind === 'main' ? ' (main)' : '';
+          if (lensEdit?.id === l.deviceId) {
+            return (
+              <form key={l.deviceId} className="hh-lens-row" onSubmit={(e) => { e.preventDefault(); saveLensName(); }}>
+                <input
+                  className="hh-lens-row__input"
+                  value={lensEdit.name}
+                  maxLength={40}
+                  placeholder={l.osName}
+                  aria-label={`Name for ${l.osName}`}
+                  autoFocus
+                  onChange={(e) => setLensEdit({ id: l.deviceId, name: e.target.value })}
+                  onKeyDown={(e) => { if (e.key === 'Escape') setLensEdit(null); }}
+                />
+                <button type="submit" className="hh-lens-row__btn" title="Save the name" aria-label="Save the name">✓</button>
+              </form>
+            );
+          }
           return (
-            <button
-              key={l.deviceId}
-              type="button"
-              className={`hh-optsheet__opt${on ? ' hh-optsheet__opt--on' : ''}`}
-              aria-pressed={on}
-              onClick={() => { if (!on) void selectCamera(l.deviceId, l.facing); }}
-            >
-              <span className="hh-optsheet__opt-label">
-                {l.name}{l.kind === 'ultrawide' ? ' (wide)' : l.kind === 'tele' ? ' (zoom)' : l.kind === 'main' ? ' (main)' : ''}{on ? ' ✓' : ''}
-              </span>
-            </button>
+            <div key={l.deviceId} className="hh-lens-row">
+              <button
+                type="button"
+                className={`hh-optsheet__opt${on ? ' hh-optsheet__opt--on' : ''}`}
+                aria-pressed={on}
+                onClick={() => { if (!on) void selectCamera(l.deviceId, l.facing); }}
+              >
+                <span className="hh-optsheet__opt-label">{l.name}{renamed ? '' : tag}{on ? ' ✓' : ''}</span>
+                {renamed && <span className="hh-optsheet__opt-desc">{l.osName}{tag}</span>}
+              </button>
+              <button
+                type="button"
+                className={`hh-lens-row__btn${l.fav ? ' hh-lens-row__btn--on' : ''}`}
+                aria-pressed={l.fav}
+                title={l.fav ? 'Remove from favourites' : 'Add to favourites (listed first)'}
+                aria-label={l.fav ? `Remove ${l.name} from favourites` : `Add ${l.name} to favourites`}
+                onClick={() => updateLensPrefs((p) => toggleFavLens(p, l.deviceId))}
+              >{l.fav ? '★' : '☆'}</button>
+              <button
+                type="button"
+                className="hh-lens-row__btn"
+                title="Give it your own name"
+                aria-label={`Rename ${l.name}`}
+                onClick={() => setLensEdit({ id: l.deviceId, name: renamed ? l.name : '' })}
+              >✎</button>
+            </div>
           );
         })}
         {lensError && <p className="hh-studio__device-error">{lensError}</p>}
@@ -4169,7 +4224,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             ? 'Turn the camera on once so the browser lists your cameras.'
             : zoomRange.hardware && zoomRange.min < 1
               ? `This camera zooms out to ${formatZoom(zoomRange.min)}: Zoom out for the wide lens.`
-              : 'Each lens your phone lets the browser use is listed here. Try them: the preview switches right away. Not every phone shares every lens with the browser.'}
+              : 'Each lens your phone lets the browser use is listed here. Try them: the preview switches right away. Star your favourites and give them names (✎): this browser remembers them.'}
         </p>
       </div>
       <div className="hh-settings__group">
@@ -4331,8 +4386,9 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     if (!isMobile) return;
     setScene('cam');
     setSource(null);
-    setPortrait(true);
-    portraitRef.current = true;
+    const up = phoneShapeIsPortrait();
+    setPortrait(up);
+    portraitRef.current = up;
   }, [isMobile]);
 
   // Camera and mic are MANDATORY on mobile — there are no toggles for them, so
@@ -4512,7 +4568,17 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     } catch { /* lock unsupported or refused */ }
     portraitRef.current = next;
     setPortrait(next);
+    try { localStorage.setItem(PHONE_SHAPE_KEY, next ? 'portrait' : 'landscape'); } catch { /* private mode */ }
   }, []);
+
+  // Opened sideways (the remembered shape): the screen can only be locked to
+  // landscape from a tap, so the first one does it.
+  useEffect(() => {
+    if (!isMobile || portrait || orientationLockedRef.current) return undefined;
+    const onFirst = () => { void goFullscreen(); };
+    document.addEventListener('pointerdown', onFirst, { once: true });
+    return () => document.removeEventListener('pointerdown', onFirst);
+  }, [isMobile, portrait, goFullscreen]);
 
   // The actual teardown — no confirm. Used by the Stop button (after its
   // prompt) AND by the free-stream time cap, which must stop without asking.
