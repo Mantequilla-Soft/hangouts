@@ -6301,11 +6301,47 @@
    icon tiles (the label stays as the tooltip). The panels they open are
    popups beside that column instead of bottom sheets (see .hh-sheet below). */
 @media (orientation: landscape) and (max-height: 500px) {
+  /* Height of the header floating over the picture: everything along the top
+     border starts under it. */
+  .hh-studio { --hh-land-head: 3.25rem; }
+  /* Full screen: the picture fills the phone edge to edge (a 20:9 screen crops
+     a sliver of the 16:9 frame top and bottom, as portrait does at the sides)
+     and the header floats over it instead of taking a row of its own. */
+  .hh-studio__header--mobile {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 45;
+    box-sizing: border-box;
+    min-height: var(--hh-land-head);
+    padding: 6px max(0.5rem, env(safe-area-inset-right, 0px)) 6px max(0.5rem, env(safe-area-inset-left, 0px));
+    border-bottom: 0;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    /* Taps between its buttons reach the picture (tap to start the camera). */
+    pointer-events: none;
+  }
+  .hh-studio__header--mobile > * { pointer-events: auto; }
+  .hh-studio__body--mobile .hh-studio__frame {
+    width: 100% !important;
+    height: 100% !important;
+    border-radius: 0;
+  }
+  .hh-studio__body--mobile .hh-studio__canvas { object-fit: cover; }
+  /* Off the camera row: bottom left, clear of the controls. */
+  .hh-studio__body--mobile .hh-studio__preview-tag {
+    top: auto;
+    right: auto;
+    bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+    left: max(0.75rem, env(safe-area-inset-left, 0px));
+  }
   .hh-studio__body--mobile .hh-studio__rail {
     gap: 0.25rem;
   }
   .hh-studio__body--mobile .hh-studio__rail--right {
-    top: 0.5rem;
+    top: var(--hh-land-head);
     bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
     right: max(0.5rem, env(safe-area-inset-right, 0px));
     flex-direction: column;
@@ -6315,7 +6351,7 @@
     align-content: flex-start;
   }
   .hh-studio__body--mobile .hh-studio__rail--left {
-    top: 0.5rem;
+    top: var(--hh-land-head);
     bottom: auto;
     left: auto;
     right: calc(max(0.5rem, env(safe-area-inset-right, 0px)) + 2.5rem + 0.5rem);
@@ -6336,6 +6372,7 @@
   }
   /* The readiness card moves to the free left side, under the header. */
   .hh-studio__body--mobile .hh-studio__preflight {
+    top: calc(var(--hh-land-head) + 0.25rem);
     left: max(0.75rem, env(safe-area-inset-left, 0px));
     transform: none;
     width: min(18rem, 45%);
@@ -6893,8 +6930,8 @@
    `bottom`), so the picture stays in view on the left. */
 @media (orientation: landscape) and (max-height: 500px) {
   .hh-studio__body--mobile .hh-sheet {
-    /* Under the camera row along the top. */
-    top: calc(0.5rem + 2.5rem + 0.5rem);
+    /* Under the header and the camera row along the top. */
+    top: calc(var(--hh-land-head) + 2.5rem + 0.5rem);
     bottom: 0.5rem;
     left: auto;
     right: calc(max(0.5rem, env(safe-area-inset-right, 0px)) + 2.5rem + 0.5rem);
