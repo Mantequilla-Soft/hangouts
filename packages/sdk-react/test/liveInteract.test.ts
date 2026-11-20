@@ -229,6 +229,13 @@ describe('studio Live tab', () => {
     expect(on).toContain('hh-subtabs__dot');
   });
 
+  it('has the overlays as a tab when the phone studio passes them', () => {
+    const tabs = (html: string) => html.match(/role="tab"[^>]*>[A-Za-z]+/g)?.map((t) => t.split('>')[1]);
+    const overlays = h('p', null, 'The overlays panel');
+    expect(tabs(inRoom(h(StudioLivePanel, { roomName: 'badadib-live', overlays })))).toEqual(['Polls', 'Overlays', 'Raid']);
+    expect(inRoom(h(StudioLivePanel, { roomName: 'badadib-live', overlays, initialTab: 'overlays' }))).toContain('The overlays panel');
+  });
+
   it('the Boosts tab opens on the goal, with the history as the second tab', () => {
     const html = inRoom(h(BoostSettingsPanel, { roomName: 'badadib-live', currentConfig: undefined, onClose: () => {}, onSaved: () => {}, embedded: true }));
     expect(html.match(/role="tab"[^>]*>[A-Za-z]+/g)?.map((t) => t.split('>')[1])).toEqual(['Goal', 'History', 'Alerts', 'Amounts']);

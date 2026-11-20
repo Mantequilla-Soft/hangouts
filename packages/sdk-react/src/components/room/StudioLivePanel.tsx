@@ -1,4 +1,4 @@
-import { useState, type SVGProps } from 'react';
+import { useState, type ReactNode, type SVGProps } from 'react';
 import { PollHostPanel } from './StreamPolls.js';
 import { RaidHostPanel } from './RaidHostPanel.js';
 import { StudioSubtabs, type StudioSubtab } from './StudioSubtabs.js';
@@ -16,17 +16,21 @@ export interface StudioLiveBattle {
   onOpen: () => void;
 }
 
-export type LiveSubtab = 'polls' | 'battle' | 'raid';
+export type LiveSubtab = 'polls' | 'overlays' | 'battle' | 'raid';
 
-export function StudioLivePanel({ roomName, battle, initialTab = 'polls' }: {
+export function StudioLivePanel({ roomName, battle, overlays, initialTab = 'polls' }: {
   roomName: string;
   battle?: StudioLiveBattle;
+  /** The overlays panel, as a tab of its own (the phone studio groups the
+   *  overlays and the polls behind one button). */
+  overlays?: ReactNode;
   /** The sub-tab it opens on (polls by default). */
   initialTab?: LiveSubtab;
 }) {
   const [tab, setTab] = useState<LiveSubtab>(initialTab);
   const tabs: StudioSubtab<LiveSubtab>[] = [
     { id: 'polls', label: 'Polls' },
+    ...(overlays ? [{ id: 'overlays' as const, label: 'Overlays' }] : []),
     ...(battle ? [{ id: 'battle' as const, label: 'Battle', dot: battle.onAir }] : []),
     { id: 'raid', label: 'Raid' },
   ];
@@ -39,6 +43,7 @@ export function StudioLivePanel({ roomName, battle, initialTab = 'polls' }: {
           <PollHostPanel roomName={roomName} />
         </div>
       )}
+      {tab === 'overlays' && overlays}
       {tab === 'battle' && battle && (
         <div className="hh-settings__group">
           <p className="hh-settings__intro">

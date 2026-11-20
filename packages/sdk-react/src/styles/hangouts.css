@@ -6269,6 +6269,77 @@
    fits inside instead. */
 .hh-studio__canvas--contain { object-fit: contain; }
 
+/* Full screen on a phone, upright or sideways: the picture fills the screen
+   edge to edge (the frame's fitted 16:9 / 9:16 size is set inline, hence the
+   !important) and the header floats over it instead of taking a row of its
+   own. Everything along the top starts under it (--hh-phone-head). */
+.hh-studio { --hh-phone-head: 3.25rem; }
+.hh-studio__header--mobile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 45;
+  box-sizing: border-box;
+  min-height: var(--hh-phone-head);
+  padding: 6px max(0.5rem, env(safe-area-inset-right, 0px)) 6px max(0.5rem, env(safe-area-inset-left, 0px));
+  border-bottom: 0;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  /* Taps between its buttons reach the picture (tap to start the camera). */
+  pointer-events: none;
+}
+.hh-studio__header--mobile > * { pointer-events: auto; }
+/* One row: the state, the warning written out (it takes the free width, two
+   lines at most), the viewer count and timer once live, and ✕. */
+.hh-studio__header--mobile { flex-wrap: nowrap; }
+.hh-studio__header--mobile .hh-studio__warn {
+  order: 0;
+  /* As wide as its text, never wider than the room left. */
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffcf6b;
+  font-size: 11px;
+  line-height: 1.3;
+}
+.hh-studio__header--mobile .hh-studio__warn-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+/* The time left is in the tooltip; the header keeps the time streamed. */
+.hh-studio__header--mobile .hh-studio__timer-left { display: none; }
+/* The Quality rail button: the connection bars, pulsing while weak or lost. */
+.hh-studio__rbtn-conn--poor { animation: hh-studio-conn-pulse 1.6s ease-in-out infinite; }
+.hh-studio__rbtn-conn--lost { animation: hh-studio-conn-pulse 0.9s ease-in-out infinite; }
+.hh-studio__body--mobile .hh-studio__frame {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0;
+}
+.hh-studio__body--mobile .hh-studio__merror { top: var(--hh-phone-head); }
+.hh-studio__body--mobile .hh-studio__preflight { top: calc(var(--hh-phone-head) + 0.25rem); }
+.hh-studio__body--mobile .hh-boost-goal--pos-top,
+.hh-studio__body--mobile .hh-boost-goal--pos-top-right,
+.hh-studio__body--mobile .hh-battle-bar--overlay { top: calc(var(--hh-phone-head) + 8px); }
+/* The header's corner is taken: bottom centre, between the two rails. */
+.hh-studio__body--mobile .hh-studio__preview-tag {
+  top: auto;
+  right: auto;
+  left: 50%;
+  bottom: max(3.75rem, calc(0.75rem + env(safe-area-inset-bottom, 0px)));
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
 /* --- mobile action rail (structure only) ----------------------------------
    The VISUAL treatment is supplied by the integrator so it can match the host
    app — preview-3speak skins these classes with the same mixins its shorts
@@ -6295,17 +6366,24 @@
 .hh-studio__rail--left { left: 0.6rem; }
 .hh-studio__rail--right { right: 0.6rem; }
 /* A phone turned sideways (PHONE_STUDIO_QUERY), for a landscape stream. The
-   picture keeps the middle and the left: the session controls stand in one
-   column on the right edge (Start/End in the bottom corner, under the thumb),
-   the camera controls in a row along the top border next to it, as compact
-   icon tiles (the label stays as the tooltip). The panels they open are
-   popups beside that column instead of bottom sheets (see .hh-sheet below). */
+   camera controls stand in a column on the left edge, the session controls in
+   one on the right edge (Start/End in the bottom corner, under the thumb), as
+   compact icon tiles (the label stays as the tooltip). The panels they open
+   are popups beside the right column instead of bottom sheets (see .hh-sheet
+   below). */
 @media (orientation: landscape) and (max-height: 500px) {
+  /* Fill the sideways screen too (portrait already covers): a 20:9 screen
+     crops a sliver of the 16:9 frame top and bottom. */
+  .hh-studio__body--mobile .hh-studio__canvas { object-fit: cover; }
+  /* Bottom centre, between the two columns. */
+  .hh-studio__body--mobile .hh-studio__preview-tag {
+    bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+  }
   .hh-studio__body--mobile .hh-studio__rail {
     gap: 0.25rem;
   }
   .hh-studio__body--mobile .hh-studio__rail--right {
-    top: 0.5rem;
+    top: var(--hh-phone-head);
     bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
     right: max(0.5rem, env(safe-area-inset-right, 0px));
     flex-direction: column;
@@ -6315,11 +6393,15 @@
     align-content: flex-start;
   }
   .hh-studio__body--mobile .hh-studio__rail--left {
-    top: 0.5rem;
-    bottom: auto;
-    left: auto;
-    right: calc(max(0.5rem, env(safe-area-inset-right, 0px)) + 2.5rem + 0.5rem);
-    flex-direction: row;
+    top: var(--hh-phone-head);
+    bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+    left: max(0.5rem, env(safe-area-inset-left, 0px));
+    right: auto;
+    flex-direction: column;
+    justify-content: flex-end;
+    /* More tiles than fit: a second column grows inward. */
+    flex-wrap: wrap;
+    align-content: flex-start;
   }
   .hh-studio__body--mobile .hh-studio__rbtn {
     width: 2.5rem;
@@ -6328,15 +6410,10 @@
     padding: 0;
   }
   .hh-studio__body--mobile .hh-studio__rbtn-label { display: none; }
-  /* The header is the top border: its buttons (settings, overlays, close)
-     gather at the right end, above the controls. */
-  .hh-studio__header--mobile.hh-studio__header--collapsed .hh-studio__header-actions {
-    justify-content: flex-end;
-    gap: 6px;
-  }
-  /* The readiness card moves to the free left side, under the header. */
+  /* The readiness card: top left, beside the left column. */
   .hh-studio__body--mobile .hh-studio__preflight {
-    left: max(0.75rem, env(safe-area-inset-left, 0px));
+    top: calc(var(--hh-phone-head) + 0.25rem);
+    left: calc(max(0.5rem, env(safe-area-inset-left, 0px)) + 2.5rem + 0.75rem);
     transform: none;
     width: min(18rem, 45%);
   }
@@ -6705,17 +6782,17 @@
     row-gap: 6px;
     min-width: 0;
   }
-  /* Mobile header: title is gone and the pickers are compact icon buttons, so
-     the control row fits on ONE line — no wrap. The warn still drops to its own
-     full-width row (order:10 + width:100% above). */
+  /* Mobile header: the state, the warning written out, ✕: ONE line. */
   .hh-studio__header--mobile {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 6px;
     padding: 6px 8px;
   }
   .hh-studio__header--mobile .hh-studio__header-actions {
-    flex: 1;
+    /* Its own width, at the right end: the warning takes the rest. */
+    flex: none;
+    margin-left: auto;
     flex-wrap: nowrap;
     justify-content: flex-end;
     gap: 5px;
@@ -6725,13 +6802,6 @@
     font-size: 0.78rem;
   }
   .hh-studio__header--mobile .hh-studio__hbtn--views { font-size: 0.95rem; }
-  /* Collapsed = a single slim bar; spread the controls evenly across it so they
-     aren't cramped together on the right. */
-  .hh-studio__header--collapsed { padding-bottom: 6px; }
-  .hh-studio__header--collapsed .hh-studio__header-actions {
-    justify-content: space-evenly;
-    gap: 0;
-  }
 }
 
 /* Media errors used to render only inside the desktop scenes rail, so a denied
@@ -6886,15 +6956,15 @@
 /* Sheets sit on the floor again now that the transport bar is gone. Their
    height is a share of the screen they opened on; a phone turned sideways
    afterwards keeps the sheet's head on screen. */
-.hh-studio__body--mobile .hh-sheet { bottom: 0; max-height: calc(100% - 2.5rem); }
+.hh-studio__body--mobile .hh-sheet { bottom: 0; max-height: calc(100% - var(--hh-phone-head)); }
 
 /* Sideways phone: a sheet is a popup at the right, beside the control column,
    as tall as the screen allows (above the keyboard when it is up: the inline
    `bottom`), so the picture stays in view on the left. */
 @media (orientation: landscape) and (max-height: 500px) {
   .hh-studio__body--mobile .hh-sheet {
-    /* Under the camera row along the top. */
-    top: calc(0.5rem + 2.5rem + 0.5rem);
+    /* Under the header, beside the right column. */
+    top: calc(var(--hh-phone-head) + 0.25rem);
     bottom: 0.5rem;
     left: auto;
     right: calc(max(0.5rem, env(safe-area-inset-right, 0px)) + 2.5rem + 0.5rem);
@@ -7386,6 +7456,33 @@
   cursor: pointer;
 }
 .hh-optsheet__opt:last-child { margin-bottom: 0; }
+/* Camera popup: a lens row is the option plus a star (favourite) and a
+   rename button; renaming swaps the row for a name field. */
+.hh-lens-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: stretch;
+  margin-bottom: 0.5rem;
+}
+.hh-lens-row .hh-optsheet__opt { flex: 1; min-width: 0; margin-bottom: 0; }
+.hh-lens-row__btn,
+.hh-lens-row__input {
+  border: 1px solid var(--st-border-strong);
+  border-radius: 12px;
+  background: var(--hh-bg-secondary);
+  color: inherit;
+  font: inherit;
+}
+.hh-lens-row__btn {
+  flex: none;
+  width: 2.75rem;
+  min-height: 2.75rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+.hh-lens-row__btn--on { color: #f1c40f; }
+/* 16px: iOS zooms the page into a smaller field. */
+.hh-lens-row__input { flex: 1; min-width: 0; padding: 0.6rem 0.8rem; font-size: 16px; }
 /* Selected = red OUTLINE (house convention), not a fill. */
 .hh-optsheet__opt--on { border-color: var(--hh-primary); }
 .hh-optsheet__opt:disabled { opacity: 0.5; cursor: not-allowed; }
