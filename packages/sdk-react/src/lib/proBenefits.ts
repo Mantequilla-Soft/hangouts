@@ -46,8 +46,7 @@ export const STREAM_PERKS: ProPerk[] = [
 
 export const UPLOAD_PERKS: ProPerk[] = [
   { icon: '🎞️', title: '1080p encoding', body: 'Free uploads stay at standard resolution.' },
-  { icon: '⚡', title: 'Priority queue', body: 'Your uploads are encoded first.' },
-  { icon: '📦', title: 'Higher upload limits', body: 'Bigger files, and more of them.' },
+  { icon: '⚡', title: 'Fastest encoders', body: 'Your uploads go to the fastest encoding machines first.' },
 ];
 
 /** Everything that isn't uploads or streaming: the perks that apply to any

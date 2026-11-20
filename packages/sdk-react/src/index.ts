@@ -228,6 +228,7 @@ export {
   type TransferIntent,
   type PollResult,
 } from './lib/vscContract.js';
+export { DEFAULT_PRO_SALE, saleOpen, saleNextChange, percentOff, type ProSale } from './lib/proSale.js';
 
 // Styles — import this in your app: import '@hive-hangouts/react/styles'
 export { useIsMobile, MOBILE_QUERY, PHONE_STUDIO_QUERY } from './hooks/useIsMobile.js';

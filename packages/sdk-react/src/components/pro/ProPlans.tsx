@@ -6,6 +6,7 @@ import { useVscSubs } from '../../hooks/useVscSubs.js';
 import { buildTransferIntent } from '../../lib/vscContract.js';
 import { SubscriberTicker } from './SubscriberTicker.js';
 import { PRO_PERK_GROUPS, PRO_PERKS_FOOTNOTE, type ProPerkGroup } from '../../lib/proBenefits.js';
+import { parseIntervals, planPricing, saleLastDay, saleNextChange, saleOpen, salePrices } from '../../lib/proSale.js';
 
 const INTERVAL_LABELS: Record<string, string> = {
   daily: 'Daily',
@@ -83,6 +84,16 @@ function TrialCountdown({ expiresAt }: { expiresAt: string }) {
   );
 }
 
+/** A plan's price; in a sale the regular one struck through beside it. */
+function PlanPrice({ price, regular, asset }: { price: number | null; regular: number | null; asset: string }) {
+  return (
+    <span className="hh-pro__plan-price">
+      {regular != null && <s className="hh-pro__plan-was" aria-label={`was ${fmtAmount(regular)} ${asset}`}>{fmtAmount(regular)}</s>}
+      {fmtAmount(price)} {asset}
+    </span>
+  );
+}
+
 interface OfferRow {
   id: number;
   name?: string;
@@ -97,6 +108,8 @@ interface OfferRow {
 }
 
 interface SubscriptionRow {
+  /** The regular subscription offer or the sale's (Hasura: a number). */
+  offer_id?: number | string;
   interval?: string;
   balance?: string;
   next_billing_at?: string;
@@ -132,17 +145,6 @@ export interface ProPlansProps {
   onNotify?: (kind: 'success' | 'error', message: string) => void;
 }
 
-/** Parse `"monthly=5.000,yearly=50.000"` into `{ monthly: 5, yearly: 50 }`. */
-function parseIntervals(intervalsStr?: string): Record<string, number> {
-  if (!intervalsStr) return {};
-  const result: Record<string, number> = {};
-  for (const pair of intervalsStr.split(',')) {
-    const [interval, price] = pair.split('=');
-    if (interval && price) result[interval.trim()] = parseFloat(price);
-  }
-  return result;
-}
-
 /**
  * The Pro plans page: perks, live subscriber ticker, free trial, and the
  * on-chain checkout (one-time pass or recurring subscription, with an
@@ -173,6 +175,9 @@ export function ProPlans({
   const [vscBalances, setVscBalances] = useState<{ hive: number; hbd: number }>({ hive: 0, hbd: 0 });
   const [subOffer, setSubOffer] = useState<OfferRow | null>(null);
   const [onetimeOffer, setOnetimeOffer] = useState<OfferRow | null>(null);
+  // The sale's own offers (lib/proSale.ts), when a sale is configured
+  const [saleSubOffer, setSaleSubOffer] = useState<OfferRow | null>(null);
+  const [saleOnetimeOffer, setSaleOnetimeOffer] = useState<OfferRow | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionRow | null>(null);
   const [onetimePurchase, setOnetimePurchase] = useState<OnetimeRow | null>(null);
   const [loadingOffer, setLoadingOffer] = useState(true);
@@ -201,19 +206,29 @@ export function ProPlans({
   const fetchOffer = useCallback(async () => {
     setLoadingOffer(true);
     try {
-      const data = await vsc.queryHasura<{ sub?: OfferRow[]; onetime?: OfferRow[] }>(`
+      const fields = 'id name type state asset one_time intervals description';
+      const sale = pro.sale
+        ? `saleSub: oki_subs_offer_current(where: { id: { _eq: ${pro.sale.subOfferId} } }) { ${fields} }
+          saleOnetime: oki_subs_offer_current(where: { id: { _eq: ${pro.sale.onetimeOfferId} } }) { ${fields} }`
+        : '';
+      const data = await vsc.queryHasura<{
+        sub?: OfferRow[]; onetime?: OfferRow[]; saleSub?: OfferRow[]; saleOnetime?: OfferRow[];
+      }>(`
         query {
           sub: oki_subs_offer_current(where: { id: { _eq: ${pro.subOfferId} } }) {
-            id name type state asset one_time intervals description
+            ${fields}
             total_subscribers active_subscribers
           }
           onetime: oki_subs_offer_current(where: { id: { _eq: ${pro.onetimeOfferId} } }) {
-            id name type state asset one_time intervals description
+            ${fields}
           }
+          ${sale}
         }
       `);
       const sub = data?.sub?.[0];
       const ot = data?.onetime?.[0];
+      setSaleSubOffer(data?.saleSub?.[0] ?? null);
+      setSaleOnetimeOffer(data?.saleOnetime?.[0] ?? null);
       if (sub) {
         setSubOffer(sub);
         const first = Object.keys(parseIntervals(sub.intervals))[0];
@@ -229,10 +244,14 @@ export function ProPlans({
     } finally {
       setLoadingOffer(false);
     }
-  }, [vsc, pro.subOfferId, pro.onetimeOfferId]);
+  }, [vsc, pro.subOfferId, pro.onetimeOfferId, pro.sale]);
 
   const fetchSubscription = useCallback(async () => {
     if (!username) return;
+    // A subscription or pass bought in a sale lives on the sale's offers, and
+    // stays the member's after the sale ended
+    const subIds = [pro.subOfferId, ...(pro.sale ? [pro.sale.subOfferId] : [])].join(', ');
+    const onetimeIds = [pro.onetimeOfferId, ...(pro.sale ? [pro.sale.onetimeOfferId] : [])].join(', ');
     try {
       const data = await vsc.queryHasura<{
         oki_subs_subscription_current?: SubscriptionRow[];
@@ -241,14 +260,14 @@ export function ProPlans({
         query {
           oki_subs_subscription_current(where: {
             subscriber: { _eq: "hive:${username}" },
-            offer_id: { _eq: ${pro.subOfferId} }
+            offer_id: { _in: [${subIds}] }
           }) {
             subscriber offer_id interval balance next_billing_at status asset subscriber_index
           }
           oki_subs_onetime_paid_events(
             where: {
               buyer: { _eq: "hive:${username}" },
-              id: { _eq: ${pro.onetimeOfferId} }
+              id: { _in: [${onetimeIds}] }
             },
             order_by: { indexer_ts: desc },
             limit: 1
@@ -257,14 +276,18 @@ export function ProPlans({
           }
         }
       `);
-      setSubscription(data?.oki_subs_subscription_current?.[0] ?? null);
+      const subs = data?.oki_subs_subscription_current ?? [];
+      // The running one first, else the regular one (an ended sale one only last)
+      setSubscription(subs.find((s) => s.status === 'active')
+        ?? subs.find((s) => Number(s.offer_id) === pro.subOfferId)
+        ?? subs[0] ?? null);
       setOnetimePurchase(data?.oki_subs_onetime_paid_events?.[0] ?? null);
     } catch {
       // Normal for a user who has never subscribed.
       setSubscription(null);
       setOnetimePurchase(null);
     }
-  }, [vsc, username, pro.subOfferId, pro.onetimeOfferId]);
+  }, [vsc, username, pro.subOfferId, pro.onetimeOfferId, pro.sale]);
 
   const fetchBalance = useCallback(async () => {
     if (!username) return;
@@ -305,6 +328,37 @@ export function ProPlans({
     : null;
   const hasAnyOffer = !!(subOffer || onetimeOffer);
 
+  // The sale (lib/proSale.ts): its prices replace the regular ones while it is
+  // on, and come and go at its start and end even with the page left open
+  const [saleOn, setSaleOn] = useState(() => saleOpen(pro.sale));
+  const [saleTick, setSaleTick] = useState(0);
+  useEffect(() => {
+    setSaleOn(saleOpen(pro.sale));
+    const wait = saleNextChange(pro.sale);
+    if (wait == null || wait > 2 ** 31 - 1) return undefined; // beyond what setTimeout can wait
+    const id = setTimeout(() => setSaleTick((n) => n + 1), wait + 50);
+    return () => clearTimeout(id);
+  }, [pro.sale, saleTick]);
+  const saleIntervals = useMemo(() => parseIntervals(saleSubOffer?.intervals), [saleSubOffer]);
+  const pricing = planPricing(
+    { ...intervals, onetime: onetimePrice },
+    salePrices(saleOn, saleSubOffer, saleOnetimeOffer),
+  );
+  const { onSale, priceOf, percentFor } = pricing;
+  const shownPlans = [
+    ...(onetimeOffer?.state === 'active' ? ['onetime'] : []),
+    ...Object.keys(intervals),
+  ];
+  const saleText = pro.sale ? pricing.headline(shownPlans) : null;
+
+  // The member's subscription may be on the sale's offer: it is topped up and
+  // cancelled there, at its prices. Once the sale is over it takes no more
+  // top-ups (they would buy months at the sale price).
+  const subOfferId = Number(subscription?.offer_id) || pro.subOfferId;
+  const onSaleSub = !!pro.sale && subOfferId === pro.sale.subOfferId;
+  const subIntervals = onSaleSub ? saleIntervals : intervals;
+  const canTopUp = !onSaleSub || (saleOn && saleSubOffer?.state === 'active');
+
   // A one-time pass is good for 24h from the purchase timestamp.
   const ONETIME_DURATION_MS = 24 * 60 * 60 * 1000;
   const onetimePurchaseTime = onetimePurchase?.indexer_ts
@@ -341,9 +395,14 @@ export function ProPlans({
     if (!loggedIn || processing || !username) return;
 
     const isOnetime = selectedPlan === 'onetime';
-    const offerId = isOnetime ? pro.onetimeOfferId : pro.subOfferId;
-    const price = isOnetime ? onetimePrice : intervals[selectedPlan];
-    const payAsset = isOnetime ? onetimeAsset : subAsset;
+    const sale = onSale(selectedPlan) ? pro.sale : null;
+    const offerId = isOnetime
+      ? (sale ? sale.onetimeOfferId : pro.onetimeOfferId)
+      : (sale ? sale.subOfferId : pro.subOfferId);
+    const price = priceOf(selectedPlan);
+    const payAsset = (isOnetime
+      ? (sale ? saleOnetimeOffer : onetimeOffer)?.asset
+      : (sale ? saleSubOffer : subOffer)?.asset) || (isOnetime ? onetimeAsset : subAsset);
     if (!price) return;
 
     const depositNeeded = calcDepositNeeded(price, payAsset);
@@ -384,7 +443,7 @@ export function ProPlans({
   };
 
   const handleTopUp = async () => {
-    if (!loggedIn || !isActive || processing || !username) return;
+    if (!loggedIn || !isActive || !canTopUp || processing || !username) return;
     const amount = parseFloat(topUpAmount);
     if (!amount || amount <= 0) {
       notify('error', 'Enter a valid amount');
@@ -405,7 +464,7 @@ export function ProPlans({
 
     try {
       const intent = buildTransferIntent(amount.toFixed(3), subAsset);
-      const payload = `${pro.subOfferId}|${currentInterval}`;
+      const payload = `${subOfferId}|${currentInterval}`;
       const result = depositNeeded > 0
         ? await vsc.depositAndCallContract(depositNeeded.toFixed(3), subAsset, username, 'pay_offer', payload, [intent])
         : await vsc.callSubsContract('pay_offer', payload, [intent]);
@@ -435,7 +494,7 @@ export function ProPlans({
     setProcessing(true);
     setTxStatus({ state: 'broadcasting', msg: 'Approve cancellation in your wallet…' });
     try {
-      const result = await vsc.callSubsContract('cancel_subscription', `${pro.subOfferId}`, []);
+      const result = await vsc.callSubsContract('cancel_subscription', `${subOfferId}`, []);
       const poll = await pollWithProgress(result.result!);
       if (poll.status === 'success') {
         const msg = 'Subscription canceled. Prepaid balance refunded.';
@@ -590,6 +649,12 @@ export function ProPlans({
                 </div>
               ) : null}
 
+              {saleText && pro.sale && (
+                <div className="hh-pro__sale" role="note">
+                  🏷️ <span><strong>{pro.sale.label}:</strong> {saleText} until {saleLastDay(pro.sale)}.</span>
+                </div>
+              )}
+
               {onetimeIsActive && onetimePurchase && onetimeExpiresAt && (
                 <div className="hh-pro__onetime hh-pro__onetime--active">
                   <div className="hh-pro__onetime-header">⚡ <span>One-Time Access Active</span></div>
@@ -629,10 +694,16 @@ export function ProPlans({
                     </div>
                     <div className="hh-pro__status-item">
                       <span className="hh-pro__status-label">Interval Price</span>
-                      <span className="hh-pro__status-value">{fmtAmount(intervals[currentInterval ?? ''])} {subAssetUpper}</span>
+                      <span className="hh-pro__status-value">{fmtAmount(subIntervals[currentInterval ?? ''])} {subAssetUpper}</span>
                     </div>
                   </div>
 
+                  {!canTopUp ? (
+                    <p className="hh-pro__topup-label">
+                      This {pro.sale?.label ?? 'sale'} plan takes no more top-ups now that the sale is over.
+                      When its balance runs out, pick a plan below.
+                    </p>
+                  ) : (
                   <div className="hh-pro__topup">
                     <label className="hh-pro__topup-label" htmlFor="hh-pro-topup">Add funds to your prepaid balance</label>
                     <div className="hh-pro__topup-row">
@@ -657,6 +728,7 @@ export function ProPlans({
                       </button>
                     </div>
                   </div>
+                  )}
 
                   <button
                     type="button"
@@ -677,8 +749,9 @@ export function ProPlans({
                       className={`hh-pro__plan hh-pro__plan--onetime${selectedPlan === 'onetime' ? ' hh-pro__plan--selected' : ''}`}
                       onClick={locked ? undefined : () => setSelectedPlan('onetime')}
                     >
+                      {percentFor('onetime') != null && <span className="hh-pro__plan-badge hh-pro__plan-badge--sale">−{percentFor('onetime')}%</span>}
                       <span className="hh-pro__plan-name">One Time</span>
-                      <span className="hh-pro__plan-price">{fmtAmount(onetimePrice)} {onetimeAsset.toUpperCase()}</span>
+                      <PlanPrice price={priceOf('onetime')} regular={onSale('onetime') ? onetimePrice : null} asset={onetimeAsset.toUpperCase()} />
                       {onetimeOffer.description && <span className="hh-pro__plan-desc">{onetimeOffer.description}</span>}
                     </div>
                   )}
@@ -689,9 +762,11 @@ export function ProPlans({
                       className={`hh-pro__plan${selectedPlan === interval ? ' hh-pro__plan--selected' : ''}`}
                       onClick={locked ? undefined : () => setSelectedPlan(interval)}
                     >
-                      {interval === 'yearly' && <span className="hh-pro__plan-badge">Save 2 months</span>}
+                      {percentFor(interval) != null
+                        ? <span className="hh-pro__plan-badge hh-pro__plan-badge--sale">−{percentFor(interval)}%</span>
+                        : interval === 'yearly' && <span className="hh-pro__plan-badge">Save 2 months</span>}
                       <span className="hh-pro__plan-name">{INTERVAL_LABELS[interval] || interval}</span>
-                      <span className="hh-pro__plan-price">{fmtAmount(price)} {subAssetUpper}</span>
+                      <PlanPrice price={priceOf(interval)} regular={onSale(interval) ? price : null} asset={subAssetUpper} />
                       <span className="hh-pro__plan-desc">{INTERVAL_DURATIONS[interval] || ''}</span>
                       {subOffer?.description && <span className="hh-pro__plan-desc">{subOffer.description}</span>}
                     </div>

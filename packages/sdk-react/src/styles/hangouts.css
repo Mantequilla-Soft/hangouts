@@ -7893,6 +7893,16 @@
      card edge instead. */
   white-space: nowrap;
 }
+/* A sale (lib/proSale.ts): the line above the plans, the regular price struck
+   through, and the cut in the badge's place */
+.hh-pro__sale {
+  display: flex; gap: 0.5rem; align-items: baseline;
+  padding: 0.55rem 0.7rem; border-radius: 10px;
+  font-size: 0.85rem; color: var(--hh-text);
+  background: var(--hh-pro-gold-soft); border: 1px solid var(--hh-pro-gold);
+}
+.hh-pro__plan-was { margin-right: 0.35rem; font-weight: 500; color: var(--hh-text-muted); }
+.hh-pro__plan-badge--sale { color: #1a1400; background: var(--hh-pro-gold); }
 .hh-pro__subscribe-btn { border-color: var(--hh-pro-gold); background: var(--hh-pro-gold-soft); }
 .hh-pro__subscribe-btn:hover:not(:disabled) { background: var(--hh-pro-gold-strong); }
 
