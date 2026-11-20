@@ -20,7 +20,7 @@ import { PHONE_STUDIO_QUERY, useIsMobile } from '../../hooks/useIsMobile.js';
 import { useChat } from '../../hooks/useChat.js';
 import { MobileSheet } from './MobileSheet.js';
 import {
-  IconAspect, IconAudio, IconBoost, IconChat, IconCheck, IconFlipCamera, IconGuest,
+  IconAspect, IconAudio, IconBoost, IconChat, IconCheck, IconFlipCamera, IconGuest, IconLens,
   IconBroadcast, IconPause, IconPlay, IconPost, IconRotate, IconShare, IconStop, IconZoomIn, IconZoomOut,
 } from './StudioIcons.js';
 import { BoostOverlay } from './BoostOverlay.js';
@@ -44,6 +44,7 @@ import { useDvr } from '../../hooks/useDvr.js';
 import { OverlayLayerList, FadeTransition, type FrameInfo, type OutputShape } from '../../lib/studioOverlays.js';
 import { useStudioOverlays } from '../../hooks/useStudioOverlays.js';
 import { StudioOverlaysPanel } from './StudioOverlaysPanel.js';
+import { formatZoom, lensMatchesFacing, lensWidthRank, listLenses, SOFT_ZOOM, stepZoom, type Facing, type ZoomRange } from '../../lib/cameraLenses.js';
 import { useVerticalOutput } from '../../hooks/useVerticalOutput.js';
 import { VerticalCropBox, VerticalSettings } from './VerticalCropBox.js';
 import { STUDIO_PROGRAM_TRACK, STUDIO_VERTICAL_TRACK, followTarget, sceneRegions } from '../../lib/verticalCrop.js';
@@ -86,34 +87,6 @@ const HIDDEN_AUDIO_INPUT = /speakerphone/i;
 function micLabel(label: string, index: number): string {
   if (/headset\s*earpiece/i.test(label)) return 'External device';
   return label || `Microphone ${index + 1}`;
-}
-
-/**
- * How wide is this lens? Lower rank = wider field of view.
- *
- * The Web API exposes NO field-of-view or focal length — `getCapabilities()`
- * gives resolution and zoom range, neither of which identifies an ultra-wide.
- * The device label is the only signal available, and it's only descriptive on
- * some platforms (iOS Safari names them "Back Ultra Wide Camera"; Android
- * Chrome often just says "camera2 0, facing back"). So this is best-effort by
- * design: it returns `null` when the label says nothing, and callers must not
- * pin a lens on a guess.
- */
-function lensWidthRank(label: string): number | null {
-  const l = label.toLowerCase();
-  if (/ultra[\s-]?wide|super[\s-]?wide|0\.5\s?x/.test(l)) return 0;
-  if (/tele(photo)?|[2-9]\s?x\b/.test(l)) return 2;
-  if (/wide/.test(l)) return 1;
-  return null;
-}
-
-/** Does this label belong to the given side, as far as we can tell? */
-function lensMatchesFacing(label: string, facing: 'user' | 'environment'): boolean {
-  const l = label.toLowerCase();
-  const isBack = /back|rear|environment/.test(l);
-  const isFront = /front|face|user|selfie/.test(l);
-  if (!isBack && !isFront) return true; // unlabelled — don't exclude it
-  return facing === 'environment' ? isBack : isFront;
 }
 
 /** Streamer source-quality tiers — cap both RESOLUTION (the published program
@@ -1916,6 +1889,12 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const camZoomRef = useRef(1);
   camZoomRef.current = camZoomLevel;
   const softZoomRef = useRef(1);
+  // The open lens's own zoom range (hardware: the real zoom factors, below 1×
+  // when the phone switches to its ultra-wide itself), else a 1–4× crop.
+  const [zoomRange, setZoomRange] = useState<ZoomRange>(SOFT_ZOOM);
+  const zoomRangeRef = useRef<ZoomRange>(SOFT_ZOOM);
+  /** The lens actually open (ticked in the camera popup). */
+  const [openCamId, setOpenCamId] = useState('');
 
   // Phones expose each LENS as its own videoinput (main, ultra-wide, tele), and
   // `facingMode` only ever reaches the default one. Enumerate them so the host
@@ -2240,8 +2219,21 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     const clearFreeze = () => { camFreezeRef.current = null; };
     if (v.readyState >= 2 && v.videoWidth) clearFreeze();
     else v.addEventListener('loadeddata', clearFreeze, { once: true });
-    // A new track starts at 1× — restore whatever the host had picked.
-    if (camZoomRef.current > 1) setTimeout(() => applyZoomRef.current?.(camZoomRef.current), 0);
+    setOpenCamId(openedId || '');
+    // The lens's own zoom, if it has one. A new track starts at its default
+    // (1×): restore whatever the host had picked on it (a lens change resets
+    // that to 1× first).
+    const zcaps = (stream.getVideoTracks()[0]?.getCapabilities?.() as { zoom?: { min: number; max: number } } | undefined)?.zoom;
+    const range: ZoomRange = zcaps && zcaps.max > zcaps.min ? { min: zcaps.min, max: zcaps.max, hardware: true } : SOFT_ZOOM;
+    zoomRangeRef.current = range;
+    setZoomRange(range);
+    const keep = Math.min(range.max, Math.max(range.min, camZoomRef.current));
+    const opened = (stream.getVideoTracks()[0]?.getSettings?.() as { zoom?: number } | undefined)?.zoom;
+    softZoomRef.current = 1;
+    // Some lenses open at their own default instead of 1×: set ours.
+    if (keep !== 1 || (range.hardware && opened != null && Math.abs(opened - 1) > 0.05)) {
+      setTimeout(() => applyZoomRef.current?.(keep), 0);
+    } else setCamZoomLevel(1);
     // Adding a camera almost always means you want to be heard too — bring the
     // mic along unless it's already running.
     if (!micStreamRef.current) void startMic();
@@ -2278,6 +2270,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     const next = camFacingRef.current === 'user' ? 'environment' : 'user';
     camFacingRef.current = next;
     setCamFacing(next);
+    camZoomRef.current = 1;
     // Clear any pinned lens: it belongs to the side we're leaving, and an
     // explicit deviceId outranks facingMode, so flipping would do nothing.
     setCamDeviceId('');
@@ -2327,11 +2320,17 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     return () => window.clearInterval(id);
   }, [mobileSheet, camZoomLevel]);
 
-  /** Pick a specific lens (main / ultra-wide / tele). */
-  const selectCamera = useCallback(async (deviceId: string) => {
+  /** Pick a specific lens (main / ultra-wide / tele), on either side. */
+  const selectCamera = useCallback(async (deviceId: string, facing?: Facing | null) => {
     setLensError('');
     setCamDeviceId(deviceId);
     camDeviceIdRef.current = deviceId;
+    camZoomRef.current = 1;
+    if (facing && facing !== camFacingRef.current) {
+      camFacingRef.current = facing;
+      setCamFacing(facing);
+      try { localStorage.setItem(CAM_FACING_KEY, facing); } catch { /* private mode */ }
+    }
     try {
       if (deviceId) localStorage.setItem(CAM_DEVICE_KEY, deviceId);
       else localStorage.removeItem(CAM_DEVICE_KEY);
@@ -2346,20 +2345,18 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
 
   const applyZoomRef = useRef<((n: number) => void) | null>(null);
   const applyZoom = useCallback((level: number) => {
-    const next = Math.max(1, Math.min(4, Math.round(level * 10) / 10));
+    const range = zoomRangeRef.current;
+    const next = Math.max(range.min, Math.min(range.max, Math.round(level * 100) / 100));
     setCamZoomLevel(next);
     camZoomRef.current = next;
     const track = camStreamRef.current?.getVideoTracks()[0];
-    const caps = track?.getCapabilities?.() as { zoom?: { min: number; max: number } } | undefined;
-    if (track && caps?.zoom) {
-      // Hardware zoom: map 1..4 onto the device's own range so the phone can
-      // pick a different physical lens rather than upscaling a crop.
-      const { min, max } = caps.zoom;
-      const mapped = Math.min(max, Math.max(min, min + ((next - 1) / 3) * (max - min)));
+    if (track && range.hardware) {
+      // The lens's own zoom, in its own factors: the phone can switch to
+      // another physical lens (ultra-wide below 1×, tele) instead of cropping.
       softZoomRef.current = 1;
       // `zoom` is a standard capability but isn't in lib.dom's constraint type.
-      void track.applyConstraints({ advanced: [{ zoom: mapped }] } as unknown as MediaTrackConstraints)
-        .catch(() => { softZoomRef.current = next; });
+      void track.applyConstraints({ advanced: [{ zoom: next }] } as unknown as MediaTrackConstraints)
+        .catch(() => { softZoomRef.current = Math.max(1, next); });
     } else {
       softZoomRef.current = next;
     }
@@ -4145,8 +4142,36 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   // out of the post tab, which locks once the stream is live.
   // Phone: Mirror and the stream's shape behind one button (View). The shape is
   // set before going live: viewers and the post are told it once.
+  const lenses = listLenses(videoInputs);
   const renderViewSheet = () => (
     <div className="hh-post hh-settings">
+      <div className="hh-settings__group">
+        <div className="hh-settings__title">Camera</div>
+        {lenses.map((l) => {
+          const on = (openCamId || camDeviceId) === l.deviceId;
+          return (
+            <button
+              key={l.deviceId}
+              type="button"
+              className={`hh-optsheet__opt${on ? ' hh-optsheet__opt--on' : ''}`}
+              aria-pressed={on}
+              onClick={() => { if (!on) void selectCamera(l.deviceId, l.facing); }}
+            >
+              <span className="hh-optsheet__opt-label">
+                {l.name}{l.kind === 'ultrawide' ? ' (wide)' : l.kind === 'tele' ? ' (zoom)' : l.kind === 'main' ? ' (main)' : ''}{on ? ' ✓' : ''}
+              </span>
+            </button>
+          );
+        })}
+        {lensError && <p className="hh-studio__device-error">{lensError}</p>}
+        <p className="hh-settings__intro">
+          {lenses.length === 0
+            ? 'Turn the camera on once so the browser lists your cameras.'
+            : zoomRange.hardware && zoomRange.min < 1
+              ? `This camera zooms out to ${formatZoom(zoomRange.min)}: Zoom out for the wide lens.`
+              : 'Each lens your phone lets the browser use is listed here. Try them: the preview switches right away. Not every phone shares every lens with the browser.'}
+        </p>
+      </div>
       <div className="hh-settings__group">
         <div className="hh-settings__title">Mirror</div>
         <button
@@ -4748,17 +4773,17 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           <div className="hh-studio__rail hh-studio__rail--left">
             <button
               className="hh-studio__rbtn"
-              onClick={() => applyZoom(camZoomRef.current + 0.5)}
-              disabled={!camOn || camZoomLevel >= 4}
+              onClick={() => applyZoom(stepZoom(zoomRange, camZoomRef.current, 1))}
+              disabled={!camOn || camZoomLevel >= zoomRange.max - 0.05}
               title="Zoom in"
             >
               <IconZoomIn />
-              <span className="hh-studio__rbtn-label">{camZoomLevel.toFixed(1)}×</span>
+              <span className="hh-studio__rbtn-label">{formatZoom(camZoomLevel)}</span>
             </button>
             <button
               className="hh-studio__rbtn"
-              onClick={() => applyZoom(camZoomRef.current - 0.5)}
-              disabled={!camOn || camZoomLevel <= 1}
+              onClick={() => applyZoom(stepZoom(zoomRange, camZoomRef.current, -1))}
+              disabled={!camOn || camZoomLevel <= zoomRange.min + 0.05}
               title="Zoom out"
             >
               <IconZoomOut />
@@ -4773,14 +4798,14 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
               <IconFlipCamera />
               <span className="hh-studio__rbtn-label">Flip</span>
             </button>
-            {/* Mirror and the stream's shape (Rotate) share one popup. */}
+            {/* The lens, Mirror and the stream's shape (Rotate) share one popup. */}
             <button
               className={`hh-studio__rbtn${mobileSheet === 'view' ? ' hh-studio__rbtn--on' : ''}`}
-              onClick={() => setMobileSheet((v) => (v === 'view' ? null : 'view'))}
-              title="Mirror the camera, stream upright or sideways"
+              onClick={() => { void refreshAudioInputs(); setMobileSheet((v) => (v === 'view' ? null : 'view')); }}
+              title="Pick a camera, mirror it, stream upright or sideways"
             >
-              <IconRotate />
-              <span className="hh-studio__rbtn-label">View</span>
+              <IconLens />
+              <span className="hh-studio__rbtn-label">Camera</span>
             </button>
             {/* Connection bars: stream health and the quality settings. */}
             <StreamHealthRailButton
@@ -4912,7 +4937,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 : mobileSheet === 'share' ? 'Share this stream'
                 : mobileSheet === 'guests' ? 'Requests to join'
                 : mobileSheet === 'settings' ? 'Quality and settings'
-                : mobileSheet === 'view' ? 'Mirror and rotate'
+                : mobileSheet === 'view' ? 'Camera'
                 : mobileSheet === 'live' ? 'Polls and overlays' : 'Microphone'}
               onClose={() => setMobileSheet(null)}
               height={sheetH[mobileSheet]}
