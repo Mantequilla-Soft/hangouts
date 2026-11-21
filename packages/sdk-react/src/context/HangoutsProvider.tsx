@@ -165,6 +165,7 @@ export function HangoutsProvider({
   const proKey = JSON.stringify([
     pro?.network, pro?.graphqlUrl, pro?.hasuraUrl,
     pro?.subsContractId, pro?.subOfferId, pro?.onetimeOfferId, pro?.trialEnabled,
+    pro?.sale === undefined ? 'default' : pro.sale,
   ]);
   const proConfig = useMemo(
     () => resolveProConfig(pro),

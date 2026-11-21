@@ -14,6 +14,7 @@
  */
 
 import type { AiohaLike } from '@snapie/hangouts-core';
+import { DEFAULT_PRO_SALE, type ProSale } from './proSale.js';
 
 /** Key type accepted by Aioha. These are exactly the values of its `KeyTypes` enum. */
 export type HiveKeyType = 'posting' | 'active';
@@ -45,6 +46,11 @@ export interface ProConfig {
   /** One-time 1-day-pass offer id. */
   onetimeOfferId?: number;
   /**
+   * A sale on separate offers (lib/proSale.ts). Leave unset for 3Speak's own
+   * sale on mainnet (none on testnet); `null` turns it off.
+   */
+  sale?: ProSale | null;
+  /**
    * Force the free-trial button on or off. Leave unset (the default) to follow
    * the server's `testing_available`, which is the setting that actually
    * decides whether the claim would succeed.
@@ -75,6 +81,7 @@ export interface ResolvedProConfig {
   subsContractId: string;
   subOfferId: number;
   onetimeOfferId: number;
+  sale: ProSale | null;
   trialEnabled?: boolean;
   broadcastOps?: ProConfig['broadcastOps'];
   getUsername?: ProConfig['getUsername'];
@@ -109,6 +116,7 @@ export function resolveProConfig(config: ProConfig = {}): ResolvedProConfig {
     subsContractId: config.subsContractId || DEFAULT_SUBS_CONTRACT_ID,
     subOfferId: config.subOfferId ?? DEFAULT_SUB_OFFER_ID,
     onetimeOfferId: config.onetimeOfferId ?? DEFAULT_ONETIME_OFFER_ID,
+    sale: config.sale !== undefined ? config.sale : (isTestnet ? null : DEFAULT_PRO_SALE),
     trialEnabled: config.trialEnabled,
     broadcastOps: config.broadcastOps,
     getUsername: config.getUsername,
