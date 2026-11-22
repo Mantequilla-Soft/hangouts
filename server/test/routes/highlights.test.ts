@@ -202,3 +202,74 @@ describe('clips of a user, and deleting', () => {
     expect((await del('fan')).statusCode).toBe(404);
   });
 });
+
+describe('POST /rooms/:name/recap', () => {
+  const recap = async (u: string, body: object, room = ROOM) => app.inject({ method: 'POST', url: `/rooms/${room}/recap`, headers: await bearer(u), payload: body });
+  const keep = async (file: string, offsetSec: number, over: Record<string, unknown> = {}) => {
+    const r = await clips.registerClip({ room: ROOM, host: 'badadib', clipper: null, source: 'auto', file, offsetSec, durationSec: 30, ...over });
+    if (!('clip' in r)) throw new Error('refused');
+    return r.clip;
+  };
+
+  it('joins the host\'s ready clips in stream order into one niced encode', async () => {
+    const late = await keep('late.mp4', 900);
+    const early = await keep('early.mp4', 60);
+    const res = await recap('badadib', { ids: [late.id, early.id] });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({ room: ROOM, host: 'badadib', durationSec: 60, vertical: false, clips: [early.id, late.id], offsetSec: 60 });
+    expect(body.path).toMatch(/^\/dvr\/clips\/recap-badadib-hl1-[0-9a-f]{8}\.mp4$/);
+    expect(cp.spawn).toHaveBeenCalledTimes(1);
+    const [bin, args] = cp.spawn.mock.calls[0];
+    expect(bin).toBe('nice');
+    const inputs = args.flatMap((a: string, i: number) => (a === '-i' ? [args[i + 1]] : []));
+    expect(inputs).toEqual(['/tmp/livekit-dvr-clips/early.mp4', '/tmp/livekit-dvr-clips/late.mp4']);
+    const graph = args[args.indexOf('-filter_complex') + 1];
+    expect(graph).toContain('scale=1280:720');
+    expect(graph).toContain('concat=n=2:v=1:a=1[v][a]');
+  });
+
+  it('a vertical recap makes the 9:16 copy of each part first, then joins at 720x1280', async () => {
+    const a = await keep('a.mp4', 10, { crop: { x: 0.5, w: 0.3 } });
+    const b = await keep('b.mp4', 20, { crop: { x: 0.5, w: 0.3 } });
+    const res = await recap('badadib', { ids: [a.id, b.id], vertical: true });
+    expect(res.statusCode).toBe(200);
+    expect(cp.spawn).toHaveBeenCalledTimes(3);
+    const last = cp.spawn.mock.calls[2][1];
+    expect(last[last.indexOf('-filter_complex') + 1]).toContain('scale=720:1280');
+    const store = await clips.clipStore();
+    expect((await store.get(a.id))?.verticalFile).toMatch(/^a-v-[0-9a-f]{6}\.mp4$/);
+  });
+
+  it('refuses viewers, other rooms, and fewer than two clips', async () => {
+    const a = await keep('a.mp4', 10);
+    const b = await keep('b.mp4', 20);
+    expect((await recap('fan', { ids: [a.id, b.id] })).statusCode).toBe(403);
+    expect((await recap('badadib', { ids: [a.id, b.id] }, 'other-room')).statusCode).toBe(404);
+    expect((await recap('badadib', { ids: [a.id] })).statusCode).toBe(400);
+    expect(cp.spawn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a vertical without crop, a clip not ready, more than a Short holds', async () => {
+    const a = await keep('a.mp4', 10);
+    const b = await keep('b.mp4', 20);
+    expect((await recap('badadib', { ids: [a.id, b.id], vertical: true })).statusCode).toBe(400);
+    const pending = await keep('p.mp4', 30, { pendingAt: 30 });
+    expect((await recap('badadib', { ids: [a.id, pending.id] })).statusCode).toBe(409);
+    const long1 = await keep('l1.mp4', 40, { durationSec: 70 });
+    const long2 = await keep('l2.mp4', 50, { durationSec: 70 });
+    expect((await recap('badadib', { ids: [long1.id, long2.id] })).statusCode).toBe(400);
+    expect(cp.spawn).not.toHaveBeenCalled();
+  });
+
+  it('a failed encode is a 500 and leaves no file behind', async () => {
+    const a = await keep('a.mp4', 10);
+    const b = await keep('b.mp4', 20);
+    cp.spawn.mockImplementation(() => proc(1));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await recap('badadib', { ids: [a.id, b.id] });
+    spy.mockRestore();
+    expect(res.statusCode).toBe(500);
+    expect(fsp.unlink).toHaveBeenCalledWith(expect.stringMatching(/recap-badadib-hl1-[0-9a-f]{8}\.mp4$/));
+  });
+});

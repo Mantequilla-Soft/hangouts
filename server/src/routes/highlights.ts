@@ -24,6 +24,10 @@ import { vodRecordingOf, vodWindow, VOD_CLIP_SEC } from '../lib/vodClips.js';
  *   DELETE /clips/:id                     the host or the clipper drops a clip
  *   POST   /clips/:id/vertical            a 9:16 copy cut with the host's phone
  *                                         crop (H19), for posting as a Short
+ *   POST   /rooms/:name/recap             the host: 2 to 4 of the stream's ready
+ *                                         clips joined into one recap video, in
+ *                                         stream order (posted as a Short that
+ *                                         names the VOD as its source)
  *
  * Chat lines are counted by the chat backlog route (POST /rooms/:name/chat,
  * routes/chat.ts), so a line costs one request. And, while a Pro host's DVR runs, every highlight moment cuts its own clip
@@ -80,6 +84,30 @@ export function verticalArgs(input: string, output: string, crop: { x: number; w
   return ['-y', '-hide_banner', '-loglevel', 'error', '-i', input,
     '-vf', `crop=${w}:ih:${x}:0`,
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'copy', '-movflags', '+faststart', output];
+}
+
+/** Clips in one recap, and its longest total (a Short is at most 120 s; a few
+ *  seconds of slack for clips cut a little long). */
+export const RECAP_MAX_CLIPS = 4;
+export const RECAP_MIN_CLIPS = 2;
+export const RECAP_MAX_SEC = 125;
+
+/** Pure: the ffmpeg arguments joining `inputs` into one H.264/AAC MP4 of
+ *  `size` (each part scaled to fit and padded, 30 fps, stereo 48 kHz), so clips
+ *  cut at different sizes or rates still join. */
+export function recapArgs(inputs: string[], output: string, size: { w: number; h: number } = { w: 1280, h: 720 }): string[] {
+  const { w, h } = size;
+  const parts = inputs.map((_, i) => (
+    `[${i}:v]scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v${i}];`
+    + `[${i}:a]aresample=48000,aformat=channel_layouts=stereo[a${i}]`
+  ));
+  const join = `${inputs.map((_, i) => `[v${i}][a${i}]`).join('')}concat=n=${inputs.length}:v=1:a=1[v][a]`;
+  return ['-y', '-hide_banner', '-loglevel', 'error',
+    ...inputs.flatMap((p) => ['-i', p]),
+    '-filter_complex', [...parts, join].join(';'),
+    '-map', '[v]', '-map', '[a]',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k',
+    '-movflags', '+faststart', output];
 }
 
 // One vertical encode at a time on the box; the rest wait their turn.
@@ -194,6 +222,74 @@ export const highlightRoutes: FastifyPluginAsync = async (fastify) => {
     }
     await store.update(id, { verticalFile: out });
     return reply.send({ clip: clipView({ ...clip, verticalFile: out }) });
+  });
+
+  fastify.post('/rooms/:name/recap', {
+    preHandler: [requireAuth],
+    config: { rateLimit: { max: 3, timeWindow: '1 minute' } },
+    schema: {
+      ...nameParams,
+      body: {
+        type: 'object',
+        required: ['ids'],
+        properties: {
+          ids: { type: 'array', minItems: RECAP_MIN_CLIPS, maxItems: RECAP_MAX_CLIPS, uniqueItems: true, items: { type: 'string', pattern: '^[0-9a-f]{18}$' } },
+          vertical: { type: 'boolean' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { name } = request.params as { name: string };
+    const { ids, vertical = false } = request.body as { ids: string[]; vertical?: boolean };
+    const store = await clipStore();
+    const found = await Promise.all(ids.map((id) => store.get(id)));
+    if (found.some((c) => !c || c.room !== name)) return reply.notFound('Clip not found');
+    const list = found as NonNullable<(typeof found)[number]>[];
+    if (list.some((c) => c.host !== request.username)) return reply.forbidden('Only the host can make a recap of the stream');
+    if (list.some((c) => clipStatusOf(c).status !== 'ready')) return reply.conflict('A clip is not ready yet');
+    const total = list.reduce((sum, c) => sum + (Number(c.durationSec) || 0), 0);
+    if (total > RECAP_MAX_SEC) return reply.badRequest(`A recap is at most ${RECAP_MAX_SEC - 5} seconds`);
+    if (vertical && list.some((c) => !c.crop)) return reply.badRequest('This stream had no phone crop');
+
+    // In stream order, whatever order they were picked in.
+    const ordered = [...list].sort((a, b) => (a.offsetSec ?? 0) - (b.offsetSec ?? 0) || a.createdAt.getTime() - b.createdAt.getTime());
+    const made: string[] = [];
+    try {
+      const inputs: string[] = [];
+      for (const c of ordered) {
+        if (!vertical) { inputs.push(join(CLIP_DIR, c.file)); continue; }
+        // The 9:16 copy of each part, made now when it is not there yet.
+        let v = c.verticalFile && await stat(join(CLIP_DIR, c.verticalFile)).catch(() => null) ? c.verticalFile : null;
+        if (!v) {
+          v = `${c.file.replace(/\.mp4$/, '')}-v-${randomBytes(3).toString('hex')}.mp4`;
+          await runNiced(verticalArgs(join(CLIP_DIR, c.file), join(CLIP_DIR, v), c.crop!));
+          made.push(v);
+          await store.update(c.id, { verticalFile: v });
+        }
+        inputs.push(join(CLIP_DIR, v));
+      }
+      const out = `recap-${name.replace(/[^A-Za-z0-9_-]/g, '_')}-${randomBytes(4).toString('hex')}.mp4`;
+      try {
+        await runNiced(recapArgs(inputs, join(CLIP_DIR, out), vertical ? { w: 720, h: 1280 } : { w: 1280, h: 720 }));
+      } catch (err) {
+        await unlink(join(CLIP_DIR, out)).catch(() => { /* never written */ });
+        throw err;
+      }
+      return reply.send({
+        room: name,
+        host: request.username,
+        path: `/dvr/clips/${out}`,
+        durationSec: Math.round(total * 10) / 10,
+        vertical,
+        clips: ordered.map((c) => c.id),
+        // From the first part: where in the stream the recap starts.
+        offsetSec: ordered[0].offsetSec ?? null,
+        expiresAt: new Date(Date.now() + config.CLIP_KEEP_HOURS * 3_600_000).toISOString(),
+      });
+    } catch (err) {
+      request.log.error({ err }, '[clips] recap failed');
+      return reply.code(500).send({ message: 'Could not make the recap.', ...(made.length ? { partial: made.length } : {}) });
+    }
   });
 
   fastify.delete('/clips/:id', {
