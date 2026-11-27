@@ -118,8 +118,24 @@ every `POINTS_BATCH_MIN` (5) minutes, a custom_json `3speak_points` on Hive
 signed by `POINTS_LOG_ACCOUNT` (@threespeak-pro):
 `{"v":1,"at":<unix s>,"m":[[user, delta, kind, dt, ref?]]}` with kind `w`
 watch, `s` stream, `c` chat, `r` raid, `t` battle, `b` boost, `x` spent on a
-points boost, `f` refund, `p` prediction, `e` expire (back to the start), and `dt` seconds after `at`. Watching
-and chat name no stream (viewing history stays private). `npm run
+points boost, `f` refund, `p` prediction, `e` expire (back to the start), `l` login, `k` rank, `m` remix,
+two letters for the later award kinds (`lib/pointsLog.ts` KIND_CODE), and `dt` seconds after `at`. Watching
+and chat name no stream (viewing history stays private), and the awards for
+watching, tagging, voting, clipping and tipping (`finish`, `premiere`,
+`playlist`, `tag`, `pollvote`, `clip`, `tip`) keep their ref in the wallet
+history only. With the 3SP token the log changes id at the airdrop: movements
+from before it stay `3speak_points` (replayed with `npm run points:replay`
+they give exactly the airdropped balances), movements after it are
+`3sp_points` (same format), and between setting `POINTS_TOKEN_CONTRACT` and
+the airdrop nothing new is logged, so no movement is ever counted twice. The ways to earn beyond watching, chat and streaming are awards
+(`lib/pointsAwards.ts`): each has an id that pays once, the amounts and limits
+are this server's, and every earning pays x2 inside a double-points window
+(`POINTS_DOUBLE_WEEKENDS`, `POINTS_DOUBLE_WINDOWS`). Points also promote a
+3Speak video (Discover #1, `POST /points/promote`): the checker says whether it
+can be promoted and for how many days (`GET /promote/eligible/:author/:permlink`)
+and books it (`PUT /promote/points`, `POINTS_AWARD_SECRET`, once per spend id;
+network errors and 5xx are tried again, a refusal refunds). The spend's ref is
+`promote:<author>/<permlink>`. `npm run
 points:replay` (server) rebuilds every balance from the chain alone. Every change is broadcast on the `poll` data topic, at most about once a second.
 
 | Route | Auth | Body | Answer |
@@ -131,6 +147,14 @@ points:replay` (server) rebuilds every balance from the chain alone. Every chang
 | `GET /users/:account/points/history` | none, 60/min | `?before=<ms>&limit=` | `{ account, items: [{ id, delta, kind, ref?, at, tx }], next }`, newest first. |
 | `GET /points/:channel` | session, 30/min | | `{ channel, balance }`, the same global balance (older clients). |
 | `POST /rooms/:name/boosts/points` | session+ban, 10/min | `{ amount*, message*, displayName?, recipient? }` | 201 `{ boost, balance }`; 400 too few points or below the minimum, 403 own stream, 409 boosts off. |
+| `POST /points/daily` | session, 10/min | | `{ awarded, points, balance }`: the day's sign-in point, and on the first sign-in of a day the `streak`, `week5` and `anniv` awards. |
+| `POST /points/awards` | `x-points-award-secret`, 30/min | `{ awards*: [{ id*, user*, kind*, ref?, units? }] }` (max 200) | `{ results: [{ id, awarded: true, points } \| { id, awarded: false, reason }] }`, reason `invalid`, `account`, `own`, `banned`, `already`, `limit` or `error`. `kind` is one of the checker's kinds (rank, remix, first5, vodtime, finish, listen, premiere, playlist, first, reach, storystreak, challenge, premheld, tag, reply, community, tip, remixed, followers, referral); `units` (integer >= 0) is minutes for vodtime and listen, milli-HBD for tip. 404 without `POINTS_AWARD_SECRET`. |
+| `GET /points/awards/config` | none, cached 300 s | | `{ login, rank, remix, remixPerDay, kinds: { <kind>: amount \| { amount?, perUnit?, maxPerDay?, perDay?, maxEver?, perHbd?, max?, minViewers?, amounts? } }, double: { factor }, quests: { points, perWeek } }` |
+| `GET /points/events` | none, cached 60 s | | `{ double: { active, until?, next? } }` (ISO times). |
+| `GET /points/quests` | none, 60/min | `?user=<account>*` | `{ week: 'YYYY-Www', quests: [{ id, kind, target, progress, done, points: 300, title_key }] }`; a done quest not paid yet pays on this read. 400 not a Hive account. |
+| `POST /points/pwa` | session, 5/min | | 200 `{ awarded: true, points: 50, balance }`; 409 claimed already. Once ever, claimed by the installed app. |
+| `GET /points/promote/quote` | none, cached 300 s | | `{ per24h, maxDays: 7, enabled }`: what promoting a 3Speak video costs (`PROMOTE_POINTS_PER_24H`, 5,000 a day); `enabled` while `POINTS_AWARD_SECRET` is set. |
+| `POST /points/promote` | session+ban, 10/min | `{ author*, permlink*, days*: 1..7, burnTx? }` | 201 `{ promotedUntil, balance }`; 202 `{ pending, spendId }` (poll `GET /points/spends/:id`, which then carries `promotedUntil`); 400 `code: 'too_long', maxDays` or `'insufficient'`; 409 `code: 'ineligible', reason` (the checker's), or `'failed'` when the checker turned the booking down ("Your points are back."); 428 `code: 'sign', op`; 503 checker unreachable; 404 without `POINTS_AWARD_SECRET`. |
 | `POST /rooms/:name/polls` | session+ban, host, 20/5 min | `{ kind?: 'poll'\|'prediction', question*, options*, durationSec* }` | 201 `{ poll }`. Polls run 15 to 600 s, predictions up to 1800 s. |
 | `POST /rooms/:name/polls/:id/vote` | session+ban, 20/min | `{ option* }` | `{ poll, myVote }` |
 | `POST /rooms/:name/polls/:id/stake` | session+ban, 20/min | `{ option*, amount* }` | `{ poll, myStake, balance }` |
@@ -331,7 +355,7 @@ Built-in plugins: chess, fast draw, word guess. Game state travels on the `game`
 inside the handlers and are described above.
 
 <!-- routes:start (generated by server/scripts/list-routes.ts, do not edit by hand) -->
-121 routes.
+135 routes.
 
 | Method | Path | preHandler | Rate limit | Query | Body (`*` = required) |
 |---|---|---|---|---|---|
@@ -352,6 +376,10 @@ inside the handlers and are described above.
 | DELETE | `/clips/:id` | requireAuth | 30 / 1 minute |  |  |
 | POST | `/clips/:id/vertical` | requireAuth | 6 / 1 minute |  |  |
 | GET | `/clips/mine` | requireAuth | 60 / 1 minute |  |  |
+| GET | `/dock-key` | requireAuth, checkBan | 30 / 5 minutes |  |  |
+| POST | `/dock-key/reset` | requireAuth, checkBan | 10 / 5 minutes |  |  |
+| GET | `/dock/clips` | requireAuth | 30 / 1 minute |  |  |
+| POST | `/dock/session` | none | 20 / 1 minute |  | key*: string |
 | GET | `/dvr/clips/:file` | none | none |  |  |
 | GET | `/events` | none | none | status: scheduled\|live\|ended\|cancelled, host: string, limit: integer |  |
 | POST | `/events` | requireAuth | none |  | title*: string, description: string, scheduledAt*: string, coverImage: string, tags: string[], visibility: public\|unlisted |
@@ -369,6 +397,15 @@ inside the handlers and are described above.
 | GET | `/podcast/recordings` | requireAuth | none |  |  |
 | GET | `/points` | requireAuth | 30 / 1 minute |  |  |
 | GET | `/points/:channel` | requireAuth | 30 / 1 minute |  |  |
+| POST | `/points/awards` | none | 30 / 1 minute |  | awards*: object[] |
+| GET | `/points/awards/config` | none | none |  |  |
+| POST | `/points/daily` | requireAuth | 10 / 1 minute |  |  |
+| GET | `/points/events` | none | none |  |  |
+| POST | `/points/promote` | requireAuth, checkBan | 10 / 1 minute |  | author*: string, permlink*: string, days*: integer, burnTx: string |
+| GET | `/points/promote/quote` | none | none |  |  |
+| POST | `/points/pwa` | requireAuth | 5 / 1 minute |  |  |
+| GET | `/points/quests` | none | 60 / 1 minute | user*: string |  |
+| GET | `/points/spends/:id` | requireAuth | 60 / 1 minute |  |  |
 | GET | `/premium` | none | none |  |  |
 | GET | `/premium/:username` | none | none |  |  |
 | POST | `/premium/start-testing` | requireAuth, checkBan | 5 / 1 minute |  |  |
@@ -382,7 +419,7 @@ inside the handlers and are described above.
 | GET | `/rooms/:name` | none | none |  |  |
 | PATCH | `/rooms/:name/boost` | requireAuth | none |  | enabled: boolean, minBoostUsd: number, creatorPayoutAccount: string, goal: object\|null, tiers: boolean, alerts: object, presets: number[] |
 | GET | `/rooms/:name/boost/summary` | none | none |  |  |
-| POST | `/rooms/:name/boosts/points` | requireAuth, checkBan | 10 / 1 minute |  | amount*: integer, message*: string, displayName: string, recipient: string |
+| POST | `/rooms/:name/boosts/points` | requireAuth, checkBan | 10 / 1 minute |  | amount*: integer, message*: string, displayName: string, recipient: string, burnTx: string |
 | PATCH | `/rooms/:name/broadcast` | requireAuth | none |  | broadcasting*: boolean |
 | POST | `/rooms/:name/captions/start` | requireAuth, checkBan | 12 / 1 minute |  | lang: string |
 | POST | `/rooms/:name/captions/stop` | requireAuth, checkBan | 12 / 1 minute |  |  |
@@ -421,7 +458,7 @@ inside the handlers and are described above.
 | POST | `/rooms/:name/polls/:id/cancel` | requireAuth, checkBan | 30 / 1 minute |  |  |
 | POST | `/rooms/:name/polls/:id/end` | requireAuth, checkBan | 30 / 1 minute |  |  |
 | POST | `/rooms/:name/polls/:id/resolve` | requireAuth, checkBan | 30 / 1 minute |  | winner*: integer |
-| POST | `/rooms/:name/polls/:id/stake` | requireAuth, checkBan | 20 / 1 minute |  | option*: integer, amount*: integer |
+| POST | `/rooms/:name/polls/:id/stake` | requireAuth, checkBan | 20 / 1 minute |  | option*: integer, amount*: integer, burnTx: string |
 | POST | `/rooms/:name/polls/:id/vote` | requireAuth, checkBan | 20 / 1 minute |  | option*: integer |
 | GET | `/rooms/:name/polls/active` | none | 60 / 1 minute |  |  |
 | PATCH | `/rooms/:name/post` | requireAuth | none |  | title: string, thumbnail: string, description: string, tags: string[] |
@@ -429,6 +466,7 @@ inside the handlers and are described above.
 | GET | `/rooms/:name/raid` | none | 60 / 1 minute |  |  |
 | POST | `/rooms/:name/raid` | requireAuth, checkBan | 20 / 10 minutes |  | target*: string |
 | GET | `/rooms/:name/raid/targets` | requireAuth | 20 / 1 minute |  |  |
+| POST | `/rooms/:name/recap` | requireAuth | 3 / 1 minute |  | ids*: string[], vertical: boolean |
 | PATCH | `/rooms/:name/record/:audioPerm/metadata` | requireAuth, checkBan | none |  | title: string, description: string, tags: string[], post_permlink: string |
 | GET | `/rooms/:name/record/file/:token` | none | none |  |  |
 | PATCH | `/rooms/:name/record/layout` | requireAuth, checkBan | none |  | layout*: speaker\|grid\|single |

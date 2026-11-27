@@ -648,6 +648,19 @@ Read straight from the environment elsewhere (not in `config.ts`):
 | `POINTS_BATCH_MIN` | `5` | Earnings are paid out and logged on Hive in batches this often. |
 | `POINTS_LOG_ACCOUNT` | `threespeak-pro` | Signs the custom_json points log. |
 | `POINTS_LOG_POSTING_KEY` | | Its posting key. Without it, the boost wallet's active key when it is the same account; without either, rows wait in Mongo. |
+| `POINTS_TOKEN_CONTRACT` | | The 3Speak Points (3SP) contract on Magi. Empty: points stay Mongo-only. Set it on ONE server only. Live once `npm run points:airdrop -- --yes` ran (`lib/pointsToken.ts`). |
+| `POINTS_TOKEN_NET_ID` | `vsc-mainnet` | `vsc-testnet` for the testnet contract. |
+| `POINTS_TOKEN_GRAPHQL_URLS` | techcoderx, atexoras | Magi GraphQL endpoints, comma-separated, first that answers. |
+| `POINTS_MINTER_ACCOUNT`, `POINTS_MINTER_POSTING_KEY` | `threespeak-pro`, | The minter (`mintBatch`). Empty key: `POINTS_LOG_POSTING_KEY` when it is the same account. |
+| `POINTS_SPEND_SIGNER_ACCOUNT`, `POINTS_SPEND_SIGNER_POSTING_KEY` | `threespeak`, | Signs a user's spend (`burn`) under their posting authority. Empty key: the user's wallet signs every spend. |
+| `POINTS_MINT_INTERVAL_MIN` | `60` | Minutes between mint batches (the minter pays Magi RC per row). |
+| `POINTS_SPEND_WAIT_MS` | `30000` | How long a spend request waits for Magi before answering 202. |
+| `POINTS_AWARD_SECRET` | | Shared secret for `POST /points/awards` (the checker's awards, `lib/pointsAwards.ts`) and for booking points promotions on the checker (`PUT /promote/points`). Empty: both off. |
+| `POINTS_DOUBLE_WEEKENDS` | `false` | `true`: every earning pays x2 from Saturday 00:00 to Sunday 24:00 UTC (`lib/pointsEvents.ts`). |
+| `POINTS_DOUBLE_WINDOWS` | | More double-points windows, a comma list of `<ISO start>/<ISO end>`. |
+| `POINTS_FIRSTS_SINCE` | `2026-11-26` | A first stream pays only for accounts whose first stream is on or after this date. |
+| `POINTS_QUESTS` | | Quest ids to run every week instead of the built-in rotation (`lib/pointsQuests.ts`). |
+| `PROMOTE_POINTS_PER_24H` | `5000` | Points per 24 h to promote a 3Speak video (`POST /points/promote`). |
 | `RAID_COUNTDOWN_SEC`, `RAID_COOLDOWN_MIN` | `10`, `10` | Raid countdown and per-host cooldown (`lib/raids.ts`). |
 
 ## Mongo collections

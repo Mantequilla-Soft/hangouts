@@ -4,16 +4,45 @@
  * `3speak_points`, `{"v":1,"at":<unix s>,"m":[[user, delta, kind, dt, ref?]]}`.
  */
 
-export type PointsKind = 'watch' | 'stream' | 'chat' | 'raid' | 'battle' | 'boost' | 'spend' | 'refund' | 'prediction' | 'expire';
+export type PointsKind = 'watch' | 'stream' | 'chat' | 'raid' | 'battle' | 'boost' | 'spend' | 'refund' | 'prediction' | 'expire'
+  | 'login' | 'rank' | 'remix'
+  // The ways to earn of lib/pointsAwards.ts (2026-11-26).
+  | 'streak' | 'week5' | 'anniv' | 'first5' | 'vodtime' | 'finish' | 'listen' | 'premiere' | 'playlist' | 'first'
+  | 'reach' | 'storystreak' | 'challenge' | 'collab' | 'premheld' | 'clip' | 'tag' | 'pollvote' | 'reply' | 'community'
+  | 'tip' | 'remixed' | 'raided' | 'followers' | 'peak10' | 'referral' | 'invited' | 'pwa' | 'party' | 'quest';
 
-/** One letter per kind on the chain (custom_json is capped at 8 KB). */
-const KIND_CODE: Record<PointsKind, string> = {
+/** One letter per kind on the chain (custom_json is capped at 8 KB), two for
+ *  the award kinds added later. The token's mintBatch rows carry the same
+ *  codes as their kind label (at most 8 characters; never `g` or `a`, which
+ *  the contract keeps for the once-per-account welcome grant and airdrop). */
+export const KIND_CODE: Record<PointsKind, string> = {
   watch: 'w', stream: 's', chat: 'c', raid: 'r', battle: 't', boost: 'b', spend: 'x', refund: 'f', prediction: 'p',
-  expire: 'e',
+  expire: 'e', login: 'l', rank: 'k', remix: 'm',
+  streak: 'sk', week5: 'w5', anniv: 'an', first5: 'f5', vodtime: 'vt', finish: 'fi', listen: 'li', premiere: 'pr',
+  playlist: 'pl', first: 'fs', reach: 'rc', storystreak: 'ss', challenge: 'ch', collab: 'co', premheld: 'ph', clip: 'cl',
+  tag: 'tg', pollvote: 'pv', reply: 'rp', community: 'cm', tip: 'tp', remixed: 'rx', raided: 'rd', followers: 'fo',
+  peak10: 'pk', referral: 'rf', invited: 'iv', pwa: 'pw', party: 'pa', quest: 'qs',
 };
+
+/** Kinds whose ref would tell the public chain what someone watched, voted on
+ *  or tipped: the ref stays in the wallet history (Mongo) and is left out of
+ *  the custom_json, like watching and chat carry no stream at all. */
+export const PRIVATE_REF_KINDS: ReadonlySet<PointsKind> = new Set<PointsKind>([
+  'finish', 'premiere', 'playlist', 'tag', 'pollvote', 'clip', 'tip',
+]);
 const CODE_KIND = Object.fromEntries(Object.entries(KIND_CODE).map(([k, c]) => [c, k])) as Record<string, PointsKind>;
 
+/**
+ * Two logs, so a replay never counts a movement twice:
+ *   `3speak_points`  everything from before the 3SP token: replayed, it gives
+ *                    exactly the balances the airdrop minted
+ *   `3sp_points`     everything after the airdrop, when the token on Magi holds
+ *                    the balances (the same format, the record of what each
+ *                    mint and burn was for)
+ * Which row goes where: logIdFor in lib/pointsLedger.ts.
+ */
 export const POINTS_LOG_ID = '3speak_points';
+export const POINTS_TOKEN_LOG_ID = '3sp_points';
 
 /** What a ledger row needs to go on the chain. */
 export interface LogRow { id: string; user: string; delta: number; kind: PointsKind; ref?: string; at: number }
@@ -40,7 +69,7 @@ export function encodePointsLog(rows: LogRow[]): Array<{ json: string; ids: stri
     while (i < sorted.length) {
       const r = sorted[i];
       const entry: unknown[] = [r.user, r.delta, KIND_CODE[r.kind], Math.max(0, Math.floor(r.at / 1000) - at)];
-      if (r.ref) entry.push(r.ref);
+      if (r.ref && !PRIVATE_REF_KINDS.has(r.kind)) entry.push(r.ref);
       const next = JSON.stringify({ v: 1, at, m: [...m, entry] });
       if (Buffer.byteLength(next) > MAX_JSON_BYTES && m.length > 0) break;
       m.push(entry);

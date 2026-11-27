@@ -2,6 +2,7 @@ import type { Collection } from 'mongodb';
 import { ParticipantInfo_Kind } from '@livekit/protocol';
 import { getLiveDb } from './mongoDb.js';
 import { ledgerStore, logPendingToChain, newRow, type LedgerRow, type PointsKind } from './pointsLedger.js';
+import { pointsMultiplier } from './pointsEvents.js';
 
 /**
  * Channel points: ONE balance per Hive account across every stream (not per
@@ -15,6 +16,10 @@ import { ledgerStore, logPendingToChain, newRow, type LedgerRow, type PointsKind
  *   raid        500 to the raider, battle 500 to both hosts when it runs its
  *               full time; once an hour for the same two streamers
  *   boosting    100 plus 100 per HBD of value, at most 2,000 a boost
+ *   awards      signing in, streaks, watching to the end, firsts, quests and
+ *               the rest of the ways to earn, each under an id that pays once
+ *               (lib/pointsAwards.ts)
+ * Earnings pay x2 inside a double-points window (lib/pointsEvents.ts).
  * Spent:
  *   predictions (stakes, lib/polls.ts) and points boosts (POINTS_BOOST_MIN and up)
  *
@@ -24,6 +29,10 @@ import { ledgerStore, logPendingToChain, newRow, type LedgerRow, type PointsKind
  *
  * Every movement is also a ledger row and, batched, a custom_json on Hive
  * (lib/pointsLedger.ts), so balances can be rebuilt from the chain.
+ *
+ * With POINTS_TOKEN_CONTRACT the points are also the 3SP token on Magi
+ * (lib/pointsToken.ts): earnings are minted, spends burn on chain first, and
+ * nothing expires.
  */
 
 export const POINTS_START = Math.max(1, Number(process.env.POINTS_START ?? 1000) || 1000);
@@ -226,8 +235,9 @@ export function pointsStore(): PointsStore {
 }
 
 /** For the wallet: the balance and when it expires (public, like a profile stat). */
-export function pointsDetails(user: string): Promise<{ balance: number; expiresAt: Date | null }> {
-  return store.details(user.toLowerCase());
+export async function pointsDetails(user: string): Promise<{ balance: number; expiresAt: Date | null }> {
+  const d = await store.details(user.toLowerCase());
+  return expiryOff() ? { ...d, expiresAt: null } : d;
 }
 
 export function pointsBalance(user: string): Promise<number> {
@@ -248,12 +258,18 @@ export async function spendPoints(user: string, amount: number, ref?: string): P
   return left;
 }
 
-/** Move points now, with their ledger rows (a prediction's payouts, a refund). */
-export async function applyPointsNow(deltas: Map<string, number>, kind: PointsKind, ref?: string): Promise<void> {
-  if (deltas.size === 0) return;
-  await store.apply(deltas);
-  const at = Date.now();
-  await ledgerStore().insert([...deltas].map(([u, d]) => newRow(u, d, kind, at, ref))).catch(() => undefined);
+/** Move points now, with their ledger rows (a prediction's payouts, a refund,
+ *  an award). An award is an earning, so it pays x2 inside a double-points
+ *  window; payouts and refunds never do. What was applied. */
+export async function applyPointsNow(
+  deltas: Map<string, number>, kind: PointsKind, ref?: string, at = Date.now(),
+): Promise<Map<string, number>> {
+  if (deltas.size === 0) return deltas;
+  const x = pointsMultiplier(kind, at);
+  const applied = x === 1 ? deltas : new Map([...deltas].map(([u, d]) => [u, d > 0 ? d * x : d]));
+  await store.apply(applied);
+  await ledgerStore().insert([...applied].map(([u, d]) => newRow(u, d, kind, at, ref))).catch(() => undefined);
+  return applied;
 }
 
 // Earnings wait here and are paid out with the next batch (POINTS_BATCH_MIN):
@@ -261,13 +277,20 @@ export async function applyPointsNow(deltas: Map<string, number>, kind: PointsKi
 // the chain. A restart loses at most one batch of earnings, never a spend.
 const pending = new Map<string, { user: string; kind: PointsKind; ref?: string; delta: number }>();
 
-function earn(user: string, delta: number, kind: PointsKind, ref?: string): void {
+function earn(user: string, delta: number, kind: PointsKind, ref?: string, at = Date.now()): void {
   if (delta === 0) return;
+  // Counted when earned, so a batch paid after a window closes still pays x2.
+  delta *= pointsMultiplier(kind, at);
   const k = `${user}|${kind}|${ref ?? ''}`;
   const cur = pending.get(k);
   if (cur) cur.delta += delta;
   else pending.set(k, { user, kind, ...(ref ? { ref } : {}), delta });
 }
+
+let expiryOff: () => boolean = () => false;
+/** lib/pointsToken.ts: no expiry while points are a token. */
+export function setPointsExpiryOff(fn: () => boolean): void { expiryOff = fn; }
+export function pointsExpire(): boolean { return !expiryOff(); }
 
 /**
  * Reset the balances untouched for POINTS_TTL_DAYS to POINTS_START, each as an
@@ -276,6 +299,7 @@ function earn(user: string, delta: number, kind: PointsKind, ref?: string): void
  * just goes, with nothing to log.
  */
 export async function expirePoints(now = Date.now(), limit = 500): Promise<number> {
+  if (expiryOff()) return 0;
   const gone = await store.expire(now, limit);
   const rows = gone.filter((g) => g.balance !== POINTS_START).map((g) => newRow(g.user, POINTS_START - g.balance, 'expire', now));
   if (rows.length) await ledgerStore().insert(rows);
@@ -317,7 +341,7 @@ export function earnForChat(identity: string, text: string, now = Date.now()): n
   if (pts <= 0) return 0;
   chatMinute.set(user, { minute, earned: earned + pts });
   // No stream on the record: the chain must not show where someone chats.
-  earn(user, pts, 'chat');
+  earn(user, pts, 'chat', undefined, now);
   return pts;
 }
 
@@ -348,7 +372,7 @@ export function earnForRaid(raider: string, target: string, now = Date.now()): n
   const a = pointsAccount(raider);
   const b = pointsAccount(target);
   if (!a || !b || a === b || !pairDue('raid', a, b, now)) return 0;
-  earn(a, RAID_POINTS, 'raid', b);
+  earn(a, RAID_POINTS, 'raid', b, now);
   return RAID_POINTS;
 }
 
@@ -357,49 +381,64 @@ export function earnForBattle(hostA: string, hostB: string, now = Date.now()): n
   const a = pointsAccount(hostA);
   const b = pointsAccount(hostB);
   if (!a || !b || a === b || !pairDue('battle', a, b, now)) return 0;
-  earn(a, BATTLE_POINTS, 'battle', b);
-  earn(b, BATTLE_POINTS, 'battle', a);
+  earn(a, BATTLE_POINTS, 'battle', b, now);
+  earn(b, BATTLE_POINTS, 'battle', a, now);
   return BATTLE_POINTS;
 }
 
-interface SampleParticipant {
+export interface SampleParticipant {
   identity: string;
   kind?: number;
   tracks?: unknown[];
+}
+
+export interface SampleRoom { name?: string; metadata?: string; participants: SampleParticipant[] }
+
+/** A live stream as the sampler sees it: who hosts it, whether someone is
+ *  sending the picture, and its audience. Null when it is not a live stream. */
+export function liveStreamOf(room: SampleRoom): {
+  host: string | null; guest: string | null; guestHere: boolean; onAir: boolean;
+  /** Everyone watching (guests too), and the signed-in accounts among them. */
+  audience: number; viewers: string[];
+} | null {
+  let meta: { mode?: string; host?: string; liveAt?: string; collabGuest?: string } = {};
+  try { meta = JSON.parse(room.metadata || '{}'); } catch { /* not a stream */ }
+  // Live streams only (the standalone studio, gone live at least once).
+  if (meta.mode !== 'standalone' || !meta.liveAt) return null;
+  const host = pointsAccount(meta.host);
+  const guest = pointsAccount(meta.collabGuest);
+  const standard = room.participants.filter((p) => p.kind === undefined || p.kind === ParticipantInfo_Kind.STANDARD);
+  // Someone is sending the picture: the host's studio, or its OBS ingress.
+  const onAir = room.participants.some((p) => (
+    (p.identity.startsWith('obs-') || pointsAccount(p.identity) === host) && (p.tracks?.length ?? 1) > 0
+  ));
+  let audience = 0;
+  const viewers = new Set<string>();
+  for (const p of standard) {
+    if (p.identity.startsWith('obs-')) continue;
+    const user = pointsAccount(p.identity);
+    if (user && (user === host || user === guest)) continue;
+    audience += 1; // guests count as an audience, but earn nothing
+    if (user) viewers.add(user);
+  }
+  const guestHere = !!guest && standard.some((p) => pointsAccount(p.identity) === guest);
+  return { host, guest, guestHere, onAir, audience, viewers: [...viewers] };
 }
 
 /**
  * One minute's watching and streaming points from what is live now. Pure:
  * `rooms` is every room with its metadata and participants.
  */
-export function minuteRewards(
-  rooms: Array<{ metadata?: string; participants: SampleParticipant[] }>,
-): Map<string, { points: number; kind: 'watch' | 'stream' }> {
+export function minuteRewards(rooms: SampleRoom[]): Map<string, { points: number; kind: 'watch' | 'stream' }> {
   const viewers = new Set<string>();
   const streamers = new Set<string>();
   for (const room of rooms) {
-    let meta: { mode?: string; host?: string; liveAt?: string; collabGuest?: string } = {};
-    try { meta = JSON.parse(room.metadata || '{}'); } catch { /* not a stream */ }
-    // Live streams only (the standalone studio, gone live at least once).
-    if (meta.mode !== 'standalone' || !meta.liveAt) continue;
-    const host = pointsAccount(meta.host);
-    const guest = pointsAccount(meta.collabGuest);
-    const standard = room.participants.filter((p) => p.kind === undefined || p.kind === ParticipantInfo_Kind.STANDARD);
-    // Someone is sending the picture: the host's studio, or its OBS ingress.
-    const onAir = room.participants.some((p) => (
-      (p.identity.startsWith('obs-') || pointsAccount(p.identity) === host) && (p.tracks?.length ?? 1) > 0
-    ));
-    let audience = 0;
-    for (const p of standard) {
-      if (p.identity.startsWith('obs-')) continue;
-      const user = pointsAccount(p.identity);
-      if (user && (user === host || user === guest)) continue;
-      audience += 1; // guests count as an audience, but earn nothing
-      if (user) viewers.add(user);
-    }
-    if (onAir && audience > 0) {
-      if (host) streamers.add(host);
-      if (guest && standard.some((p) => pointsAccount(p.identity) === guest)) streamers.add(guest);
+    const live = liveStreamOf(room);
+    if (!live) continue;
+    for (const v of live.viewers) viewers.add(v);
+    if (live.onAir && live.audience > 0) {
+      if (live.host) streamers.add(live.host);
+      if (live.guest && live.guestHere) streamers.add(live.guest);
     }
   }
   const out = new Map<string, { points: number; kind: 'watch' | 'stream' }>();
@@ -418,11 +457,19 @@ async function sampleMinute(): Promise<void> {
   for (const room of rooms) {
     if (!room.metadata?.includes('"standalone"')) continue;
     try {
-      withPeople.push({ metadata: room.metadata, participants: await roomService.listParticipants(room.name) });
+      withPeople.push({ name: room.name, metadata: room.metadata, participants: await roomService.listParticipants(room.name) });
     } catch { /* skip this room this minute */ }
   }
   // No stream on the record for watching either (viewing history stays private).
-  for (const [user, r] of minuteRewards(withPeople)) earn(user, r.points, r.kind);
+  const rewards = minuteRewards(withPeople);
+  for (const [user, r] of rewards) earn(user, r.points, r.kind);
+  // Awards that need the whole stream: a collab, a watch party, a first
+  // stream, 10 viewers, and the live-watching quest (lib/pointsStreamAwards.ts,
+  // loaded here as it pays through lib/pointsAwards.ts, which loads this file).
+  try {
+    const { streamMinute } = await import('./pointsStreamAwards.js');
+    await streamMinute(withPeople, rewards);
+  } catch { /* points never break a stream */ }
 }
 
 export const POINTS_BATCH_MIN = Math.max(1, Number(process.env.POINTS_BATCH_MIN ?? 5) || 5);

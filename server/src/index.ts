@@ -12,6 +12,7 @@ import { sweepRaids } from './lib/raids.js';
 import { flushPoints, startPointsSampler, sweepPoints } from './lib/points.js';
 import { setPointsLogWriter } from './lib/pointsLedger.js';
 import { hivePointsLogWriter } from './lib/pointsChain.js';
+import { startPointsToken } from './lib/pointsToken.js';
 
 const server = await buildApp();
 await server.listen({ port: config.PORT, host: '0.0.0.0' });
@@ -28,6 +29,8 @@ const pointsWriter = hivePointsLogWriter();
 setPointsLogWriter(pointsWriter);
 if (!pointsWriter) server.log.warn('[Points] no POINTS_LOG_POSTING_KEY: movements are kept in Mongo but not logged on Hive yet');
 startPointsSampler();
+// 3SP on Magi: the mint queue and the spend follower (off without a contract).
+startPointsToken((msg) => server.log.info(msg));
 
 // Headless (OBS) streams live in an in-memory session map, which a restart
 // loses. Re-adopt any that are still publishing and tear down the rest — now,

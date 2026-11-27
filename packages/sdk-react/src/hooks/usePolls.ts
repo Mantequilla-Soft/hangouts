@@ -3,6 +3,7 @@ import { useDataChannel } from '@livekit/components-react';
 import { HangoutsContext } from '../context/HangoutsContext.js';
 import { readPollPacket, type DataSender } from '../lib/dataTrust.js';
 import { addResult, isFinished, parsePoll, parsePollList, type PollKind, type PollStake, type PollView } from '../lib/polls.js';
+import { spendPoints, walletSigner } from '../lib/pointsSpend.js';
 
 export interface CreatePollInput {
   kind: PollKind;
@@ -140,13 +141,38 @@ export function usePolls(roomName: string, { history = false }: UsePollsOptions 
     return !!r;
   }, [poll, call]);
 
+  // A stake spends points: with 3SP the wallet may sign the burn, or it is
+  // confirmed a little later (lib/pointsSpend.ts). The confirmed stake then
+  // comes with the poll update on the data channel.
+  const [confirming, setConfirming] = useState(false);
   const stake = useCallback(async (option: number, amount: number) => {
-    if (!poll) return false;
-    const r = await call(`/${encodeURIComponent(poll.id)}/stake`, { option, amount });
-    if (r?.myStake) setMyStake(r.myStake as PollStake);
-    if (typeof r?.balance === 'number') setBalance(r.balance);
-    return !!r;
-  }, [poll, call]);
+    if (!poll || !apiBaseUrl) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      const out = await spendPoints({
+        apiBaseUrl,
+        url: `${apiBaseUrl}/rooms/${encodeURIComponent(roomName)}/polls/${encodeURIComponent(poll.id)}/stake`,
+        body: { option, amount },
+        headers,
+        sign: walletSigner(ctx?.pro, ctx?.aioha),
+        onPending: () => setConfirming(true),
+      });
+      if (!out.ok) { setError(out.message); return false; }
+      const p = parsePoll(out.body.poll);
+      if (p) take(p);
+      if (out.body.myStake) setMyStake(out.body.myStake as PollStake);
+      else setMyStake((cur) => ({ option, amount: (cur && cur.option === option ? cur.amount : 0) + amount }));
+      if (typeof out.body.balance === 'number') setBalance(out.body.balance);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error');
+      return false;
+    } finally {
+      setConfirming(false);
+      setBusy(false);
+    }
+  }, [poll, apiBaseUrl, roomName, headers, take, ctx?.pro, ctx?.aioha]);
 
   const create = useCallback((input: CreatePollInput) => call('', input).then((r) => !!r), [call]);
   const end = useCallback(() => (poll ? call(`/${encodeURIComponent(poll.id)}/end`, {}).then((r) => !!r) : Promise.resolve(false)), [poll, call]);
@@ -155,7 +181,7 @@ export function usePolls(roomName: string, { history = false }: UsePollsOptions 
   const dismiss = useCallback(() => take(null), [take]);
 
   return {
-    poll, results, myVote, myStake, balance, busy, error,
+    poll, results, myVote, myStake, balance, busy, error, confirming,
     isAuthenticated: !!ctx?.isAuthenticated,
     vote, stake, create, end, resolve, cancel, dismiss, refresh,
   };

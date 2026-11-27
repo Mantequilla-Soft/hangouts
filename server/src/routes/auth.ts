@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { createChallenge, consumeChallenge, verifyHiveSignature } from '../lib/hive.js';
+import { awardDailyLogin } from '../lib/pointsAwards.js';
 import { createSessionToken } from '../lib/session.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 
@@ -63,6 +64,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Issue a session JWT
     const token = await createSessionToken(lowerUsername);
+    // A sign-in is the day's login point (once per UTC day; never blocks it).
+    void awardDailyLogin(lowerUsername).catch(() => false);
     return reply.send({ token, username: lowerUsername });
   });
 

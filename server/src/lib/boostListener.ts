@@ -29,6 +29,7 @@ import { sendBoostPayout, sendBoostRefund } from './boostPayout.js';
 import { recordBoost } from './streamStats.js';
 import { recordBoostTally } from './boostGoals.js';
 import { POINTS_BOOST_MAX, POINTS_BOOST_MIN, POINTS_PER_HBD, applyPointsNow, earnForBoost, spendPoints } from './points.js';
+import { registerSpendCompleter, spendOnChain, tokenLive, type SpendPurpose } from './pointsToken.js';
 import { noteBoost } from './streamHighlights.js';
 import { recordBattleBoost } from './battles.js';
 
@@ -338,7 +339,9 @@ export async function processPointsBoost(input: {
   message: string;
   amount: number;
   recipient?: string;
-}, lk: RoomServiceClient = roomService): Promise<{ event: BoostEvent; balance: number }> {
+  /** The txid of a burn the sender's wallet signed (after a 428). */
+  burnTx?: string;
+}, lk: RoomServiceClient = roomService): Promise<{ event: BoostEvent; balance: number } | { pending: true; spendId: string }> {
   const amount = Math.floor(Number(input.amount));
   if (!Number.isFinite(amount) || amount < POINTS_BOOST_MIN) {
     throw new PointsBoostError(400, `A points boost is at least ${POINTS_BOOST_MIN.toLocaleString('en-US')} points.`);
@@ -364,19 +367,42 @@ export async function processPointsBoost(input: {
   const recipient = input.recipient && (input.recipient === hostAccount || input.recipient === collabGuest)
     ? input.recipient
     : hostAccount;
+  const minUsd = boostMinUsd(meta);
+
+  // The token: the sender burns the points on Magi first; the boost goes out
+  // once that is confirmed (the 'boost' completer below), or comes back.
+  if (await tokenLive()) {
+    const purpose: SpendPurpose = {
+      type: 'boost', room: input.room, message, recipient, minUsd,
+      ...(input.displayName ? { displayName: input.displayName.slice(0, 64) } : {}),
+    };
+    const res = await spendOnChain(sender, amount, purpose, { burnTx: input.burnTx });
+    if (res.state === 'pending') return { pending: true, spendId: res.spend.id };
+    return { event: res.result as BoostEvent, balance: res.balance };
+  }
 
   const balance = await spendPoints(sender, amount, input.room);
   if (balance === null) throw new PointsBoostError(400, 'You do not have that many points.');
+  const event = pointsBoostEvent(input.room, sender, input.displayName, message, amount, recipient, minUsd);
+  try {
+    await publishBoost(input.room, event, lk);
+  } catch {
+    // Nothing reached the stream: give the points back.
+    await applyPointsNow(new Map([[sender, amount]]), 'refund', input.room).catch(() => undefined);
+    throw new PointsBoostError(503, 'The boost could not reach the stream. Your points are back.');
+  }
+  return { event, balance };
+}
 
+function pointsBoostEvent(room: string, sender: string, displayName: string | undefined, message: string, amount: number, recipient: string, minUsd: number): BoostEvent {
   const usdAmount = Math.round((amount / POINTS_PER_HBD) * 1000) / 1000;
-  const minUsd = boostMinUsd(meta);
   const now = Date.now();
-  const event: BoostEvent = {
+  return {
     type: 'boost',
     id: `points-${now.toString(36)}-${randomBytes(4).toString('hex')}`,
-    room: input.room,
+    room,
     sender,
-    ...(input.displayName ? { displayName: input.displayName.slice(0, 64) } : {}),
+    ...(displayName ? { displayName: displayName.slice(0, 64) } : {}),
     message,
     amount: String(amount),
     asset: 'POINTS',
@@ -389,15 +415,21 @@ export async function processPointsBoost(input: {
     timestamp: now,
     ...(minUsd > 0 && usdAmount < minUsd ? { belowMinimum: true } : {}),
   };
-  try {
-    await publishBoost(input.room, event, lk);
-  } catch {
-    // Nothing reached the stream: give the points back.
-    await applyPointsNow(new Map([[sender, amount]]), 'refund', input.room).catch(() => undefined);
-    throw new PointsBoostError(503, 'The boost could not reach the stream. Your points are back.');
-  }
-  return { event, balance };
 }
+
+// A confirmed points-boost burn: put the boost on the stream. A throw (the
+// stream is gone) refunds the points (lib/pointsToken.ts).
+registerSpendCompleter('boost', async (spend) => {
+  const p = spend.purpose;
+  if (p.type !== 'boost') throw new Error('Not a boost.');
+  const event = pointsBoostEvent(p.room, spend.user, p.displayName, p.message, spend.amount, p.recipient, p.minUsd);
+  try {
+    await publishBoost(p.room, event, roomService);
+  } catch {
+    throw new Error('The boost could not reach the stream.');
+  }
+  return event;
+});
 
 let started = false;
 /**

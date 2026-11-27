@@ -60,6 +60,8 @@ export interface BoostLabels {
   errPointsMinimum: string;
   /** {points} */
   errPointsBalance: string;
+  /** On the send button while a points spend waits for the chain. */
+  pointsConfirming: string;
   errSignIn: string;
 }
 
@@ -101,6 +103,7 @@ export const DEFAULT_BOOST_LABELS: BoostLabels = {
   pointsHint: 'Points are spent, the streamer gets no money. Earn points by watching, chatting, streaming and boosting.',
   errPointsMinimum: 'A points boost is at least {min} points.',
   errPointsBalance: 'You only have {points} points.',
+  pointsConfirming: 'Confirming your points...',
   errSignIn: 'Sign in to boost with points.',
 };
 

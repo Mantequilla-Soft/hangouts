@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { roomService, generateRoomName, createLivekitToken } from '../lib/livekit.js';
 import { getUserStatus } from '../lib/users.js';
+import { awardScheduledStart } from '../lib/pointsAwards.js';
 import {
   listEvents,
   getEventById,
@@ -357,6 +358,9 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
 
     const updated = await setEventStatus(id, 'live', roomName);
     if (!updated) return reply.internalServerError('Room created but failed to update event status');
+    // 50 points to the host for starting on time (within 15 minutes of an
+    // event scheduled at least an hour ahead).
+    void awardScheduledStart(existing).catch(() => false);
 
     return reply.send({
       event: updated,

@@ -1,10 +1,11 @@
 import { PrivateKey } from '@hiveio/dhive';
 import { config } from '../config.js';
 import { hiveClient } from './hive.js';
-import { POINTS_LOG_ID, type PointsLogWriter } from './pointsLedger.js';
+import type { PointsLogWriter } from './pointsLedger.js';
 
 /**
- * The Hive writer for the points log: custom_json `3speak_points` from
+ * The Hive writer for the points log: custom_json `3speak_points` (or
+ * `3sp_points` once the 3SP token is live, lib/pointsLog.ts) from
  * POINTS_LOG_ACCOUNT (@threespeak-pro). Its posting key signs it; without
  * one, the boost wallet's active key when that is the same account (a
  * custom_json under required_auths then). Null when neither is set: the
@@ -19,9 +20,9 @@ export function hivePointsLogWriter(): PointsLogWriter | null {
     : '';
   if (!posting && !active) return null;
   const key = PrivateKey.fromString(posting || active);
-  return async (json) => {
+  return async (json, id) => {
     const res = await hiveClient.broadcast.json({
-      id: POINTS_LOG_ID,
+      id,
       json,
       required_auths: posting ? [] : [account],
       required_posting_auths: posting ? [account] : [],

@@ -2,6 +2,8 @@ import type { FastifyPluginAsync } from 'fastify';
 import { config } from '../config.js';
 import { PointsBoostError, processBoostTransfer, processPointsBoost } from '../lib/boostListener.js';
 import { POINTS_BOOST_MIN, POINTS_PER_HBD } from '../lib/points.js';
+import { PointsSpendError, tokenConfigured, tokenInfo } from '../lib/pointsToken.js';
+import { sendSpendError, sendSpendPending } from './pointsToken.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { listBoostLedger } from '../lib/boostLedger.js';
@@ -60,7 +62,7 @@ export const boostRoutes: FastifyPluginAsync = async (fastify) => {
       platformAccount: config.BOOST_PLATFORM_ACCOUNT,
       feePercent: config.BOOST_PLATFORM_FEE_PERCENT,
       // Boosts paid with channel points (no money, no wallet needed).
-      points: { min: POINTS_BOOST_MIN, perHbd: POINTS_PER_HBD },
+      points: { min: POINTS_BOOST_MIN, perHbd: POINTS_PER_HBD, ...(tokenConfigured() ? { token: tokenInfo() } : {}) },
     });
   });
 
@@ -78,24 +80,29 @@ export const boostRoutes: FastifyPluginAsync = async (fastify) => {
           message: { type: 'string', minLength: 1, maxLength: 280 },
           displayName: { type: 'string', maxLength: 64 },
           recipient: { type: 'string', maxLength: 16 },
+          // 3SP: the txid of the burn the sender's wallet signed after a 428.
+          burnTx: { type: 'string', pattern: '^[0-9a-fA-F]{40}$' },
         },
       },
     },
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
-    const body = request.body as { amount: number; message: string; displayName?: string; recipient?: string };
+    const body = request.body as { amount: number; message: string; displayName?: string; recipient?: string; burnTx?: string };
     try {
-      const { event, balance } = await processPointsBoost({
+      const res = await processPointsBoost({
         room: name,
         sender: request.username,
         displayName: body.displayName,
         message: body.message,
         amount: body.amount,
         recipient: body.recipient?.toLowerCase(),
+        burnTx: body.burnTx,
       });
-      return reply.code(201).send({ boost: event, balance });
+      if ('pending' in res) return sendSpendPending(reply, res.spendId);
+      return reply.code(201).send({ boost: res.event, balance: res.balance });
     } catch (err) {
       if (err instanceof PointsBoostError) return reply.code(err.status).send({ message: err.message });
+      if (err instanceof PointsSpendError) return sendSpendError(reply, err);
       throw err;
     }
   });

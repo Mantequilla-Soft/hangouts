@@ -11,6 +11,7 @@
 import { MongoClient, type Collection } from 'mongodb';
 import { randomBytes } from 'node:crypto';
 import { config } from '../config.js';
+import { awardPoints } from './pointsAwards.js';
 
 export type ClipSource = 'viewer' | 'host' | 'auto';
 /** `ready`: the MP4 is there. `pending`: a stream without the Pro DVR; the clip
@@ -179,6 +180,10 @@ export async function registerClip(input: {
     expiresAt: new Date(now.getTime() + config.CLIP_KEEP_HOURS * 3_600_000),
   };
   await store.insert(clip);
+  // 10 points for clipping someone else's stream (at most 5 a day).
+  if (input.source === 'viewer' && input.clipper && input.host && !input.unavailable) {
+    void awardPoints([{ id: `clip:${clip.id}`, user: input.clipper, kind: 'clip', ref: input.host }]).catch(() => undefined);
+  }
   return { clip };
 }
 

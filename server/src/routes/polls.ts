@@ -10,6 +10,10 @@ import {
   POINTS_START, POINTS_TTL_DAYS, RAID_POINTS, STREAM_POINTS_PER_MIN, WATCH_POINTS_PER_MIN, pointsDetails, pointsHistory,
 } from '../lib/points.js';
 import { readRoomMeta, sendRoomData, sessionUser, streamOffset } from '../lib/liveRoom.js';
+import { LOGIN_POINTS, RANK_POINTS, REMIX_PER_DAY, REMIX_POINTS } from '../lib/pointsAwards.js';
+import { PointsSpendError, chainBalance, tokenInfo, tokenLive } from '../lib/pointsToken.js';
+import { ledgerStore } from '../lib/pointsLedger.js';
+import { sendSpendError, sendSpendPending } from './pointsToken.js';
 
 /**
  * Polls and predictions (lib/polls.ts) over HTTP, plus the live results
@@ -57,6 +61,7 @@ export function resetPollBroadcasts(): void {
 
 function fail(reply: FastifyReply, err: unknown) {
   if (err instanceof PollError) return reply.code(err.status).send({ message: err.message });
+  if (err instanceof PointsSpendError) return sendSpendError(reply, err);
   throw err;
 }
 
@@ -75,6 +80,14 @@ function mine(p: Poll | null, user: string | null) {
   return s ? { myStake: s } : {};
 }
 
+async function tokenBalances(account: string): Promise<{ onChain: number | null; unminted: number }> {
+  const [onChain, unminted] = await Promise.all([
+    chainBalance(account).catch(() => null),
+    ledgerStore().unmintedTotal(account).catch(() => 0),
+  ]);
+  return { onChain, unminted };
+}
+
 export const pollRoutes: FastifyPluginAsync = async (fastify) => {
   // The running poll (or null), with the caller's vote and points when signed in.
   fastify.get('/rooms/:name/polls/active', {
@@ -87,7 +100,8 @@ export const pollRoutes: FastifyPluginAsync = async (fastify) => {
     const user = await sessionUser(request);
     let balance: number | undefined;
     if (user && p?.kind === 'prediction') {
-      try { balance = (await pointsBalance(user)) - (p.stakes.get(user)?.amount ?? 0); } catch { /* unknown */ }
+      // Token stakes are already taken from the balance; the others only at the end.
+      try { balance = (await pointsBalance(user)) - (p.chainStakes ? 0 : (p.stakes.get(user)?.amount ?? 0)); } catch { /* unknown */ }
     }
     return reply.send({ poll: p ? toView(p) : null, ...mine(p, user), ...(balance !== undefined ? { balance } : {}) });
   });
@@ -136,8 +150,14 @@ export const pollRoutes: FastifyPluginAsync = async (fastify) => {
         boostBase: BOOST_POINTS_BASE,
         boostPerHbd: BOOST_POINTS_PER_HBD,
         boostMax: BOOST_POINTS_MAX,
+        login: LOGIN_POINTS,
+        rank: RANK_POINTS,
+        remix: REMIX_POINTS,
+        remixPerDay: REMIX_PER_DAY,
       },
       boostMin: POINTS_BOOST_MIN,
+      // 3SP: what is on Magi now, and the earnings not minted yet.
+      ...(await tokenLive() ? { token: { ...tokenInfo(), ...(await tokenBalances(account)) } } : {}),
     });
   });
 
@@ -225,15 +245,21 @@ export const pollRoutes: FastifyPluginAsync = async (fastify) => {
       body: {
         type: 'object',
         required: ['option', 'amount'],
-        properties: { option: { type: 'integer', minimum: 0, maximum: 1 }, amount: { type: 'integer', minimum: 1, maximum: 100000000 } },
+        properties: {
+          option: { type: 'integer', minimum: 0, maximum: 1 },
+          amount: { type: 'integer', minimum: 1, maximum: 100000000 },
+          // 3SP: the txid of the burn the viewer's wallet signed after a 428.
+          burnTx: { type: 'string', pattern: '^[0-9a-fA-F]{40}$' },
+        },
       },
     },
   }, async (request, reply) => {
     const { name, id } = request.params as { name: string; id: string };
-    const { option, amount } = request.body as { option: number; amount: number };
+    const { option, amount, burnTx } = request.body as { option: number; amount: number; burnTx?: string };
     try {
-      const { poll, balance } = await stake(name, id, request.username, option, amount);
-      return reply.send({ poll: toView(poll), myStake: poll.stakes.get(request.username), balance });
+      const res = await stake(name, id, request.username, option, amount, { burnTx });
+      if ('pending' in res) return sendSpendPending(reply, res.spendId);
+      return reply.send({ poll: toView(res.poll), myStake: res.poll.stakes.get(request.username), balance: res.balance });
     } catch (err) { return fail(reply, err); }
   });
 
