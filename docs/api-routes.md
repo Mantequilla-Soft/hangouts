@@ -219,7 +219,7 @@ spotlight, are off.
 | Route | Auth | Body | Answer |
 |---|---|---|---|
 | `GET /points/shop` | none, cached 300 s | | `{ items: { <item>: { enabled, price?, min?, max?, ... } }, stickers, cosmetics: { <id>: { kind, price } }, supporterMin }` |
-| `POST /points/shop/buy` | session+ban, 20/min | `{ item*, burnTx?, ...the item's fields }` | 201 `{ order, balance }` (`order.status` `done` or `held`, `order.result`); 202 `{ pending, spendId, orderId }`; 400 `invalid` or `insufficient`; 403, 404 (no such item, off, stream not live), 409 (the item's code, or "Your points are back."), 429 a limit; 428 `code: 'sign', op`. |
+| `POST /points/shop/buy` | session+ban, 20/min | `{ item*, burnTx?, ...the item's fields }` | 201 `{ order, balance }` (`order.status` `done` or `held`, `order.result`); 202 `{ pending, spendId, orderId }` (poll `GET /points/spends/:id`, which then carries `order`); 400 `invalid` or `insufficient`; 403, 404 (no such item, off, stream not live), 409 (the item's code, or "Your points are back."), 429 a limit; 428 `code: 'sign', op`. |
 | `GET /points/shop/orders` | session | `?item=` | `{ orders }`, your last 50. |
 | `GET /points/shop/orders/:id` | session | | `{ order }`; 404 not yours. |
 | `GET /rooms/:name/poll-suggestions` | none | | `{ suggestions: [{ id, from, question, options, at }] }` |

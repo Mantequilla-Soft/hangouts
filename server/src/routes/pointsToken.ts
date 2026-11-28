@@ -180,10 +180,10 @@ export const pointsTokenRoutes: FastifyPluginAsync = async (fastify) => {
     const s = await spendStatus(request.username, id);
     if (!s) return reply.code(404).send({ message: 'No such spend.' });
     reply.header('Cache-Control', 'no-store');
-    // A promotion is 'ok' once its burn is, but booked only when the
-    // completer's result is saved (it may still retry the checker, or end
+    // A promotion or a shop order is 'ok' once its burn is, but done only when
+    // the completer's result is saved (it may still retry the checker, or end
     // refunded): until then it reads as still pending.
-    const booking = s.status === 'ok' && s.purpose.type === 'promote' && s.result === undefined
+    const booking = s.status === 'ok' && (s.purpose.type === 'promote' || s.purpose.type === 'shop') && s.result === undefined
       && Date.now() - (s.doneAt ?? 0) < PROMOTE_BOOKING_MS;
     return reply.send({
       id: s.id,
@@ -195,6 +195,7 @@ export const pointsTokenRoutes: FastifyPluginAsync = async (fastify) => {
       ...(s.status === 'ok' && s.purpose.type === 'boost' && s.result ? { boost: s.result } : {}),
       ...(s.status === 'ok' && s.purpose.type === 'promote' && s.result
         ? { promotedUntil: (s.result as { promotedUntil?: unknown }).promotedUntil ?? null } : {}),
+      ...(s.status === 'ok' && s.purpose.type === 'shop' && s.result ? { order: (s.result as { order?: unknown }).order ?? null } : {}),
       balance: await pointsBalance(request.username),
     });
   });
