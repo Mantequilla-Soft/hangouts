@@ -199,6 +199,7 @@ describe('GET /points/awards/config', () => {
         login: 1, first5: 10, vodtime: { perUnit: 2, maxPerDay: 120 }, tip: { amount: 100, perHbd: 100, max: 2000 },
         streak: { amounts: { 7: 20, 30: 100 } }, reach: { amount: 100, minViewers: 20 }, quest: 300, pwa: 50,
       },
+      transfer: { min: 1, max: 10_000_000 },
     });
   });
 });

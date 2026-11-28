@@ -95,6 +95,8 @@ export const pointsTokenRoutes: FastifyPluginAsync = async (fastify) => {
       kinds: awardsConfig(),
       double: { factor: DOUBLE_FACTOR },
       quests: { points: QUEST_POINTS, perWeek: QUESTS_PER_WEEK },
+      // Points can be sent to other accounts (POST /points/transfer).
+      transfer: { min: 1, max: TRANSFER_MAX },
     });
   });
 
