@@ -17,10 +17,18 @@ import { getLiveDb } from './mongoDb.js';
  */
 
 export interface BacklogSystem {
-  kind: 'raid';
-  /** The raiding host. */
+  /** raid: a host raiding in. The rest are points shop lines (lib/shopLive.ts):
+   *  a highlighted message, a channel reward redeemed, a bounty put up or paid. */
+  kind: 'raid' | 'highlight' | 'reward' | 'bounty' | 'bountydone';
+  /** The raiding host, or the viewer who paid. */
   from: string;
-  viewers: number;
+  viewers?: number;
+  /** highlight: pinned on top until then (ms). */
+  until?: number;
+  /** reward / bounty: its name. */
+  title?: string;
+  /** bounty: the points on it. */
+  points?: number;
 }
 
 export interface BacklogMessage {

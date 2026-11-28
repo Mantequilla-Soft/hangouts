@@ -45,7 +45,7 @@ describe('sender basics', () => {
 
   it('names a trust class for every topic the SDK listens to', () => {
     expect(DATA_TOPIC_TRUST).toEqual({
-      boost: 'server', poll: 'server', raid: 'server', game: 'server',
+      boost: 'server', poll: 'server', raid: 'server', game: 'server', rewards: 'server', bounty: 'server',
       chat: 'participant', 'hand-raise': 'participant',
       captions: 'host', 'view-state': 'host', volume: 'host', draw: 'drawer',
     });

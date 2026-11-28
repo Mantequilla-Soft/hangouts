@@ -15,6 +15,7 @@ import { chatOverlayKey, parseChatOverlayKey } from '../lib/streamSecrets.js';
 import { createDockToken } from '../lib/session.js';
 import { findLiveRoomForHost } from '../lib/chatOverlay.js';
 import { isTemplateBusy, getHeadlessStatus, getLastHeadlessEnd, streamCapMs } from '../lib/headlessStreams.js';
+import { streamExtraMs } from '../lib/shopLive.js';
 
 /**
  * Stream templates (owner-scoped CRUD) + the owner's streaming secret.
@@ -146,15 +147,14 @@ export const templateRoutes: FastifyPluginAsync = async (fastify) => {
     // Polled by the UI while OBS connects — must never be cached.
     reply.header('Cache-Control', 'no-store');
     if (st) {
-      // capSeconds of the RUNNING session would be more exact, but tier can't
-      // change mid-stream in practice; the cap follows the owner's tier.
+      // The cap follows the owner's tier, plus minutes bought for today.
       const { premium } = await getUserStatus(request.username);
-      return reply.send({ ...st, capSeconds: streamCapMs(premium) / 1000 });
+      return reply.send({ ...st, capSeconds: streamCapMs(premium, premium ? 0 : await streamExtraMs(request.username)) / 1000 });
     }
     const { premium } = await getUserStatus(request.username);
     return reply.send({
       state: 'idle', room: null, startedAt: null,
-      capSeconds: streamCapMs(premium) / 1000,
+      capSeconds: streamCapMs(premium, premium ? 0 : await streamExtraMs(request.username)) / 1000,
       ingress: null, announced: null,
       lastEnd: getLastHeadlessEnd(id),
     });

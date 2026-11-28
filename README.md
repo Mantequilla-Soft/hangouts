@@ -279,6 +279,13 @@ with zod; the server exits on an invalid value). The main keys are below; the
 | `CHAT_BACKLOG_SIZE` | Chat lines kept per room | `300` |
 | `POINTS_START`, `POINTS_TTL_DAYS` | Starting channel points, and days until an untouched balance starts over | `1000`, `90` |
 | `POINTS_LOG_ACCOUNT`, `POINTS_LOG_POSTING_KEY` | Account and posting key that log points on Hive; without a key the rows wait in Mongo | `threespeak-pro`, empty |
+| `POINTS_TOKEN_CONTRACT` | The 3SP contract on Magi: earnings are minted, spends burn on chain first. Empty keeps points in Mongo only | empty |
+| `POINTS_MINTER_POSTING_KEY`, `POINTS_SPEND_SIGNER_POSTING_KEY` | Posting keys of the minter (`threespeak-pro`) and of the account that signs users' spends (`threespeak`) | empty |
+| `POINTS_AWARD_SECRET` | Lets the checker send its awards (`POST /points/awards`: leaderboards, remixes, watching, listening, posts, tips, followers...); also books video promotions paid with points on the checker | empty |
+| `POINTS_DOUBLE_WEEKENDS`, `POINTS_DOUBLE_WINDOWS` | Double points: every earning pays x2 on weekends (Saturday and Sunday, UTC) when `true`, and inside these windows (comma list of `<ISO start>/<ISO end>`) | `false`, empty |
+| `POINTS_FIRSTS_SINCE` | A first stream pays its 500 points only for accounts whose first stream is on or after this date | `2026-11-26` |
+| `POINTS_QUESTS` | Comma list of quest ids to run every week instead of the rotation (`finish3`, `listen30`, `pollvote2`, `tag5`, `live30`) | empty |
+| `PROMOTE_POINTS_PER_24H` | Points it costs to promote a 3Speak video for 24 h (`POST /points/promote`) | `5000` |
 | `RAID_COUNTDOWN_SEC`, `RAID_COOLDOWN_MIN` | Raid countdown and per-host cooldown | `10`, `10` |
 
 The demo reads `VITE_API_URL`, `VITE_LIVEKIT_URL` and optionally

@@ -237,12 +237,28 @@ The host sets these in Boost settings (studio rocket button); they are stored in
 |---|---|
 | `goal: { title, targetHbd, position? }` | Goal bar ("50 HBD for a new mic"). `position`: a small card at `top-right` (default), `bottom-right`, `bottom-left`, or a band at `top` / `bottom`. `null` removes it. |
 | `tiers: boolean` | Amount tiers on (default) or off. Under 1 / 1 to 5 / 5 to 20 / 20+ HBD: colour from the theme tokens and 15 s / 30 s / 1 min / 2 min on screen. Off: 30 s for all. |
-| `alerts: { sound, tts, ttsMinHbd }` | Studio alerts: a synthesised chime (default on) and reading boosts aloud with `speechSynthesis` (default off, from 5 HBD). |
+| `alerts: { sound, tts, ttsMinHbd, readAloud }` | Studio alerts: a synthesised chime (default on) and reading boosts aloud with `speechSynthesis` (default off, from 5 HBD). `readAloud` (default on): points shop read-aloud messages are read too, whatever the minimum. |
 | `presets: number[]` | Quick amounts in the viewer dialog (default 1, 5, 10, 25; at most 6). `[]` = defaults. |
 
 The server keeps this stream's tally in `boostStats` (count, totals, top supporters, when the goal was reached), counting boosts once they are on screen and paid. Amounts are in HBD; HIVE boosts count at the HBD value they were priced at when they arrived. Boosts to a collab guest count in the totals, not towards the host's goal. `GET /rooms/:name/boost/summary` (and `boostSummary` on `GET /rooms/:name`) returns the goal with progress, the totals and the top 5.
 
 Components: `<StreamBoostGoal>` (the bar; `<StreamVideo>` shows it by default), `<BoostTopSupporters>`, `<BoostAlerts>` (alerts for an OBS Browser Source / dock), `useRoomBoost()`. Viewer text is translatable through `labels` (`BoostLabels`, see `DEFAULT_BOOST_LABELS`) on `SendBoostDialog`, `StreamBoostGoal`, `BoostTopSupporters` and `StreamVideo` (`boostLabels`).
+
+## Points shop in the live room
+
+Viewers spend 3Speak Points on the stream (server routes: `docs/api-routes.md`, "Points shop"). Every purchase is `POST /points/shop/buy` through `buyShopItem`, which uses the same spend helper as points boosts (`spendPoints`: a 428 asks the wallet to sign the burn, a 202 is followed until it is confirmed). Prices and what is on come from `GET /points/shop` (`useShopCatalog`).
+
+| Piece | What it does |
+|---|---|
+| `<PointsShopActions roomName host? labels? readAloudOff? onSignIn? signWrapper? onBought? />` | The "Use points" button and menu next to the boost button: highlight a message (500), read-aloud message (1,000), suggest a poll (2,000), redeem a channel reward, back or start a bounty (100 and up), unlock the channel's stickers (1,000). `StandaloneViewer` shows it for signed-in viewers. |
+| `PointsShopDialog` (`action`), `HighlightMessageDialog`, `ReadAloudDialog`, `SuggestPollDialog`, `RedeemRewardDialog`, `BountyDialog`, `UnlockStickersDialog` | Each purchase on its own, for a page with its own buttons. |
+| `ChatPanel` | Draws the server's shop lines (`system.kind` `highlight`, `reward`, `bounty`, `bountydone`), the highlight pinned on top while `pinnedChat.until` is ahead, each author's cosmetics (name colour, badge, avatar frame) and the host's supporter mark, and `:st-<id>:` lines as big stickers for owners of the host's set (with a sticker row in the emoji tray). |
+| `PollSuggestionsPanel`, `ChannelRewardsPanel`, `BountiesPanel` | The host's tools, in the studio's Live tab (`StudioLivePanel`: Polls, Rewards, Bounties) and for an OBS dock. Each has a stateless `*View`. Inside a LiveKit room they follow the `poll`, `rewards` and `bounty` topics; outside one they read again every 20 s. |
+| `useReadAloud`, `<ReadAloudAlerts>` | Read-aloud messages on the `boost` topic (server only) are spoken with the boost voice when the host reads boosts aloud and `alerts.readAloud !== false`, whatever `ttsMinHbd`. `BoostAlerts` speaks them too. The Boost settings Alerts tab has the toggle. |
+| `<BuyStreamTimeButton onBought>`, `useStreamExtra`, `resolveStreamCap(isPremium, extraMs)` | A free host buys 30 more minutes (10,000 points); the studio adds `GET /points/stream-extra` to the cap and offers the button in the header and the time limit popup. |
+| `COSMETIC_LOOKS`, `NAME_COLORS`, `BADGE_EMOJIS`, `FRAME_CLASSES`, `THEME_CLASSES` | Cosmetic id to look, for the 3Speak site's own pages (frames and profile themes are classes in `styles/points-shop.css`). |
+
+Text is translatable: the chat lines through `liveLabels` (`LiveLabels`), everything else through `labels` / `shopLabels` (`ShopLabels`, see `DEFAULT_SHOP_LABELS`) on the components above, `StandaloneStudio`, `StudioLivePanel`, `BoostSettingsPanel` and `StandaloneViewer`.
 
 ## License
 

@@ -1,6 +1,6 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
-import { useLocalParticipant, useLocalParticipantPermissions, useParticipants } from '@livekit/components-react';
-import { useChat, dropChatMessage } from '../../hooks/useChat.js';
+import { useRef, useEffect, useState, useCallback, useMemo, type CSSProperties } from 'react';
+import { useLocalParticipant, useLocalParticipantPermissions, useParticipants, useRoomInfo } from '@livekit/components-react';
+import { useChat, dropChatMessage, type ChatMessage } from '../../hooks/useChat.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { fillLabel, liveLabels, type LiveLabels } from '../../lib/liveLabels.js';
 import { PollResult, StreamPollCard } from './StreamPolls.js';
@@ -10,6 +10,9 @@ import { useHiveAvatar } from '../../hooks/useHiveAvatar.js';
 import { useHostControls } from '../../hooks/useHostControls.js';
 import { useModerators } from '../../hooks/useModerators.js';
 import { useStreamContext } from './StandaloneWatch.js';
+import { hostFromMetadata } from '../../lib/dataTrust.js';
+import { chatLook, DEFAULT_STICKERS, ownsStickers, stickerIdOf, stickerText, type PinnedChat } from '../../lib/pointsShop.js';
+import { useChannelSupporters, useCosmetics, usePinnedChat, useShopCatalog } from '../../hooks/useShopData.js';
 
 const QUICK_EMOJIS = ['👍','❤️','😂','🔥','👏','😮','🙌','💯','🎉','🤔','😎','✋'];
 
@@ -46,21 +49,61 @@ export interface ChatPanelProps {
 
 type ModTarget = { identity: string; name: string; messageId?: string };
 
-function ChatBubble({ id, identity, name, text, localName, onModerate }: {
-  id: string; identity: string; name: string; text: string; localName: string;
+export interface ChatBubbleProps {
+  id: string;
+  identity: string;
+  name: string;
+  text: string;
+  /** The local viewer's name, to mark lines that @mention them. */
+  localName: string;
   onModerate?: (target: ModTarget) => void;
-}) {
+  /** The room's host: whose sticker set `:st-<id>:` lines need, whose supporters get the mark. */
+  host?: string | null;
+  /** The host's supporter badges (lower case). */
+  supporters?: readonly string[];
+  /** The sticker set (GET /points/shop `stickers`). */
+  stickers?: Readonly<Record<string, string>>;
+  /** A highlighted message (points shop): it stands out. */
+  highlight?: boolean;
+  liveLabels?: Partial<LiveLabels>;
+}
+
+/**
+ * One chat line. The author's points shop cosmetics show here: a badge before
+ * the name, the name colour, an avatar frame, and a mark for the host's
+ * supporters. A line that is exactly `:st-<id>:` is a big sticker when the
+ * author owns the host's sticker set, else plain text.
+ */
+export function ChatBubble({ id, identity, name, text, localName, onModerate, host, supporters, stickers = DEFAULT_STICKERS, highlight = false, liveLabels: labels }: ChatBubbleProps) {
+  const L = liveLabels(labels);
   const avatar = useHiveAvatar(identity, 'small');
+  const cosmetics = useCosmetics(identity);
+  const look = chatLook(cosmetics);
+  const supporter = !!supporters && supporters.includes(identity.toLowerCase());
+  const stickerId = stickerIdOf(text, stickers);
+  const sticker = stickerId && ownsStickers(cosmetics, host) ? stickers[stickerId] : null;
   const segments = parseMentions(text);
   // Highlight this bubble if the local user is mentioned (match on display name or identity)
   const isMentioned = localName && segments.some(
     s => s.type === 'mention' && s.value.toLowerCase() === `@${localName.toLowerCase()}`,
   );
+  // The colour is mixed with the surface's own name colour (src/styles/points-shop.css),
+  // so it stays readable on a light and a dark chat.
+  const nameContent = (
+    <>
+      {look.badge && <span className="hh-chat__badge" aria-hidden="true">{look.badge}</span>}
+      {look.color
+        ? <span className="hh-chat__name-tint" style={{ '--hh-tint': look.color } as CSSProperties}>{name}</span>
+        : name}
+      {supporter && <span className="hh-chat__supporter" title={L.supporterMark} aria-label={L.supporterMark} role="img">🏅</span>}
+    </>
+  );
 
   return (
-    <div className={`hh-chat__msg${isMentioned ? ' hh-chat__msg--mentioned' : ''}`}>
-      <img className="hh-chat__msg-avatar" src={avatar} alt={name} />
+    <div className={`hh-chat__msg${isMentioned ? ' hh-chat__msg--mentioned' : ''}${highlight ? ' hh-chat__msg--highlight' : ''}${sticker ? ' hh-chat__msg--sticker' : ''}`}>
+      <img className={`hh-chat__msg-avatar${look.frameClass ? ` ${look.frameClass}` : ''}`} src={avatar} alt={name} />
       <div className="hh-chat__msg-body">
+        {highlight && <span className="hh-chat__highlight-tag">✨ {L.highlightTag}</span>}
         {onModerate ? (
           <button
             type="button"
@@ -68,19 +111,57 @@ function ChatBubble({ id, identity, name, text, localName, onModerate }: {
             onClick={() => onModerate({ identity, name, messageId: id })}
             title={`Moderate ${name}`}
           >
-            {name}
+            {nameContent}
           </button>
         ) : (
-          <span className="hh-chat__msg-name">{name}</span>
+          <span className="hh-chat__msg-name">{nameContent}</span>
         )}
-        <span className="hh-chat__msg-text">
-          {segments.map((seg, i) =>
-            seg.type === 'mention'
-              ? <span key={i} className="hh-chat__mention">{seg.value}</span>
-              : seg.value
-          )}
-        </span>
+        {sticker ? (
+          <span className="hh-chat__sticker" role="img" aria-label={stickerId!}>{sticker}</span>
+        ) : (
+          <span className="hh-chat__msg-text">
+            {segments.map((seg, i) =>
+              seg.type === 'mention'
+                ? <span key={i} className="hh-chat__mention">{seg.value}</span>
+                : seg.value
+            )}
+          </span>
+        )}
       </div>
+    </div>
+  );
+}
+
+const SYSTEM_ICONS = { raid: '🚀', reward: '🎁', bounty: '🎯', bountydone: '🏆' } as const;
+
+/** A line the server wrote: a raid, a reward redeemed, a bounty put up or done
+ *  (a highlight is the viewer's own message, drawn by ChatBubble). */
+export function ChatSystemLine({ msg, liveLabels: labels }: { msg: ChatMessage; liveLabels?: Partial<LiveLabels> }) {
+  const L = liveLabels(labels);
+  const sys = msg.system;
+  if (!sys || sys.kind === 'highlight') return null;
+  const points = sys.kind === 'bounty' || sys.kind === 'bountydone' ? sys.points.toLocaleString('en-US') : '';
+  const text = sys.kind === 'raid' ? fillLabel(L.raidLine, { name: sys.from, count: sys.viewers })
+    : sys.kind === 'reward' ? fillLabel(L.rewardLine, { name: sys.from, title: sys.title })
+      : fillLabel(sys.kind === 'bounty' ? L.bountyLine : L.bountyDoneLine, { name: sys.from, title: sys.title, points });
+  return (
+    <div className={`hh-chat__msg hh-chat__msg--system hh-chat__msg--${sys.kind}`} role="status">
+      <span className="hh-chat__system-icon" aria-hidden="true">{SYSTEM_ICONS[sys.kind]}</span>
+      <span className="hh-chat__msg-text">{text}</span>
+    </div>
+  );
+}
+
+/** The highlighted message pinned on top of the chat until its time is up. */
+export function PinnedChatBar({ pin, liveLabels: labels }: { pin: PinnedChat | null; liveLabels?: Partial<LiveLabels> }) {
+  const L = liveLabels(labels);
+  if (!pin) return null;
+  return (
+    <div className="hh-chat__pinned" role="status" aria-label={L.pinnedTag}>
+      <span className="hh-chat__pinned-tag"><span aria-hidden="true">📌</span> {L.pinnedTag}</span>
+      <span className="hh-chat__pinned-line">
+        <span className="hh-chat__msg-name hh-chat__pinned-name">@{pin.from}</span> <span className="hh-chat__msg-text hh-chat__pinned-text">{pin.text}</span>
+      </span>
     </div>
   );
 }
@@ -197,6 +278,14 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
   const { hostIdentity, roomName: streamRoom } = useStreamContext();
   const isHost = !!hostIdentity && !!localParticipant
     && localParticipant.identity === hostIdentity;
+  // Points shop: the pinned highlight, cosmetics, stickers and supporter marks
+  // need the host, also where there is no stream context (the studio).
+  const { metadata } = useRoomInfo();
+  const host = hostIdentity || hostFromMetadata(metadata) || null;
+  const pin = usePinnedChat(metadata);
+  const supporters = useChannelSupporters(host);
+  const stickers = useShopCatalog()?.stickers ?? DEFAULT_STICKERS;
+  const myStickers = ownsStickers(useCosmetics(localParticipant?.identity), host);
   // Host-appointed moderators can moderate too (see useModerators).
   const { moderators, isCurrentUserMod } = useModerators();
   const canModerate = isHost || isCurrentUserMod;
@@ -267,6 +356,14 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages.length, polls.results.length]);
 
+  // A sticker is a line of its own (`:st-<id>:`), sent at once.
+  const sendSticker = (id: string) => {
+    const text = stickerText(id);
+    sendMessage(text);
+    setEmojiOpen(false);
+    try { onMessageSent?.(text); } catch { /* integrator's problem, not chat's */ }
+  };
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     const text = input.trim();
@@ -303,6 +400,7 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
         )}
       </div>
       {showPolls && streamRoom && <StreamPollCard roomName={streamRoom} labels={liveLabelsProp} className="hh-chat__poll" polls={polls} showFinished={false} />}
+      <PinnedChatBar pin={pin} liveLabels={liveLabelsProp} />
       <div className="hh-chat__messages" ref={messagesRef}>
         {lines.length === 0 && (
           <div className="hh-chat__empty">No messages yet</div>
@@ -321,11 +419,8 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
             );
           }
           const msg = line.msg;
-          return msg.system?.kind === 'raid' ? (
-            <div key={msg.id} className="hh-chat__msg hh-chat__msg--system hh-chat__msg--raid" role="status">
-              <span className="hh-chat__system-icon" aria-hidden="true">🚀</span>
-              <span className="hh-chat__msg-text">{fillLabel(L.raidLine, { name: msg.system.from, count: msg.system.viewers })}</span>
-            </div>
+          return msg.system && msg.system.kind !== 'highlight' ? (
+            <ChatSystemLine key={msg.id} msg={msg} liveLabels={liveLabelsProp} />
           ) : (
             <ChatBubble
               key={msg.id}
@@ -334,6 +429,11 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
               name={msg.name}
               text={msg.text}
               localName={localName}
+              host={host}
+              supporters={supporters}
+              stickers={stickers}
+              highlight={msg.system?.kind === 'highlight'}
+              liveLabels={liveLabelsProp}
               onModerate={canModerate && msg.identity !== hostIdentity && msg.identity !== localParticipant?.identity ? setModTarget : undefined}
             />
           );
@@ -360,6 +460,22 @@ export function ChatPanel({ onClose, isGuest = false, readOnly = false, readOnly
                   onClick={() => insertMention(p.name)}
                 >
                   @{p.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {emojiOpen && myStickers && (
+            <div className="hh-chat__emoji-tray hh-chat__sticker-tray" role="group" aria-label={L.stickersRow}>
+              {Object.entries(stickers).map(([id, e]) => (
+                <button
+                  key={id}
+                  className="hh-chat__emoji-btn hh-chat__sticker-btn"
+                  onClick={() => sendSticker(id)}
+                  type="button"
+                  aria-label={id}
+                  title={stickerText(id)}
+                >
+                  {e}
                 </button>
               ))}
             </div>

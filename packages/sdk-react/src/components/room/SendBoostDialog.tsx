@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useParticipants } from '@livekit/components-react';
+import { spendPoints, walletSigner } from '../../lib/pointsSpend.js';
 import { useHangoutsContext } from '../../context/HangoutsContext.js';
 import { useStreamContext } from './StandaloneWatch.js';
 import type { BoostConfig } from '@snapie/hangouts-core';
@@ -59,7 +60,8 @@ function keychainTransfer(
 }
 
 export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, labels }: Props) {
-  const { apiBaseUrl, apiClient, username, aioha } = useHangoutsContext();
+  const { apiBaseUrl, apiClient, username, aioha, pro } = useHangoutsContext();
+  const [confirming, setConfirming] = useState(false);
   const L = useMemo(() => boostLabels(labels), [labels]);
   // The host's preset amounts (or the defaults), live from the room metadata.
   const { presets } = useRoomBoost();
@@ -152,25 +154,32 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, l
     if (!message.trim()) { setError(L.errMessage); return; }
     setStatus('sending');
     setError(null);
+    setConfirming(false);
     try {
-      const res = await fetch(`${apiBaseUrl}/rooms/${encodeURIComponent(roomName)}/boosts/points`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
+      // 3SP: the server may ask the wallet to sign the burn (428) or confirm
+      // it a little later (202); lib/pointsSpend.ts handles both.
+      const out = await spendPoints({
+        apiBaseUrl,
+        url: `${apiBaseUrl}/rooms/${encodeURIComponent(roomName)}/boosts/points`,
+        body: {
           amount: amt,
           message: message.trim().slice(0, BOOST_MESSAGE_MAX),
           ...(activeRecipient ? { recipient: activeRecipient } : {}),
-        }),
+        },
+        headers: authHeaders,
+        sign: walletSigner(pro, aioha),
+        onPending: () => setConfirming(true),
       });
-      const body = await res.json().catch(() => ({})) as { balance?: number; message?: string };
-      if (!res.ok) throw new Error(body.message || L.errTransfer);
-      if (typeof body.balance === 'number') setBalance(body.balance);
+      setConfirming(false);
+      if (!out.ok) throw new Error(out.message || L.errTransfer);
+      if (typeof out.body.balance === 'number') setBalance(out.body.balance);
       setStatus('done');
     } catch (err) {
+      setConfirming(false);
       setError(err instanceof Error ? err.message : L.errTransfer);
       setStatus('error');
     }
-  }, [username, amount, pointsMin, balance, message, apiBaseUrl, roomName, activeRecipient, authHeaders, L]);
+  }, [username, amount, pointsMin, balance, message, apiBaseUrl, roomName, activeRecipient, authHeaders, L, pro, aioha]);
 
   const send = useCallback(async () => {
     if (!username || !platformAccount || asset === 'POINTS') return;
@@ -357,7 +366,7 @@ export function SendBoostDialog({ roomName, boostConfig, onClose, signWrapper, l
                 onClick={points ? sendPoints : send}
                 disabled={status === 'sending' || configLoading || (!points && !platformAccount)}
               >
-                {configLoading ? L.loading : status === 'sending' ? L.sending : L.send}
+                {configLoading ? L.loading : status === 'sending' ? (confirming ? L.pointsConfirming : L.sending) : L.send}
               </button>
             </div>
           </>

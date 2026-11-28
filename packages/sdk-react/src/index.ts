@@ -76,7 +76,43 @@ export {
 export { DEFAULT_BOOST_LABELS, type BoostLabels } from './lib/boostLabels.js';
 export { playBoostChime } from './lib/boostChime.js';
 // Stream time caps (free / Pro), so an integrator shows the same numbers the studio enforces.
-export { resolveStreamCap, FREE_STREAM_CAP_MS, FREE_STREAM_CAP_LABEL, PRO_STREAM_CAP_MS, PRO_STREAM_CAP_LABEL } from './lib/streamLimits.js';
+export {
+  resolveStreamCap, capLabel as streamCapLabel, FREE_STREAM_CAP_MS, FREE_STREAM_CAP_LABEL, PRO_STREAM_CAP_MS, PRO_STREAM_CAP_LABEL,
+  type StreamCap,
+} from './lib/streamLimits.js';
+
+// Points shop in the live room: viewer actions, host tools, chat cosmetics and
+// stickers, read-aloud, extra stream time.
+export {
+  PointsShopActions, PointsShopDialog, PointsShopMenu, SHOP_ACTIONS, availableShopActions,
+  HighlightMessageDialog, ReadAloudDialog, SuggestPollDialog, RedeemRewardDialog, BountyDialog, UnlockStickersDialog,
+  type ShopAction, type PointsShopActionsProps, type PointsShopDialogProps, type PointsShopMenuProps,
+} from './components/room/PointsShop.js';
+export {
+  PollSuggestionsPanel, PollSuggestionsView, ChannelRewardsPanel, RewardQueueView, RewardsEditor, rewardsProblem,
+  BountiesPanel, BountiesView, ReadAloudAlerts, BuyStreamTimeButton,
+  type PollSuggestionsViewProps, type RewardQueueViewProps, type RewardsEditorProps, type BountiesViewProps, type BuyStreamTimeButtonProps,
+} from './components/room/ShopHostPanels.js';
+export {
+  useShopCatalog, useCosmetics, useChannelSupporters, usePointsBalance, useStreamExtra, usePinnedChat,
+  primeCosmetics, primeSupporters, primeShopCatalog, invalidateCosmetics,
+} from './hooks/useShopData.js';
+export { usePollSuggestions, useRewardQueue, useChannelRewards, useBounties, useServerTopic } from './hooks/useShopHost.js';
+export { useReadAloud, type ReadAloudOptions } from './hooks/useReadAloud.js';
+export {
+  shopApi, buyShopItem, parseShopCatalog, shopQuote, parseCosmetics, chatLook, isHiveAccount,
+  stickerIdOf, stickerText, ownsStickers, activePinnedChat, planReadAloud, readAloudOn,
+  DEFAULT_STICKERS, DEFAULT_SHOP_PRICES, EMPTY_COSMETICS,
+  COSMETIC_LOOKS, NAME_COLORS, BADGE_EMOJIS, FRAME_CLASSES, THEME_CLASSES,
+  REWARDS_MAX, REWARD_COST_MIN, REWARD_COST_MAX,
+  type ShopCatalog, type ShopItemQuote, type ShopOrder, type ShopBuyOutcome, type BuyShopItemOptions,
+  type CosmeticKind, type CosmeticLook, type CosmeticsView, type PinnedChat,
+  type PollSuggestion, type ChannelReward, type Redemption, type Bounty, type ReadAloudEvent,
+  type PollSuggestionPacket, type RewardsPacket, type BountyPacket, type LiveShopItem,
+} from './lib/pointsShop.js';
+export { DEFAULT_SHOP_LABELS, shopLabels, type ShopLabels } from './lib/shopLabels.js';
+// The spend helper behind points boosts and the shop (428 sign, 202 pending).
+export { spendPoints, walletSigner, type PointsSpendOutcome } from './lib/pointsSpend.js';
 
 // Components — Room
 export { HangoutsRoom, type HangoutsRoomProps } from './components/room/HangoutsRoom.js';
@@ -86,7 +122,7 @@ export { RoomControls, type RoomControlsProps } from './components/room/RoomCont
 export { ParticipantTile, type ParticipantTileProps } from './components/room/ParticipantTile.js';
 export { HostControlsPanel, type HostControlsPanelProps } from './components/room/HostControlsPanel.js';
 export { RoomHeader, type RoomHeaderProps } from './components/room/RoomHeader.js';
-export { ChatPanel } from './components/room/ChatPanel.js';
+export { ChatPanel, ChatBubble, ChatSystemLine, PinnedChatBar, type ChatPanelProps, type ChatBubbleProps } from './components/room/ChatPanel.js';
 // Record an audio room as a podcast episode (H23), and the helpers behind the
 // highlight clips (H13), rewind (H14) and podcast endpoints.
 export { PodcastRecordControls, type PodcastRecordControlsProps, type PodcastHandoff } from './components/room/PodcastRecordControls.js';
@@ -151,12 +187,13 @@ export type { StudioCaptionStatus } from './lib/captionPublisher.js';
 
 // Hooks — Chat
 export { useChat, type ChatMessage } from './hooks/useChat.js';
-export { mergeChatLines, parseBacklog, type BacklogLine, type ChatSystemInfo } from './lib/chatBacklog.js';
+export { mergeChatLines, parseBacklog, parseSystemInfo, type BacklogLine, type ChatSystemInfo, type ChatSystemKind } from './lib/chatBacklog.js';
 // Who may send what on the data channel, for integrators reading topics themselves.
 export {
   DATA_TOPIC_TRUST, isServerSent, isSentBy, hostFromMetadata, decodeData,
   readChatPacket, readBoostPacket, readPollPacket, readRaidPacket, readGamePacket,
   readCaptionPacket, readViewStatePacket, readVolumePacket, readHandRaisePacket, readDrawPacket,
+  readReadAloudPacket, readPollSuggestionPacket, readRewardsPacket, readBountyPacket,
   type DataSender, type TopicTrust, type ChatPacket, type RaidPacketType,
   type ViewStatePacket, type VolumePacket, type DrawPacket,
 } from './lib/dataTrust.js';

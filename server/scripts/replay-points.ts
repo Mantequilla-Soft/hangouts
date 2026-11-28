@@ -5,6 +5,10 @@
  * `{ account, ops, movements, balances: { user: balance } }` to stdout; it
  * reads the chain only and changes nothing.
  *
+ * It replays `3speak_points`, the log from before the 3SP token: after the
+ * airdrop that is exactly the airdropped balances. Later movements are in
+ * `3sp_points`, and the balances are on Magi then (lib/pointsLog.ts).
+ *
  *   npm run points:replay -- [account] [node]
  *   (defaults: threespeak-pro, https://api.hive.blog)
  */

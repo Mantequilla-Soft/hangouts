@@ -205,7 +205,8 @@ never write it directly. Every participant can read all of it.
 | `willPublishVod`, `portrait` | boolean | A VOD is coming; the broadcast is 9:16. |
 | `collabGuest` | string | The one on-air guest of a stream. |
 | `mods` | string[] | Moderators. |
-| `boost` | `{ enabled, minBoostUsd, creatorPayoutAccount, goal, tiers, alerts, presets }` | Host's boost settings. |
+| `boost` | `{ enabled, minBoostUsd, creatorPayoutAccount, goal, tiers, alerts, presets }` | Host's boost settings. `alerts.readAloud: false` turns points shop read-aloud messages off. |
+| `pinnedChat` | `{ id, from, text, until }` | A highlighted chat message (points shop), pinned on top until `until` (ms). Clients hide it on time; the field stays. |
 | `boostStats` | `{ count, totalHbd, goalHbd, supporters[], goalReachedAt, goalReachedFor }` | Tally, written only by the boost listener. |
 | `battle` | Battle object | The running battle, the same object in both rooms. |
 | `captions` | `{ lang }` | Captions are on (viewers show the CC button). |
@@ -227,10 +228,13 @@ All messages are UTF-8 JSON, sent reliable unless noted. In React use
 | Topic | Sent by | Trust | Message |
 |---|---|---|---|
 | `chat` | any participant (`useChat`) | participant | `{ type: 'chat', text, timestamp }` (older clients also send `identity`, `name`: ignored). Line id = `${sender identity}-${timestamp}`. |
-| `chat` | server | server | `{ type: 'chat-delete', id }` (mod delete), `{ type: 'chat-purge', identity }` (guest ban), `{ type: 'system', id, identity, name, text, timestamp, system: { kind: 'raid', from, viewers } }` (raid arrives). |
+| `chat` | server | server | `{ type: 'chat-delete', id }` (mod delete), `{ type: 'chat-purge', identity }` (guest ban), `{ type: 'system', id, identity, name, text, timestamp, system: { kind, from, ... } }`: `raid` (`viewers`, a raid arrives) and the points shop's `highlight` (`until`; `text` is the viewer's message), `reward` (`title`), `bounty` and `bountydone` (`title`, `points`). |
 | `hand-raise` | any participant | participant | `{ type: 'hand_raise', raised, identity, timestamp }`. `identity` other than the sender only for the host lowering someone's hand. |
 | `boost` | server (boost listener) | server | `{ type: 'boost', id, room, sender, displayName?, message, amount, asset: 'HIVE'\|'HBD', usdAmount, feeAmount, payoutAmount, recipient, txId, blockNum, timestamp, belowMinimum? }` |
-| `poll` | server, about 1/s per room at most | server | `{ type: 'poll', poll: PollView }` |
+| `boost` | server (points shop) | server | `{ type: 'readaloud', id, room, sender, message, timestamp }`: read aloud in the studio (`useReadAloud`). |
+| `poll` | server, about 1/s per room at most | server | `{ type: 'poll', poll: PollView }`; points shop: `{ type: 'poll-suggestion', suggestion: { id, from, question, options, at } }`, `{ type: 'poll-suggestion-done', id, status }` |
+| `rewards` | server (points shop) | server | `{ type: 'reward-redeemed', redemption: { id, from, rewardId, title, cost, input?, at } }`, `{ type: 'reward-done', id, status }` |
+| `bounty` | server (points shop) | server | `{ type: 'bounty', bounty: { id, text, total, backers, createdBy, status, ... } }` (put up, backed, done or declined) |
 | `raid` | server | server | `{ type: 'raid-start'\|'raid-go'\|'raid-cancel', raid: { id, from, target: { roomName, host, title }, viewers, endsAt, endsInMs } }` |
 | `game` | server | server | `game:started`, `game:state`, `game:broadcast`, `game:feedback`, `game:ended` (each with `serverTime`). Moves go over HTTP. |
 | `captions` | host studio | host | `{ t: 'cap', id, text, final, lang }`. Partials lossy (at most every 400 ms), finals reliable. |
@@ -283,7 +287,8 @@ useDataChannel('boost', (msg) => {
 Each `read*Packet(payload, from, ...)` returns the checked message or null
 (`readChatPacket`, `readBoostPacket`, `readPollPacket`, `readRaidPacket`,
 `readGamePacket`, `readCaptionPacket(…, host)`, `readViewStatePacket(…, host)`,
-`readVolumePacket(…, host)`, `readHandRaisePacket(…, host)`, `readDrawPacket(…, drawer)`);
+`readVolumePacket(…, host)`, `readHandRaisePacket(…, host)`, `readDrawPacket(…, drawer)`, and for the
+points shop `readReadAloudPacket`, `readPollSuggestionPacket`, `readRewardsPacket`, `readBountyPacket`);
 `DATA_TOPIC_TRUST` lists the class of each topic. Without React: in
 `room.on(RoomEvent.DataReceived, (payload, participant, kind, topic) => …)`, treat
 `participant === undefined` as the server and `participant.identity` as the only
@@ -297,7 +302,7 @@ recording template you build (OBS overlay, egress) needs the same checks: the de
 | Package | Version | Use |
 |---|---|---|
 | `@snapie/hangouts-core` | 0.16.0 | No dependencies. `HangoutsApiClient`, `HangoutsApiError`, login helpers, types, track names. Use it without React or on a server. |
-| `@snapie/hangouts-react` | 0.27.3 | Peer deps: `react` 18 or 19, `livekit-client` 2, `@livekit/components-react` 2. Re-exports most of core. |
+| `@snapie/hangouts-react` | 0.28.1 | Peer deps: `react` 18 or 19, `livekit-client` 2, `@livekit/components-react` 2. Re-exports most of core. |
 
 Styles: `import '@snapie/hangouts-react/src/styles/hangouts.css'` (one file, it
 imports the rest). Classes use the `hh-` prefix, colours the `--hh-*` variables.
@@ -337,6 +342,7 @@ Track names (`tracks.ts`): `studio-program` (the composited video), `studio-mix`
 | `StandaloneObsOverlay` | none | `serverUrl`, `token` (an `obs-` token), `hostIdentity`. A transparent browser source for OBS. |
 | `PodcastRecordControls` | inside a conference room | `roomName`, `onAudioHandoff(file)`. Shown by `RoomControls` for the host. |
 | Boosts | | `SendBoostDialog`, `BoostOverlay`, `BoostAlerts`, `BoostHistoryPanel`, `BoostSettingsPanel`, `BoostTopSupporters`. |
+| Points shop | inside the room (the host panels also work without one) | Viewers: `PointsShopActions` ("Use points" menu) and the single dialogs (`HighlightMessageDialog`, `ReadAloudDialog`, `SuggestPollDialog`, `RedeemRewardDialog`, `BountyDialog`, `UnlockStickersDialog`). Host: `PollSuggestionsPanel`, `ChannelRewardsPanel`, `BountiesPanel` (in `StudioLivePanel`), `ReadAloudAlerts`, `BuyStreamTimeButton`. Text: `ShopLabels`. Looks: `COSMETIC_LOOKS`. |
 | Pro | | `ProPlans`, `ProUpsellDialog`, `SubscriberTicker`. |
 | Conference parts | inside `LiveKitRoom` | `SpeakerStage`, `AudienceSection`, `RoomControls`, `ParticipantTile`, `HostControlsPanel`, `RoomHeader`, `GamePanel`. |
 
@@ -648,6 +654,19 @@ Read straight from the environment elsewhere (not in `config.ts`):
 | `POINTS_BATCH_MIN` | `5` | Earnings are paid out and logged on Hive in batches this often. |
 | `POINTS_LOG_ACCOUNT` | `threespeak-pro` | Signs the custom_json points log. |
 | `POINTS_LOG_POSTING_KEY` | | Its posting key. Without it, the boost wallet's active key when it is the same account; without either, rows wait in Mongo. |
+| `POINTS_TOKEN_CONTRACT` | | The 3Speak Points (3SP) contract on Magi. Empty: points stay Mongo-only. Set it on ONE server only. Live once `npm run points:airdrop -- --yes` ran (`lib/pointsToken.ts`). |
+| `POINTS_TOKEN_NET_ID` | `vsc-mainnet` | `vsc-testnet` for the testnet contract. |
+| `POINTS_TOKEN_GRAPHQL_URLS` | techcoderx, atexoras | Magi GraphQL endpoints, comma-separated, first that answers. |
+| `POINTS_MINTER_ACCOUNT`, `POINTS_MINTER_POSTING_KEY` | `threespeak-pro`, | The minter (`mintBatch`). Empty key: `POINTS_LOG_POSTING_KEY` when it is the same account. |
+| `POINTS_SPEND_SIGNER_ACCOUNT`, `POINTS_SPEND_SIGNER_POSTING_KEY` | `threespeak`, | Signs a user's spend (`burn`) under their posting authority. Empty key: the user's wallet signs every spend. |
+| `POINTS_MINT_INTERVAL_MIN` | `60` | Minutes between mint batches (the minter pays Magi RC per row). |
+| `POINTS_SPEND_WAIT_MS` | `30000` | How long a spend request waits for Magi before answering 202. |
+| `POINTS_AWARD_SECRET` | | Shared secret for `POST /points/awards` (the checker's awards, `lib/pointsAwards.ts`) and for booking points promotions on the checker (`PUT /promote/points`). Empty: both off. |
+| `POINTS_DOUBLE_WEEKENDS` | `false` | `true`: every earning pays x2 from Saturday 00:00 to Sunday 24:00 UTC (`lib/pointsEvents.ts`). |
+| `POINTS_DOUBLE_WINDOWS` | | More double-points windows, a comma list of `<ISO start>/<ISO end>`. |
+| `POINTS_FIRSTS_SINCE` | `2026-11-26` | A first stream pays only for accounts whose first stream is on or after this date. |
+| `POINTS_QUESTS` | | Quest ids to run every week instead of the built-in rotation (`lib/pointsQuests.ts`). |
+| `PROMOTE_POINTS_PER_24H` | `5000` | Points per 24 h to promote a 3Speak video (`POST /points/promote`). |
 | `RAID_COUNTDOWN_SEC`, `RAID_COOLDOWN_MIN` | `10`, `10` | Raid countdown and per-host cooldown (`lib/raids.ts`). |
 
 ## Mongo collections

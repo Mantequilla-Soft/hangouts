@@ -1,6 +1,10 @@
 import type { HandRaiseEvent } from '@snapie/hangouts-core';
-import type { BacklogLine } from './chatBacklog.js';
+import { parseSystemInfo, type BacklogLine } from './chatBacklog.js';
 import { decodeCaption, type CaptionMessage } from './liveCaptions.js';
+import {
+  parseBounty, parseRedemption, parseSuggestion,
+  type BountyPacket, type PollSuggestionPacket, type ReadAloudEvent, type RewardsPacket,
+} from './pointsShop.js';
 import type { Stroke } from '../hooks/useFastDraw.js';
 
 /**
@@ -13,8 +17,9 @@ import type { Stroke } from '../hooks/useFastDraw.js';
  * with the identity of the participant that published it, and a packet the
  * server sent (RoomService.sendData) arrives with no participant at all. So:
  *
- *   - server topics (boost, poll, raid, game, and the chat moderation and
- *     system lines) are accepted only when there is NO participant sender;
+ *   - server topics (boost, poll, raid, game, rewards, bounty, and the chat
+ *     moderation and system lines) are accepted only when there is NO
+ *     participant sender;
  *   - host topics (captions, view-state, volume, lowering someone else's
  *     hand) only when the sender's identity is the room host from the room
  *     metadata (`meta.host`, which only the server writes);
@@ -34,10 +39,15 @@ export type DataSender = { identity?: string; name?: string } | null | undefined
 export type TopicTrust = 'server' | 'host' | 'participant' | 'drawer';
 
 export const DATA_TOPIC_TRUST: Readonly<Record<string, TopicTrust>> = {
+  // Boost cards and (points shop) read-aloud messages.
   boost: 'server',
+  // Polls, and (points shop) suggested polls for the host.
   poll: 'server',
   raid: 'server',
   game: 'server',
+  // Points shop: channel rewards redeemed, bounties.
+  rewards: 'server',
+  bounty: 'server',
   // Lines are anyone's; `chat-delete`, `chat-purge` and `system` are server only.
   chat: 'participant',
   // Your own hand is yours; lowering someone else's is the host's.
@@ -107,7 +117,8 @@ function clampTime(ts: number, now: number): number {
  * A `chat` packet. From a participant only `{ type: 'chat', text, timestamp }`
  * counts, and the line's identity and name are the LiveKit sender's (a payload
  * `identity`, `name`, `isHost` or anything else is ignored). From the server:
- * a moderator's delete, a ban's purge, a system line (a raid arriving).
+ * a moderator's delete, a ban's purge, a system line (a raid arriving, or a
+ * points shop line: a highlight, a reward redeemed, a bounty put up or done).
  */
 export function readChatPacket(payload: Uint8Array, from: DataSender, now = Date.now()): ChatPacket | null {
   const p = decodeData(payload);
@@ -116,18 +127,18 @@ export function readChatPacket(payload: Uint8Array, from: DataSender, now = Date
   if (isServerSent(from)) {
     if (p.type === 'chat-delete' && typeof p.id === 'string' && p.id) return { kind: 'delete', id: p.id };
     if (p.type === 'chat-purge' && typeof p.identity === 'string' && p.identity) return { kind: 'purge', identity: p.identity };
-    const sys = p.system as { kind?: unknown; from?: unknown; viewers?: unknown } | undefined;
-    if (p.type === 'system' && sys?.kind === 'raid' && typeof p.id === 'string') {
-      const raider = String(sys.from ?? '');
+    // A raid arriving, or a points shop line (highlight, reward, bounty, bountydone).
+    const system = p.type === 'system' ? parseSystemInfo(p.system) : null;
+    if (system && typeof p.id === 'string' && p.id) {
       return {
         kind: 'line',
         line: {
           id: p.id,
-          identity: String(p.identity ?? raider),
-          name: String(p.name ?? raider),
-          text: String(p.text ?? ''),
+          identity: String(p.identity ?? system.from),
+          name: String(p.name ?? system.from),
+          text: String(p.text ?? '').slice(0, CHAT_LIVE_MAX),
           timestamp: Number(p.timestamp) || now,
-          system: { kind: 'raid', from: raider, viewers: Number(sys.viewers) || 0 },
+          system,
         },
       };
     }
@@ -190,6 +201,58 @@ export function readGamePacket<T = Record<string, unknown>>(payload: Uint8Array,
   const p = serverPacket(payload, from);
   if (!p || typeof p.type !== 'string' || !p.type.startsWith('game:')) return null;
   return p as T & { type: string };
+}
+
+// ── points shop (server topics) ────────────────────────────────────────────
+
+/** A read-aloud message on the `boost` topic: server only (a viewer paid for
+ *  it in the points shop). A participant's copy would make the host's studio
+ *  speak anything, so it is dropped like a fake boost card. */
+export function readReadAloudPacket(payload: Uint8Array, from: DataSender, now = Date.now()): ReadAloudEvent | null {
+  const p = serverPacket(payload, from);
+  if (!p || p.type !== 'readaloud' || typeof p.id !== 'string' || !p.id) return null;
+  if (typeof p.sender !== 'string' || !p.sender || typeof p.message !== 'string' || !p.message.trim()) return null;
+  return {
+    type: 'readaloud',
+    id: p.id,
+    sender: p.sender,
+    message: p.message.trim().slice(0, 500),
+    timestamp: typeof p.timestamp === 'number' && Number.isFinite(p.timestamp) ? p.timestamp : now,
+  };
+}
+
+/** A suggested poll for the host, or its answer, on the `poll` topic: server only. */
+export function readPollSuggestionPacket(payload: Uint8Array, from: DataSender): PollSuggestionPacket | null {
+  const p = serverPacket(payload, from);
+  if (!p) return null;
+  if (p.type === 'poll-suggestion') {
+    const suggestion = parseSuggestion(p.suggestion);
+    return suggestion ? { type: 'poll-suggestion', suggestion } : null;
+  }
+  if (p.type === 'poll-suggestion-done' && typeof p.id === 'string' && p.id) {
+    return { type: 'poll-suggestion-done', id: p.id, status: String(p.status ?? '') };
+  }
+  return null;
+}
+
+/** A channel reward redeemed, or handled, on the `rewards` topic: server only. */
+export function readRewardsPacket(payload: Uint8Array, from: DataSender): RewardsPacket | null {
+  const p = serverPacket(payload, from);
+  if (!p) return null;
+  if (p.type === 'reward-redeemed') {
+    const redemption = parseRedemption(p.redemption);
+    return redemption ? { type: 'reward-redeemed', redemption } : null;
+  }
+  if (p.type === 'reward-done' && typeof p.id === 'string' && p.id) return { type: 'reward-done', id: p.id, status: String(p.status ?? '') };
+  return null;
+}
+
+/** A bounty put up, backed, done or declined, on the `bounty` topic: server only. */
+export function readBountyPacket(payload: Uint8Array, from: DataSender): BountyPacket | null {
+  const p = serverPacket(payload, from);
+  if (!p || p.type !== 'bounty') return null;
+  const bounty = parseBounty(p.bounty);
+  return bounty ? { type: 'bounty', bounty } : null;
 }
 
 // ── host topics ────────────────────────────────────────────────────────────

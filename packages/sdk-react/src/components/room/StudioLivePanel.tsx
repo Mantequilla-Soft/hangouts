@@ -2,10 +2,13 @@ import { useState, type ReactNode, type SVGProps } from 'react';
 import { PollHostPanel } from './StreamPolls.js';
 import { RaidHostPanel } from './RaidHostPanel.js';
 import { StudioSubtabs, type StudioSubtab } from './StudioSubtabs.js';
+import { BountiesPanel, ChannelRewardsPanel, PollSuggestionsPanel } from './ShopHostPanels.js';
+import { shopLabels, type ShopLabels } from '../../lib/shopLabels.js';
 
 /**
- * The studio's "Live" tab, in sub-tabs: polls and predictions (first), the
- * live battle, raids. Kept in its own module so the studio only mounts it (one
+ * The studio's "Live" tab, in sub-tabs: polls and predictions (first, with
+ * the polls viewers suggested with points), the points shop's channel rewards
+ * and bounties, the live battle, raids. Kept in its own module so the studio only mounts it (one
  * tab on desktop, one sheet on phones).
  */
 export interface StudioLiveBattle {
@@ -16,10 +19,14 @@ export interface StudioLiveBattle {
   onOpen: () => void;
 }
 
-export type LiveSubtab = 'polls' | 'overlays' | 'battle' | 'raid';
+export type LiveSubtab = 'polls' | 'overlays' | 'rewards' | 'bounties' | 'battle' | 'raid';
 
-export function StudioLivePanel({ roomName, battle, overlays, initialTab = 'polls' }: {
+export function StudioLivePanel({ roomName, battle, overlays, initialTab = 'polls', shopLabels: shopLabelsProp, pointsShop = true }: {
   roomName: string;
+  /** The points shop's text (see ShopLabels). */
+  shopLabels?: Partial<ShopLabels>;
+  /** The points shop's host tools (suggested polls, rewards, bounties). Default true. */
+  pointsShop?: boolean;
   battle?: StudioLiveBattle;
   /** The overlays panel, as a tab of its own (the phone studio groups the
    *  overlays and the polls behind one button). */
@@ -28,9 +35,11 @@ export function StudioLivePanel({ roomName, battle, overlays, initialTab = 'poll
   initialTab?: LiveSubtab;
 }) {
   const [tab, setTab] = useState<LiveSubtab>(initialTab);
+  const SL = shopLabels(shopLabelsProp);
   const tabs: StudioSubtab<LiveSubtab>[] = [
     { id: 'polls', label: 'Polls' },
     ...(overlays ? [{ id: 'overlays' as const, label: 'Overlays' }] : []),
+    ...(pointsShop ? [{ id: 'rewards' as const, label: SL.tabRewards }, { id: 'bounties' as const, label: SL.tabBounties }] : []),
     ...(battle ? [{ id: 'battle' as const, label: 'Battle', dot: battle.onAir }] : []),
     { id: 'raid', label: 'Raid' },
   ];
@@ -41,9 +50,20 @@ export function StudioLivePanel({ roomName, battle, overlays, initialTab = 'poll
         <div className="hh-settings__group">
           <p className="hh-settings__intro">Ask your viewers something. The poll shows at the top of the chat.</p>
           <PollHostPanel roomName={roomName} />
+          {pointsShop && <PollSuggestionsPanel roomName={roomName} labels={shopLabelsProp} />}
         </div>
       )}
       {tab === 'overlays' && overlays}
+      {tab === 'rewards' && pointsShop && (
+        <div className="hh-settings__group">
+          <ChannelRewardsPanel roomName={roomName} labels={shopLabelsProp} />
+        </div>
+      )}
+      {tab === 'bounties' && pointsShop && (
+        <div className="hh-settings__group">
+          <BountiesPanel roomName={roomName} labels={shopLabelsProp} />
+        </div>
+      )}
       {tab === 'battle' && battle && (
         <div className="hh-settings__group">
           <p className="hh-settings__intro">

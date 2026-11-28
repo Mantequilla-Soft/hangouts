@@ -6,6 +6,7 @@ const mongo = vi.hoisted(() => ({
   connects: 0,
   findOne: vi.fn(),
   updateOne: vi.fn(),
+  insertOne: vi.fn(),
   find: vi.fn(),
   config: { MONGODB_URI: 'mongodb://test' } as { MONGODB_URI: string },
 }));
@@ -19,7 +20,7 @@ vi.mock('mongodb', () => ({
     }
     db() {
       return {
-        collection: () => ({ findOne: mongo.findOne, updateOne: mongo.updateOne, find: mongo.find }),
+        collection: () => ({ findOne: mongo.findOne, updateOne: mongo.updateOne, insertOne: mongo.insertOne, find: mongo.find }),
       };
     }
   },
@@ -54,6 +55,7 @@ beforeEach(() => {
   mongo.config.MONGODB_URI = 'mongodb://test';
   mongo.findOne.mockReset();
   mongo.updateOne.mockReset();
+  mongo.insertOne.mockReset();
   mongo.find.mockReset();
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -328,5 +330,69 @@ describe('startPremiumTesting', () => {
     mongo.config.MONGODB_URI = '';
     const users = await load();
     expect(await users.startPremiumTesting('alice', 24)).toEqual({ ok: false, reason: 'unavailable' });
+  });
+});
+
+describe('grantProPass (a Pro day bought with points)', () => {
+  const NOW = new Date('2026-11-28T12:00:00Z');
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it('passCannotExtend: only a pass, a trial or no Pro at all may be extended', async () => {
+    const { passCannotExtend } = await load();
+    const at = NOW.getTime();
+    const later = new Date(at + DAY).toISOString();
+    expect(passCannotExtend({ premium: false, premium_source: null, premium_expires_at: null }, at)).toBe(false);
+    expect(passCannotExtend({ premium: true, premium_source: 'subs', premium_expires_at: null }, at)).toBe(true);
+    expect(passCannotExtend({ premium: true, premium_source: 'manual', premium_expires_at: null }, at)).toBe(true);
+    expect(passCannotExtend({ premium: true, premium_source: 'subs', premium_expires_at: later }, at)).toBe(true);
+    expect(passCannotExtend({ premium: true, premium_source: 'points', premium_expires_at: later }, at)).toBe(false);
+    expect(passCannotExtend({ premium: true, premium_source: 'testing', premium_expires_at: later }, at)).toBe(false);
+    // Lapsed (the sweep has not run yet): treated as not premium.
+    expect(passCannotExtend({ premium: true, premium_source: 'subs', premium_expires_at: new Date(at - 1000).toISOString() }, at)).toBe(false);
+  });
+
+  it('no row yet: inserts one tagged points, 24 hours from now', async () => {
+    const users = await load();
+    mongo.findOne.mockResolvedValue(null);
+    const res = await users.grantProPass('Badadib', 24, NOW);
+    expect(res).toEqual({ ok: true, expiresAt: new Date(NOW.getTime() + DAY).toISOString() });
+    expect(mongo.insertOne).toHaveBeenCalledWith(expect.objectContaining({
+      username: 'badadib', banned: false, premium: true, premium_source: 'points', premium_expires_at: new Date(NOW.getTime() + DAY),
+    }));
+  });
+
+  it('a pass still running: the new day starts when it ends; the filter guards the write', async () => {
+    const users = await load();
+    const ends = new Date(NOW.getTime() + 2 * 60 * 60 * 1000);
+    mongo.findOne.mockResolvedValue({ username: 'badadib', premium: true, premium_source: 'points', premium_expires_at: ends });
+    mongo.updateOne.mockResolvedValue({ matchedCount: 1 });
+    const res = await users.grantProPass('badadib', 24, NOW);
+    expect(res).toEqual({ ok: true, expiresAt: new Date(ends.getTime() + DAY).toISOString() });
+    const [filter, update] = mongo.updateOne.mock.calls[0];
+    expect(filter.$or).toHaveLength(2);
+    expect(update.$set.premium_source).toBe('points');
+  });
+
+  it('never touches a subscription, and a lost race says so', async () => {
+    let users = await load();
+    mongo.findOne.mockResolvedValue({ username: 'badadib', premium: true, premium_source: 'subs', premium_expires_at: null });
+    expect(await users.grantProPass('badadib', 24, NOW)).toEqual({ ok: false, reason: 'already_premium' });
+    expect(mongo.updateOne).not.toHaveBeenCalled();
+
+    users = await load();
+    mongo.findOne.mockResolvedValue({ username: 'badadib', premium: false });
+    mongo.updateOne.mockResolvedValue({ matchedCount: 0 });
+    expect(await users.grantProPass('badadib', 24, NOW)).toEqual({ ok: false, reason: 'already_premium' });
+  });
+
+  it('no database: unavailable; a write error: unavailable', async () => {
+    mongo.config.MONGODB_URI = '';
+    let users = await load();
+    expect(await users.grantProPass('badadib', 24, NOW)).toEqual({ ok: false, reason: 'unavailable' });
+    mongo.config.MONGODB_URI = 'mongodb://test';
+    users = await load();
+    mongo.findOne.mockResolvedValue({ username: 'badadib', premium: false });
+    mongo.updateOne.mockRejectedValue(new Error('boom'));
+    expect(await users.grantProPass('badadib', 24, NOW)).toEqual({ ok: false, reason: 'unavailable' });
   });
 });

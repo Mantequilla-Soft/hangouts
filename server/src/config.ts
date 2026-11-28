@@ -41,12 +41,47 @@ const envSchema = z.object({
   BOOST_INGEST_KEY: z.string().default(''),
   BOOST_PLATFORM_ACCOUNT: z.string().default(''),
   BOOST_PLATFORM_ACTIVE_KEY: z.string().default(''),
-  // Channel points log on Hive (custom_json 3speak_points, lib/pointsLedger.ts).
+  // Channel points log on Hive (custom_json 3speak_points, 3sp_points once the 3SP token is live; lib/pointsLedger.ts).
   // Signed with this account's posting key; without one, the boost wallet's
   // active key when it is the same account; without either, nothing is logged
   // (the rows wait in Mongo until a key is set).
   POINTS_LOG_ACCOUNT: z.string().default('threespeak-pro'),
   POINTS_LOG_POSTING_KEY: z.string().default(''),
+  // 3Speak Points (3SP) on Magi (lib/pointsToken.ts). Empty contract = off:
+  // points stay Mongo-only exactly as before. Set it on ONE hangouts server
+  // only (it mints, burns and refunds orphaned stakes for everyone).
+  POINTS_TOKEN_CONTRACT: z.string().default(''),
+  POINTS_TOKEN_NET_ID: z.string().default('vsc-mainnet'),
+  POINTS_TOKEN_GRAPHQL_URLS: z.string().default('https://vsc.techcoderx.com/api/v1/graphql,https://vsc.atexoras.com:2087/api/v1/graphql'),
+  // The minter (mintBatch). Its posting key; empty = POINTS_LOG_POSTING_KEY
+  // when it is the same account (@threespeak-pro).
+  POINTS_MINTER_ACCOUNT: z.string().default('threespeak-pro'),
+  POINTS_MINTER_POSTING_KEY: z.string().default(''),
+  // Signs a user's spend (`burn` as the user) under their posting authority:
+  // the account users put in their posting account_auths when they connect.
+  // Empty key = every spend is signed by the user's own wallet.
+  POINTS_SPEND_SIGNER_ACCOUNT: z.string().default('threespeak'),
+  POINTS_SPEND_SIGNER_POSTING_KEY: z.string().default(''),
+  // Minutes between new mint batches (the minter pays Magi RC per row).
+  POINTS_MINT_INTERVAL_MIN: z.coerce.number().int().min(1).default(60),
+  // Shared secret for POST /points/awards (the checker sends leaderboard and
+  // remix awards). Empty = the endpoint is off.
+  POINTS_AWARD_SECRET: z.string().default(''),
+  // What promoting a video on 3Speak (Discover #1) costs in points per 24 h.
+  // The same secret above books it on the checker (PUT /promote/points).
+  PROMOTE_POINTS_PER_24H: z.coerce.number().int().min(1).default(5000),
+  // Double points (lib/pointsEvents.ts): every earning pays x2 on weekends
+  // (Saturday 00:00 to Sunday 24:00 UTC) when on, and inside these windows,
+  // a comma list of `<ISO start>/<ISO end>`.
+  POINTS_DOUBLE_WEEKENDS: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  POINTS_DOUBLE_WINDOWS: z.string().default(''),
+  // A first stream pays its 500 points only for accounts whose first stream is
+  // on or after this date (old streamers are not all paid at once).
+  POINTS_FIRSTS_SINCE: z.string().default('2026-11-26')
+    .refine((v) => Number.isFinite(Date.parse(v)), 'must be a date'),
+  // The weekly quests (lib/pointsQuests.ts): a comma list of quest ids to run
+  // every week instead of the built-in rotation. Empty = the rotation.
+  POINTS_QUESTS: z.string().default(''),
   BOOST_PLATFORM_FEE_PERCENT: z.coerce.number().min(0).max(100).default(5),
   BOOST_HIVE_USD_FALLBACK: z.coerce.number().positive().default(0.25),
   BOOST_HIVE_USD_CACHE_MS: z.coerce.number().int().positive().default(120000),

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParticipants, useTracks, VideoTrack } from '@livekit/components-react';
+import { useParticipants, useRoomInfo, useTracks, VideoTrack } from '@livekit/components-react';
 import { Track, VideoQuality, type RemoteTrackPublication } from 'livekit-client';
 import type { BoostConfig } from '@snapie/hangouts-core';
 
@@ -9,6 +9,9 @@ import { ChatPanel } from './ChatPanel.js';
 import { StreamBoostGoal } from './StreamBoostGoal.js';
 import { BoostOverlay } from './BoostOverlay.js';
 import { SendBoostDialog } from './SendBoostDialog.js';
+import { PointsShopActions } from './PointsShop.js';
+import { parseRoomMeta, readBoostConfig } from '../../lib/boostGoals.js';
+import type { ShopLabels } from '../../lib/shopLabels.js';
 
 export interface StandaloneViewerProps {
   roomName: string;
@@ -23,6 +26,11 @@ export interface StandaloneViewerProps {
    *  For dropping the live player into a host page's own layout (e.g. the
    *  3Speak watch page). The integrator owns title/description/actions. */
   embed?: boolean;
+  /** The points shop's "Use points" menu next to the boost button, for a
+   *  signed-in viewer. Default true. */
+  pointsShop?: boolean;
+  /** The points shop's text (see ShopLabels). */
+  shopLabels?: Partial<ShopLabels>;
 }
 
 /**
@@ -32,7 +40,7 @@ export interface StandaloneViewerProps {
  * streamer sees in their studio preview — plus the room chat.
  * There is no attendees section in standalone mode by design.
  */
-export function StandaloneViewer({ roomName, title, hostIdentity, onLeave, isGuest = false, boostConfig, embed = false }: StandaloneViewerProps) {
+export function StandaloneViewer({ roomName, title, hostIdentity, onLeave, isGuest = false, boostConfig, embed = false, pointsShop = true, shopLabels }: StandaloneViewerProps) {
   const { isAuthenticated, username } = useHangoutsContext();
   const participants = useParticipants();
   const [boostDialogOpen, setBoostDialogOpen] = useState(false);
@@ -71,6 +79,10 @@ export function StandaloneViewer({ roomName, title, hostIdentity, onLeave, isGue
   ).length;
 
   const showBoostButton = boostConfig?.enabled !== false && isAuthenticated && !isGuest && !!username;
+  // Points are spent by signed-in viewers only, never on your own stream.
+  const showShop = pointsShop && isAuthenticated && !isGuest && !!username && username !== hostIdentity;
+  const { metadata } = useRoomInfo();
+  const readAloudOff = useMemo(() => readBoostConfig(parseRoomMeta(metadata))?.alerts?.readAloud === false, [metadata]);
 
   const qualitySelect = (
     <label className="hh-studio__quality" title="Playback quality">
@@ -105,6 +117,7 @@ export function StandaloneViewer({ roomName, title, hostIdentity, onLeave, isGue
           {showBoostButton && (
             <button className="hh-btn hh-btn--boost hh-btn--small" onClick={() => setBoostDialogOpen(true)}>🚀 Boost</button>
           )}
+          {showShop && <PointsShopActions roomName={roomName} host={hostIdentity} labels={shopLabels} readAloudOff={readAloudOff} />}
         </div>
         <BoostOverlay />
         <StreamBoostGoal variant="overlay" />
@@ -130,6 +143,7 @@ export function StandaloneViewer({ roomName, title, hostIdentity, onLeave, isGue
               🚀 Boost
             </button>
           )}
+          {showShop && <PointsShopActions roomName={roomName} host={hostIdentity} labels={shopLabels} readAloudOff={readAloudOff} />}
           <button className="hh-btn hh-btn--secondary hh-btn--small" onClick={onLeave}>
             Leave
           </button>

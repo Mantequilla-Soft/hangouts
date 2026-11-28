@@ -7,8 +7,8 @@ import {
   setPointsStore, spendPoints,
 } from '../../src/lib/points.js';
 import {
-  decodePointsLog, encodePointsLog, logPendingToChain, memoryLedgerStore, newRow, replayPointsLog, setLedgerStore,
-  setPointsLogWriter,
+  POINTS_LOG_ID, POINTS_TOKEN_LOG_ID, decodePointsLog, encodePointsLog, logIdFor, logPendingToChain, memoryLedgerStore,
+  newRow, replayPointsLog, setLedgerStore, setPointsLogStage, setPointsLogWriter, type PointsLogStage,
 } from '../../src/lib/pointsLedger.js';
 
 let store: ReturnType<typeof memoryPointsStore>;
@@ -22,6 +22,7 @@ beforeEach(() => {
   ledger = memoryLedgerStore();
   setLedgerStore(ledger);
   setPointsLogWriter(null);
+  setPointsLogStage(async () => 'off');
   resetPointsEarning();
 });
 
@@ -158,11 +159,13 @@ describe('the ledger and the Hive log', () => {
   it('logs unlogged rows as custom_json and keeps them for the next try when Hive fails', async () => {
     await ledger.insert([newRow('fan', 10, 'watch', 1_800_000_000_000), newRow('badadib', -2500, 'spend', 1_800_000_030_000, 'x-room')]);
     const sent: string[] = [];
+    const ids: string[] = [];
     setPointsLogWriter(async () => { throw new Error('down'); });
     expect(await logPendingToChain()).toBe(0);
     expect(ledger.rows.every((r) => r.tx === null)).toBe(true);
-    setPointsLogWriter(async (json) => { sent.push(json); return 'tx1'; });
+    setPointsLogWriter(async (json, id) => { sent.push(json); ids.push(id); return 'tx1'; });
     expect(await logPendingToChain()).toBe(1);
+    expect(ids).toEqual(['3speak_points']);
     expect(ledger.rows.every((r) => r.tx === 'tx1')).toBe(true);
     expect(JSON.parse(sent[0])).toEqual({ v: 1, at: 1_800_000_000, m: [['fan', 10, 'w', 0], ['badadib', -2500, 'x', 30, 'x-room']] });
     expect(await logPendingToChain()).toBe(0);
@@ -209,5 +212,109 @@ describe('the ledger and the Hive log', () => {
     const back = decodePointsLog(sent[0]) ?? [];
     expect(back.map((m) => m.kind)).toEqual(['expire', 'expire']);
     expect(replayPointsLog([{ user: 'fan', delta: 700, kind: 'boost', at: 0 }, ...back], POINTS_START).get('fan')?.balance).toBe(POINTS_START);
+  });
+});
+
+describe('the points log around the 3SP airdrop', () => {
+  const T = 1_800_000_000_000;
+  const capture = () => {
+    const sent: Array<{ id: string; json: string }> = [];
+    setPointsLogWriter(async (json, id) => { sent.push({ id, json }); return `tx${sent.length}`; });
+    return sent;
+  };
+  const stage = (s: PointsLogStage) => setPointsLogStage(async () => s);
+
+  it('two different custom_json ids', () => {
+    expect(POINTS_LOG_ID).toBe('3speak_points');
+    expect(POINTS_TOKEN_LOG_ID).toBe('3sp_points');
+  });
+
+  it('which log a row goes to', () => {
+    expect(logIdFor({}, 'off')).toBe('3speak_points');
+    expect(logIdFor({ mint: 'pre' }, 'off')).toBe('3speak_points');
+    expect(logIdFor({}, 'waiting')).toBeNull();
+    expect(logIdFor({ mint: 'pre' }, 'waiting')).toBe('3speak_points');
+    expect(logIdFor({}, 'live')).toBe('3sp_points');
+    expect(logIdFor({ mint: 'm-abc' }, 'live')).toBe('3sp_points');
+    expect(logIdFor({ mint: 'burn' }, 'live')).toBe('3sp_points');
+    expect(logIdFor({ mint: 'pre' }, 'live')).toBe('3speak_points');
+  });
+
+  it('between setting the token and the airdrop nothing new is logged', async () => {
+    await ledger.insert([newRow('fan', 10, 'watch', T)]);
+    const sent = capture();
+    stage('waiting');
+    expect(await logPendingToChain()).toBe(0);
+    expect(sent).toEqual([]);
+    expect(ledger.rows[0].tx).toBeNull();
+  });
+
+  it('a stage that cannot be read holds the rows too', async () => {
+    await ledger.insert([newRow('fan', 10, 'watch', T)]);
+    const sent = capture();
+    setPointsLogStage(async () => { throw new Error('mongo down'); });
+    expect(await logPendingToChain()).toBe(0);
+    expect(sent).toEqual([]);
+  });
+
+  it('the whole switch: the old log replays to exactly the airdrop, the new log has only what came after', async () => {
+    // Before the token: logged as usual under the old id.
+    await ledger.insert([newRow('fan', 500, 'watch', T), newRow('fan2', -200, 'spend', T + 1000, 'room')]);
+    const sent = capture();
+    expect(await logPendingToChain()).toBe(1);
+    // Token configured: a later earning, and one more before the snapshot, wait.
+    stage('waiting');
+    await ledger.insert([newRow('fan', 30, 'chat', T + 60_000), newRow('fan3', 70, 'stream', T + 9 * 60_000)]);
+    expect(await logPendingToChain()).toBe(0);
+    // The airdrop: the snapshot covers everything up to T + 5 min, marked pre.
+    const snapshot = T + 5 * 60_000;
+    const covered = ledger.rows.filter((r) => r.at <= snapshot);
+    const airdrop = replayPointsLog(covered, POINTS_START);
+    for (const r of covered) r.mint = 'pre';
+    stage('live');
+    // After the airdrop: a new earning and a burned spend.
+    await ledger.insert([newRow('fan', 40, 'watch', T + 20 * 60_000), newRow('fan2', -100, 'spend', T + 21 * 60_000, 'room', 'burn')]);
+    await logPendingToChain();
+
+    expect(ledger.rows.every((r) => r.tx)).toBe(true);
+    const old = sent.filter((p) => p.id === '3speak_points').flatMap((p) => decodePointsLog(p.json) ?? []);
+    const after = sent.filter((p) => p.id === '3sp_points').flatMap((p) => decodePointsLog(p.json) ?? []);
+    expect(sent.every((p) => p.id === '3speak_points' || p.id === '3sp_points')).toBe(true);
+    // The old log is exactly the airdrop's rows, so its replay is the airdrop.
+    expect(old.map((m) => [m.user, m.delta])).toEqual([['fan', 500], ['fan2', -200], ['fan', 30]]);
+    expect(replayPointsLog(old, POINTS_START)).toEqual(airdrop);
+    // Everything else is in the new log, once.
+    expect(after.map((m) => [m.user, m.delta]).sort()).toEqual([['fan', 40], ['fan2', -100], ['fan3', 70]].sort());
+    expect(old.length + after.length).toBe(ledger.rows.length);
+  });
+});
+
+describe('daily caps on watching and streaming', () => {
+  it('pays up to the cap per UTC day, the rest of the day nothing, again the next day', async () => {
+    const { liveAllowance, WATCH_POINTS_PER_DAY, STREAM_POINTS_PER_DAY } = await import('../../src/lib/points.js');
+    setLedgerStore(memoryLedgerStore());
+    resetPointsEarning();
+    const day = Date.parse('2026-11-28T10:00:00Z');
+    let watch = 0;
+    for (let i = 0; i < 200; i += 1) watch += await liveAllowance('capfan', 'watch', 10, day + i * 60_000);
+    expect(watch).toBe(WATCH_POINTS_PER_DAY);
+    let stream = 0;
+    for (let i = 0; i < 100; i += 1) stream += await liveAllowance('capstar', 'stream', 100, day + i * 60_000);
+    expect(stream).toBe(STREAM_POINTS_PER_DAY);
+    expect(await liveAllowance('capfan', 'watch', 10, day + 86_400_000)).toBe(10);
+  });
+
+  it('after a restart the day so far is read back from the ledger', async () => {
+    const { liveAllowance } = await import('../../src/lib/points.js');
+    const ledger = memoryLedgerStore();
+    setLedgerStore(ledger);
+    resetPointsEarning();
+    const at = Date.parse('2026-11-28T12:00:00Z');
+    await ledger.insert([
+      { id: 'w1', user: 'backfan', delta: 1100, kind: 'watch', at: at - 3_600_000, tx: '' } as never,
+      { id: 'w0', user: 'backfan', delta: 500, kind: 'watch', at: at - 86_400_000, tx: '' } as never,
+    ]);
+    expect(await liveAllowance('backfan', 'watch', 10, at)).toBe(10);
+    expect(await liveAllowance('backfan', 'watch', 500, at)).toBe(90);
   });
 });

@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 import type { Collection } from 'mongodb';
 import { getLiveDb } from './mongoDb.js';
 import { POINTS_START, applyPointsNow, memoryPointsStore, pointsBalance, pointsStore, setPointsStore, type PointsStore } from './points.js';
+import { registerSpendCompleter, setStakeLiveCheck, settlePrediction, spendOnChain, tokenConfigured, tokenLive } from './pointsToken.js';
+import { awardPoints } from './pointsAwards.js';
 
 // The points live in lib/points.ts now; kept here for older imports.
 export { POINTS_START, memoryPointsStore, pointsBalance, type PointsStore };
@@ -18,6 +20,11 @@ export { POINTS_START, memoryPointsStore, pointsBalance, type PointsStore };
  * prediction changes balances only when it is resolved, in one batch, so a
  * server restart mid-prediction loses the prediction but never anybody's
  * points.
+ *
+ * With the 3SP token (lib/pointsToken.ts) a stake is a burn on Magi when it
+ * is made, and counts once that is confirmed. The resolution mints the
+ * winners' share; a cancelled or lost prediction (a restart) gives every
+ * stake back (refundOrphanStakes).
  *
  * One poll or prediction runs per room at a time. Live state is in memory;
  * finished results are archived (TTL one year) so they can be shown with the
@@ -55,6 +62,8 @@ export interface Poll {
   offset: number | null;
   votes: Map<string, number>;
   stakes: Map<string, { option: number; amount: number }>;
+  /** Its stakes are 3SP burns (already taken): resolve from those. */
+  chainStakes?: boolean;
   winner?: number;
   endedAt?: number;
 }
@@ -227,6 +236,10 @@ async function finish(p: Poll, status: PollStatus): Promise<void> {
   p.endedAt = Date.now();
   if (active.get(p.room) === p) active.delete(p.room);
   onChange(p);
+  // Token stakes were burned when made: a cancelled prediction returns them.
+  if (p.kind === 'prediction' && status === 'cancelled' && tokenConfigured()) {
+    await settlePrediction(p.id, null).catch((err) => console.warn('[Polls] stake refund failed:', err instanceof Error ? err.message : err));
+  }
   try { await archive.save(toView(p)); }
   catch (err) { console.warn('[Polls] archive failed:', err instanceof Error ? err.message : err); }
 }
@@ -292,10 +305,16 @@ export function vote(room: string, id: string, user: string, option: number): Po
   if (p.votes.has(user)) throw new PollError(409, 'You already voted.');
   p.votes.set(user, option);
   onChange(p);
+  // 5 points for voting in someone else's poll (at most 5 a day).
+  if (user.toLowerCase() !== p.host.toLowerCase()) {
+    void awardPoints([{ id: `pollvote:${p.id}:${user.toLowerCase()}`, user, kind: 'pollvote', ref: p.room }]).catch(() => undefined);
+  }
   return p;
 }
 
-export async function stake(room: string, id: string, user: string, option: number, amount: number): Promise<{ poll: Poll; balance: number }> {
+export async function stake(
+  room: string, id: string, user: string, option: number, amount: number, opts: { burnTx?: string } = {},
+): Promise<{ poll: Poll; balance: number } | { pending: true; spendId: string }> {
   const p = current(room, id);
   if (p.kind !== 'prediction') throw new PollError(400, 'This is a poll: vote instead.');
   takingPart(p);
@@ -304,6 +323,12 @@ export async function stake(room: string, id: string, user: string, option: numb
   const amt = Math.floor(Number(amount));
   if (!Number.isFinite(amt) || amt < 1) throw new PollError(400, 'Stake at least 1 point.');
   if (p.stakes.get(user) && p.stakes.get(user)!.option !== option) throw new PollError(409, 'You already picked the other outcome.');
+  if (await tokenLive()) {
+    // Burn first; the stake counts once Magi confirms it ('stake' completer).
+    const res = await spendOnChain(user, amt, { type: 'stake', room, poll: id, option }, { burnTx: opts.burnTx });
+    if (res.state === 'pending') return { pending: true, spendId: res.spend.id };
+    return { poll: p, balance: res.balance };
+  }
   const balance = await pointsStore().get(user);
   // Read the stake AFTER the await: two quick taps must not both spend the
   // same points, and the window may have closed meanwhile.
@@ -344,10 +369,32 @@ export async function resolvePrediction(room: string, id: string, winner: number
   if (p.kind !== 'prediction') throw new PollError(400, 'Only a prediction is resolved.');
   if (!Number.isInteger(winner) || winner < 0 || winner >= p.options.length) throw new PollError(400, 'No such outcome.');
   p.winner = winner;
-  await applyPointsNow(payouts(p, winner), 'prediction');
+  // Token stakes are already burned: pay the winners from the confirmed stakes.
+  if (p.chainStakes) await settlePrediction(p.id, winner);
+  else await applyPointsNow(payouts(p, winner), 'prediction');
   await finish(p, 'resolved');
   return p;
 }
+
+// A confirmed stake burn: count it while its prediction still takes it (made
+// before the window closed, not resolved yet). A throw refunds the points.
+registerSpendCompleter('stake', async (spend) => {
+  const s = spend.purpose;
+  if (s.type !== 'stake') throw new Error('Not a stake.');
+  const p = active.get(s.room);
+  if (!p || p.id !== s.poll || (p.status !== 'open' && p.status !== 'locked') || spend.createdAt >= p.endsAt) {
+    throw new Error('The prediction closed before your stake was confirmed.');
+  }
+  const prev = p.stakes.get(spend.user);
+  if (prev && prev.option !== s.option) throw new Error('You already picked the other outcome.');
+  p.stakes.set(spend.user, { option: s.option, amount: (prev?.amount ?? 0) + spend.amount });
+  p.chainStakes = true;
+  onChange(p);
+  return { poll: p.id, option: s.option };
+});
+
+// Which predictions still run, for the orphaned-stake refund.
+setStakeLiveCheck((pollId) => [...active.values()].some((p) => p.id === pollId));
 
 export async function cancelPoll(room: string, id: string): Promise<Poll> {
   const p = current(room, id);

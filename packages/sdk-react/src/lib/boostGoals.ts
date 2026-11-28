@@ -35,6 +35,9 @@ export interface BoostAlertSettings {
   sound?: boolean;
   tts?: boolean;
   ttsMinHbd?: number;
+  /** Points shop read-aloud messages: read with the boosts when `tts` is on
+   *  (default true). False also stops viewers from buying them. */
+  readAloud?: boolean;
 }
 
 /** The whole `boost` block of the room metadata, old fields and new. */
@@ -289,6 +292,8 @@ export interface ResolvedAlertSettings {
   sound: boolean;
   tts: boolean;
   ttsMinHbd: number;
+  /** As stored; absent when the host never set it (readAloudOn() decides). */
+  readAloud?: boolean;
 }
 
 /** Alert settings with their defaults: chime on, reading aloud off. */
@@ -298,6 +303,7 @@ export function alertSettings(config: BoostRoomConfig | undefined): ResolvedAler
     sound: a.sound !== false,
     tts: a.tts === true,
     ttsMinHbd: typeof a.ttsMinHbd === 'number' && Number.isFinite(a.ttsMinHbd) && a.ttsMinHbd >= 0 ? a.ttsMinHbd : DEFAULT_TTS_MIN_HBD,
+    ...(typeof a.readAloud === 'boolean' ? { readAloud: a.readAloud } : {}),
   };
 }
 
