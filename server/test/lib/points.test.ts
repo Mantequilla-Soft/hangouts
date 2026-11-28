@@ -288,3 +288,33 @@ describe('the points log around the 3SP airdrop', () => {
     expect(old.length + after.length).toBe(ledger.rows.length);
   });
 });
+
+describe('daily caps on watching and streaming', () => {
+  it('pays up to the cap per UTC day, the rest of the day nothing, again the next day', async () => {
+    const { liveAllowance, WATCH_POINTS_PER_DAY, STREAM_POINTS_PER_DAY } = await import('../../src/lib/points.js');
+    setLedgerStore(memoryLedgerStore());
+    resetPointsEarning();
+    const day = Date.parse('2026-11-28T10:00:00Z');
+    let watch = 0;
+    for (let i = 0; i < 200; i += 1) watch += await liveAllowance('capfan', 'watch', 10, day + i * 60_000);
+    expect(watch).toBe(WATCH_POINTS_PER_DAY);
+    let stream = 0;
+    for (let i = 0; i < 100; i += 1) stream += await liveAllowance('capstar', 'stream', 100, day + i * 60_000);
+    expect(stream).toBe(STREAM_POINTS_PER_DAY);
+    expect(await liveAllowance('capfan', 'watch', 10, day + 86_400_000)).toBe(10);
+  });
+
+  it('after a restart the day so far is read back from the ledger', async () => {
+    const { liveAllowance } = await import('../../src/lib/points.js');
+    const ledger = memoryLedgerStore();
+    setLedgerStore(ledger);
+    resetPointsEarning();
+    const at = Date.parse('2026-11-28T12:00:00Z');
+    await ledger.insert([
+      { id: 'w1', user: 'backfan', delta: 1100, kind: 'watch', at: at - 3_600_000, tx: '' } as never,
+      { id: 'w0', user: 'backfan', delta: 500, kind: 'watch', at: at - 86_400_000, tx: '' } as never,
+    ]);
+    expect(await liveAllowance('backfan', 'watch', 10, at)).toBe(10);
+    expect(await liveAllowance('backfan', 'watch', 500, at)).toBe(90);
+  });
+});

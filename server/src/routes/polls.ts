@@ -7,7 +7,7 @@ import {
 } from '../lib/polls.js';
 import {
   BATTLE_POINTS, BOOST_POINTS_BASE, BOOST_POINTS_MAX, BOOST_POINTS_PER_HBD, CHAT_POINTS_PER_MIN_MAX, POINTS_BOOST_MIN,
-  POINTS_START, POINTS_TTL_DAYS, RAID_POINTS, STREAM_POINTS_PER_MIN, WATCH_POINTS_PER_MIN, pointsDetails, pointsHistory,
+  POINTS_START, POINTS_TTL_DAYS, RAID_POINTS, STREAM_POINTS_PER_MIN, WATCH_POINTS_PER_MIN, WATCH_POINTS_PER_DAY, STREAM_POINTS_PER_DAY, pointsDetails, pointsHistory,
 } from '../lib/points.js';
 import { readRoomMeta, sendRoomData, sessionUser, streamOffset } from '../lib/liveRoom.js';
 import { LOGIN_POINTS, RANK_POINTS, REMIX_PER_DAY, REMIX_POINTS } from '../lib/pointsAwards.js';
@@ -142,9 +142,11 @@ export const pollRoutes: FastifyPluginAsync = async (fastify) => {
       ttlDays: POINTS_TTL_DAYS,
       earn: {
         watchPerMin: WATCH_POINTS_PER_MIN,
+        watchPerDay: WATCH_POINTS_PER_DAY,
         chatPerWord: 1,
         chatPerMinMax: CHAT_POINTS_PER_MIN_MAX,
         streamPerMin: STREAM_POINTS_PER_MIN,
+        streamPerDay: STREAM_POINTS_PER_DAY,
         raid: RAID_POINTS,
         battle: BATTLE_POINTS,
         boostBase: BOOST_POINTS_BASE,

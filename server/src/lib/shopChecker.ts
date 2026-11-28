@@ -8,7 +8,7 @@ import { checkerShopEnabled, registerShopItem, shopNumber, shopRef, ShopError, t
  *   storyfreeze    a missed Story day that keeps the Story streak
  *   premierefront  your name in a premiere's front row
  *   encode         your waiting video encodes first
- *   adcredit       pays a self-promo ad booking at a fixed points rate
+ * (Ads are not paid with points: owner 2026-11-28.)
  * Before paying, GET /points/grant/check says whether the checker would grant
  * it (so a refusal costs nothing); once paid, PUT /points/grant books it under
  * the spend id, once (POINTS_AWARD_SECRET). A refusal gives the points back.
@@ -157,21 +157,5 @@ checkerItem({
     const p = post(input, 'author');
     if (p.author !== user) throw new ShopError(403, 'not_yours', 'You can only speed up your own videos.');
     return { fields: p, what: `${p.author}/${p.permlink}` };
-  },
-});
-
-/** Points per HBD of ad credit (the checker caps the HBD per month). */
-export const AD_POINTS_PER_HBD = () => shopNumber('AD_PER_HBD', 10_000);
-
-checkerItem({
-  id: 'adcredit',
-  price: () => AD_POINTS_PER_HBD(),
-  quote: () => ({ perHbd: AD_POINTS_PER_HBD() }),
-  fields(_user, input) {
-    const campaignId = str(input.campaignId);
-    const hbd = Math.round(Number(input.hbd) * 1000) / 1000;
-    if (!/^[A-Za-z0-9_-]{6,64}$/.test(campaignId)) throw new ShopError(400, 'invalid', 'Which booking?');
-    if (!(hbd > 0 && hbd <= 1000)) throw new ShopError(400, 'invalid', 'That is not an amount.');
-    return { fields: { campaignId, hbd }, what: campaignId, price: Math.ceil(hbd * AD_POINTS_PER_HBD()) };
   },
 });

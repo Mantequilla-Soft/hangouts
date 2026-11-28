@@ -163,7 +163,7 @@ describe('GET /points/shop', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.items.highlight).toMatchObject({ enabled: true, price: 500 });
-    expect(body.items.proday).toMatchObject({ enabled: true, price: 50_000 });
+    expect(body.items.proday).toMatchObject({ enabled: true, price: 20_000 });
     expect(body.items.publishslot).toMatchObject({ enabled: true, price: 25_000 });
     expect(body.cosmetics['color-gold']).toEqual({ kind: 'color', price: 2000 });
     expect(body.stickers.fire).toBe('🔥');
@@ -338,7 +338,7 @@ describe('account items', () => {
     expect((await shop('proday')).statusCode).toBe(201);
     expect((await shop('proday', { to: 'bob' })).statusCode).toBe(201);
     expect(pro.grants).toEqual(['fan', 'bob']);
-    expect(bal('fan')).toBe(0);
+    expect(bal('fan')).toBe(60_000);
     pro.premium.add('carol');
     pro.status.set('carol', { premium_source: 'subs', premium_expires_at: null });
     points.balances.set('fan', 100_000);
@@ -458,14 +458,12 @@ describe('checker items', () => {
     expect(bal('fan')).toBe(100_000);
   });
 
-  it('only your own Story or video; ad credit is priced per HBD', async () => {
+  it('only your own Story or video; ads are not sold for points', async () => {
     expect((await shop('story48', { author: 'alice', permlink: 's' })).statusCode).toBe(403);
     expect((await shop('encode', { author: 'alice', permlink: 's' })).statusCode).toBe(403);
     expect((await shop('encode', { author: 'fan', permlink: 'my-video' })).statusCode).toBe(201);
-    const ad = await shop('adcredit', { campaignId: 'abcdef123456', hbd: 1.5 });
-    expect(ad.statusCode).toBe(201);
-    expect(ad.json().order.price).toBe(15_000);
-    expect(checker.puts.at(-1)).toMatchObject({ item: 'adcredit', campaignId: 'abcdef123456', hbd: 1.5 });
+    expect((await shop('adcredit', { campaignId: 'abcdef123456', hbd: 1.5 })).statusCode).toBe(404);
+    expect((await call('GET', '/points/shop')).json().items.adcredit).toBeUndefined();
     expect((await shop('storyfreeze', { day: 'yesterday' })).statusCode).toBe(400);
   });
 });

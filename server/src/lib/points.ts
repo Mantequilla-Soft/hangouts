@@ -41,6 +41,12 @@ const POINTS_TTL_MS = POINTS_TTL_DAYS * 24 * 60 * 60 * 1000;
 
 export const WATCH_POINTS_PER_MIN = 10;
 export const STREAM_POINTS_PER_MIN = 100;
+/** Watching and streaming stop paying for the day at these (an hour at the
+ *  full rate), so a tab left open or a second account watching your own stream
+ *  cannot farm points all day (owner 2026-11-28). A double-points window
+ *  doubles what is paid, the cap counts the minutes' base points. */
+export const WATCH_POINTS_PER_DAY = Math.max(0, Number(process.env.POINTS_WATCH_PER_DAY ?? 1200) || 0);
+export const STREAM_POINTS_PER_DAY = Math.max(0, Number(process.env.POINTS_STREAM_PER_DAY ?? 6000) || 0);
 export const CHAT_POINTS_PER_MESSAGE_MAX = 20;
 export const CHAT_POINTS_PER_MIN_MAX = 50;
 export const RAID_POINTS = 500;
@@ -448,6 +454,40 @@ export function minuteRewards(rooms: SampleRoom[]): Map<string, { points: number
   return out;
 }
 
+// What each account earned watching or streaming today (UTC), by `user|kind`.
+// After a restart the day's total is read back from the ledger once.
+const liveToday = new Map<string, { day: string; points: number }>();
+const liveDay = (at: number) => new Date(at).toISOString().slice(0, 10);
+
+async function liveSoFar(user: string, kind: 'watch' | 'stream', at: number): Promise<{ day: string; points: number }> {
+  const key = `${user}|${kind}`;
+  const day = liveDay(at);
+  const hit = liveToday.get(key);
+  if (hit && hit.day === day) return hit;
+  let points = 0;
+  try {
+    const midnight = Date.parse(`${day}T00:00:00Z`);
+    // Newest first: today's rows come before anything older.
+    for (const r of await ledgerStore().history(user, 500)) {
+      if (r.at < midnight) break;
+      // The ledger has what was paid (doubled in a window): count the base.
+      if (r.kind === kind && r.delta > 0) points += r.delta / pointsMultiplier(kind, r.at);
+    }
+  } catch { /* unknown: count from now */ }
+  const fresh = { day, points };
+  liveToday.set(key, fresh);
+  return fresh;
+}
+
+/** What of `points` (watching or streaming) `user` may still earn today: the rest up to the daily cap. */
+export async function liveAllowance(user: string, kind: 'watch' | 'stream', points: number, at = Date.now()): Promise<number> {
+  const cap = kind === 'watch' ? WATCH_POINTS_PER_DAY : STREAM_POINTS_PER_DAY;
+  const t = await liveSoFar(user, kind, at);
+  const allowed = Math.max(0, Math.min(points, cap - t.points));
+  t.points += allowed;
+  return allowed;
+}
+
 async function sampleMinute(): Promise<void> {
   // Loaded here, not at the top: the stores above must load without LiveKit.
   const { roomService } = await import('./livekit.js');
@@ -462,7 +502,10 @@ async function sampleMinute(): Promise<void> {
   }
   // No stream on the record for watching either (viewing history stays private).
   const rewards = minuteRewards(withPeople);
-  for (const [user, r] of rewards) earn(user, r.points, r.kind);
+  for (const [user, r] of rewards) {
+    const allowed = await liveAllowance(user, r.kind, r.points);
+    if (allowed > 0) earn(user, allowed, r.kind);
+  }
   // Awards that need the whole stream: a collab, a watch party, a first
   // stream, 10 viewers, and the live-watching quest (lib/pointsStreamAwards.ts,
   // loaded here as it pays through lib/pointsAwards.ts, which loads this file).
@@ -493,10 +536,13 @@ export function sweepPoints(now = Date.now()): void {
   const minute = Math.floor(now / 60_000);
   for (const [u, s] of chatMinute) if (s.minute < minute) chatMinute.delete(u);
   for (const [k, at] of lastPairReward) if (now - at >= PAIR_REWARD_GAP_MS) lastPairReward.delete(k);
+  const today = liveDay(now);
+  for (const [k, t] of liveToday) if (t.day !== today) liveToday.delete(k);
 }
 
 export function resetPointsEarning(): void {
   pending.clear();
+  liveToday.clear();
   chatMinute.clear();
   lastPairReward.clear();
 }

@@ -103,8 +103,10 @@ vote per Hive account. A prediction has 2 outcomes; viewers stake channel points
 Points are ONE balance per Hive account across all streams (`lib/points.ts`).
 The server counts what earns them: watching a live stream 10 a minute (signed-in
 and connected, WebRTC or HLS, once per account), chat 1 a word (at most 20 a
-message and 50 a minute), streaming 100 a minute while live with an audience,
-a raid 500 to the raider and a full-time battle 500 to both hosts (once an hour
+message and 50 a minute), streaming 100 a minute while live with an audience
+(watching stops paying at 1,200 a day and streaming at 6,000 a day, UTC,
+`POINTS_WATCH_PER_DAY` / `POINTS_STREAM_PER_DAY`; points info `earn` says
+`watchPerDay` and `streamPerDay`), a raid 500 to the raider and a full-time battle 500 to both hosts (once an hour
 per pair), a boost 100 plus 100 per HBD (at most 2,000). They are spent on
 prediction stakes and on boosts paid with points
 (`POST /rooms/:name/boosts/points`, at least `POINTS_BOOST_MIN`; 10,000 points
@@ -198,7 +200,7 @@ Items (prices change with `SHOP_<NAME>` in the env):
 | `stickers` | 1,000 | `channel*` | The channel's sticker set, for good (`GET /points/shop` `stickers`; chat shows `:st-<id>:` big for owners). |
 | `minutes` | 10,000 | | 30 more minutes past the free stream cap, for today (UTC), 4 a day; not for Pro. A running OBS stream gets them at once; the free VOD records that long. |
 | `cosmetic` | 2,000 to 10,000 | `id*, to?` | A chat name colour, badge, avatar frame or profile theme (`cosmetics` in `GET /points/shop`), for yourself or a gift. |
-| `proday` | 50,000 | `to?` | 24 hours of Pro (`embed-users` `premium_source: 'points'`, `premium_expires_at`), from the end of a pass or trial still running. 409 `already_pro` for Pro from a subscription or given by hand. |
+| `proday` | 20,000 | `to?` | 24 hours of Pro (`embed-users` `premium_source: 'points'`, `premium_expires_at`), from the end of a pass or trial still running. 409 `already_pro` for Pro from a subscription or given by hand. |
 | `audiolong` | 5,000 | | One free audio upload 20 minutes past the cap, within 30 days (`audio_length_grants`, used up by snapieaudio). 3 open at most; not for Pro. |
 | `streakfreeze` | 1,000 | `day*` | A missed sign-in day of the last 14 keeps the streak (not the 5-of-7 week). 2 a month. |
 | `request` | 1,000 and up | `creator*, text*` (300), `amount*` | Held for the creator 14 days. Delivered (a post of theirs), the asker approves or it is paid in 7 days; declined, taken back or never delivered comes back. |
@@ -208,7 +210,6 @@ Items (prices change with `SHOP_<NAME>` in the env):
 | `storyfreeze` | 1,000 | `day*` | Checker: a missed Story day keeps the Story streak (2 a month). |
 | `premierefront` | 500 | `owner*, permlink*` | Checker: your name in the premiere's front row. |
 | `encode` | 5,000 | `author*` (you), `permlink*` | Checker: your waiting video encodes first. |
-| `adcredit` | 10,000 per HBD | `campaignId*, hbd*` | Checker: pays a self-promo ad booking (capped per month by the checker). |
 
 The checker items ask `GET <CHECKER_URL>/points/grant/check` first (a refusal
 costs nothing: 409 with the checker's code), then book `PUT /points/grant`

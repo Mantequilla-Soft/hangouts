@@ -147,13 +147,13 @@ export const PRO_PASS_HOURS = 24;
 
 registerShopItem({
   id: 'proday',
-  quote: () => ({ enabled: true, price: shopNumber('PRODAY', 50_000), hours: PRO_PASS_HOURS }),
+  quote: () => ({ enabled: true, price: shopNumber('PRODAY', 20_000), hours: PRO_PASS_HOURS }),
   async prepare(user, input) {
     const to = await recipient(user, input);
     let status;
     try { status = await getPremiumStatus(to); } catch { throw new ShopError(503, 'unavailable', 'Pro cannot be checked right now.'); }
     if (passCannotExtend(status)) throw new ShopError(409, 'already_pro', to === user ? 'You have Pro already.' : `@${to} has Pro already.`);
-    return { price: shopNumber('PRODAY', 50_000), ref: shopRef('proday', to), target: to, data: {} };
+    return { price: shopNumber('PRODAY', 20_000), ref: shopRef('proday', to), target: to, data: {} };
   },
   async fulfil(order) {
     const res = await grantProPass(order.target ?? order.user, PRO_PASS_HOURS);
