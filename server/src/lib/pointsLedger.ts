@@ -42,7 +42,9 @@ export interface LedgerRow {
    * The 3SP token (lib/pointsToken.ts): the mint batch that put an earning on
    * Magi. Null/absent: not minted yet (only rows with delta > 0 ever are).
    * `pre`: from before the token (the airdrop covers it). `burn`: a spend the
-   * user burned on Magi. `skip:<why>`: never minted (no such Hive account).
+   * user burned on Magi. `chain`: points sent between accounts with a Magi
+   * transfer, already where they belong. `skip:<why>`: never minted (no such
+   * Hive account).
    */
   mint?: string | null;
 }

@@ -63,7 +63,10 @@ export type SpendPurpose =
   | { type: 'boost'; room: string; message: string; displayName?: string; recipient: string; minUsd: number }
   | { type: 'stake'; room: string; poll: string; option: number }
   // `room` is the ledger ref here ('promote:<author>/<permlink>'), no stream.
-  | { type: 'promote'; room: string; author: string; permlink: string; days: number };
+  | { type: 'promote'; room: string; author: string; permlink: string; days: number }
+  // Points sent to `to` (lib/pointsTransfer.ts): a Magi `transfer`, not a
+  // burn. `room` is the sender's ledger ref (`to`, or the tipped post).
+  | { type: 'transfer'; room: string; to: string };
 
 export interface SpendDoc {
   id: string;
@@ -523,13 +526,23 @@ export function burnOp(user: string, amount: number) {
   return contractCallOp(user, 'burn', { amount: String(amount) }, BURN_RC_LIMIT);
 }
 
+/** The contract call a spend is: a `burn`, or a `transfer` for points sent to someone. */
+function spendCall(purpose: SpendPurpose, amount: number): { action: string; payload: Record<string, string> } {
+  return purpose.type === 'transfer'
+    ? { action: 'transfer', payload: { to: hiveAddress(purpose.to), amount: String(amount) } }
+    : { action: 'burn', payload: { amount: String(amount) } };
+}
+
 function spendSignerKey(): string {
   return (config.POINTS_SPEND_SIGNER_POSTING_KEY ?? '').trim();
 }
 
-const signNeeded = (user: string, amount: number) => new PointsSpendError(
-  428, 'sign', 'Confirm this spend in your wallet.', { op: ['custom_json', burnOp(user, amount)] },
-);
+const signNeeded = (user: string, amount: number, purpose: SpendPurpose) => {
+  const { action, payload } = spendCall(purpose, amount);
+  return new PointsSpendError(
+    428, 'sign', 'Confirm this spend in your wallet.', { op: ['custom_json', contractCallOp(user, action, payload, BURN_RC_LIMIT)] },
+  );
+};
 
 async function insufficient(user: string, amount: number, onChain: number): Promise<PointsSpendError> {
   const unminted = await ledgerStore().unmintedTotal(user).catch(() => 0);
@@ -547,10 +560,14 @@ async function insufficient(user: string, amount: number, onChain: number): Prom
     : 'You do not have that many points.', { onChain, unminted: arriving });
 }
 
-/** Does this burn on chain pay exactly for this spend? */
-function burnMatches(t: { caller?: string; contract?: string; action?: string; payload?: string }, user: string, amount: number): boolean {
-  if (t.caller !== hiveAddress(user) || t.contract !== tokenContract() || t.action !== 'burn') return false;
-  try { return (JSON.parse(t.payload ?? '{}') as { amount?: unknown }).amount === String(amount); } catch { return false; }
+/** Does this call on chain pay exactly for this spend (its burn, or its transfer)? */
+function burnMatches(t: { caller?: string; contract?: string; action?: string; payload?: string }, user: string, amount: number, purpose: SpendPurpose): boolean {
+  const want = spendCall(purpose, amount);
+  if (t.caller !== hiveAddress(user) || t.contract !== tokenContract() || t.action !== want.action) return false;
+  try {
+    const got = JSON.parse(t.payload ?? '{}') as Record<string, unknown>;
+    return Object.entries(want.payload).every(([k, v]) => got[k] === v);
+  } catch { return false; }
 }
 
 export type SpendResult =
@@ -573,7 +590,7 @@ export async function checkSpend(spend: SpendDoc, now = Date.now()): Promise<'pe
     }
     return 'pending';
   }
-  if (t.status === 'failed' || !burnMatches(t, spend.user, spend.amount)) {
+  if (t.status === 'failed' || !burnMatches(t, spend.user, spend.amount, spend.purpose)) {
     const error = t.status === 'failed' ? (t.error ?? 'failed') : 'That transaction is not this spend.';
     const done = await store.updateSpend(spend.id, ['sent'], { status: 'failed', error, doneAt: now });
     return done ? 'failed' : ((await store.getSpend(spend.id))?.status ?? 'failed') as 'failed';
@@ -581,8 +598,19 @@ export async function checkSpend(spend: SpendDoc, now = Date.now()): Promise<'pe
   // Confirmed: exactly one caller gets past this.
   const won = await store.updateSpend(spend.id, ['sent'], { status: 'ok', doneAt: now });
   if (!won) return ((await store.getSpend(spend.id))?.status ?? 'ok') as 'ok';
-  await pointsStore().apply(new Map([[spend.user, -spend.amount]]));
-  await ledgerStore().insert([newRow(spend.user, -spend.amount, 'spend', now, spend.purpose.room, 'burn')]).catch(() => undefined);
+  if (spend.purpose.type === 'transfer') {
+    // Moved on Magi already: both sides follow in Mongo, and neither row is
+    // minted or burned again (`chain`).
+    const to = spend.purpose.to;
+    await pointsStore().apply(new Map([[spend.user, -spend.amount], [to, spend.amount]]));
+    await ledgerStore().insert([
+      newRow(spend.user, -spend.amount, 'transfer', now, spend.purpose.room, 'chain'),
+      newRow(to, spend.amount, 'transfer', now, spend.user, 'chain'),
+    ]).catch(() => undefined);
+  } else {
+    await pointsStore().apply(new Map([[spend.user, -spend.amount]]));
+    await ledgerStore().insert([newRow(spend.user, -spend.amount, 'spend', now, spend.purpose.room, 'burn')]).catch(() => undefined);
+  }
   const complete = completers.get(spend.purpose.type);
   try {
     const result = complete ? await complete(won) : undefined;
@@ -623,7 +651,7 @@ export async function spendOnChain(user: string, amount: number, purpose: SpendP
     if (!/^[0-9a-f]{40}$/.test(id)) throw new PointsSpendError(400, 'invalid', 'That is not a transaction id.');
     const t = await magi().tx(id).catch(() => null);
     // Not seen yet is fine (checked again when it is); a different call is not.
-    if (t && !burnMatches(t, u, amt)) throw new PointsSpendError(400, 'invalid', 'That transaction is not this spend.');
+    if (t && !burnMatches(t, u, amt, purpose)) throw new PointsSpendError(400, 'invalid', 'That transaction is not this spend.');
     tx = id;
     signedBy = 'user';
   } else {
@@ -631,12 +659,13 @@ export async function spendOnChain(user: string, amount: number, purpose: SpendP
     try { onChain = await chainBalance(u); } catch { throw new PointsSpendError(503, 'unavailable', 'Points cannot be spent right now. Try again in a minute.'); }
     if (onChain < amt) throw await insufficient(u, amt, onChain);
     const key = spendSignerKey();
-    if (!key) throw signNeeded(u, amt);
+    if (!key) throw signNeeded(u, amt, purpose);
     try {
-      tx = await magi().call(u, key, 'burn', { amount: String(amt) }, BURN_RC_LIMIT);
+      const { action, payload } = spendCall(purpose, amt);
+      tx = await magi().call(u, key, action, payload, BURN_RC_LIMIT);
     } catch (err) {
       // The user removed (or never gave) the posting authority: their wallet signs.
-      if (MISSING_AUTHORITY_RE.test(err instanceof Error ? err.message : String(err))) throw signNeeded(u, amt);
+      if (MISSING_AUTHORITY_RE.test(err instanceof Error ? err.message : String(err))) throw signNeeded(u, amt, purpose);
       throw new PointsSpendError(503, 'unavailable', 'Points cannot be spent right now. Try again in a minute.');
     }
     signedBy = 'server';

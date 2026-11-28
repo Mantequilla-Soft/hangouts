@@ -17,7 +17,7 @@ import type { PointsKind } from './pointsLog.js';
 export const DOUBLE_FACTOR = 2;
 
 /** Moves that are not earnings: never doubled. */
-const NOT_EARNINGS: ReadonlySet<PointsKind> = new Set<PointsKind>(['spend', 'refund', 'prediction', 'expire']);
+const NOT_EARNINGS: ReadonlySet<PointsKind> = new Set<PointsKind>(['spend', 'refund', 'prediction', 'expire', 'transfer']);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 type Span = [start: number, end: number];

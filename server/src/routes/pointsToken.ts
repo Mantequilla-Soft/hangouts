@@ -9,6 +9,8 @@ import {
 import { DOUBLE_FACTOR, doubleState } from '../lib/pointsEvents.js';
 import { QUEST_POINTS, QUESTS_PER_WEEK, checkQuests, questProgress } from '../lib/pointsQuests.js';
 import { PointsSpendError, spendStatus } from '../lib/pointsToken.js';
+import { TRANSFER_MAX, transferPoints } from '../lib/pointsTransfer.js';
+import { checkBan } from '../middleware/checkBan.js';
 
 /** A spend that could not go through, as JSON the SDK reads: `code` says
  *  what to do (sign: the op is in `op`; insufficient: `onChain`, `unminted`). */
@@ -132,6 +134,38 @@ export const pointsTokenRoutes: FastifyPluginAsync = async (fastify) => {
     if (r.awarded) return reply.send({ awarded: true, points: r.points, balance });
     if (r.reason === 'already') return reply.code(409).send({ awarded: false, points: 0, balance, message: 'Already claimed.' });
     return reply.code(r.reason === 'error' ? 503 : 403).send({ awarded: false, points: 0, balance, message: 'Not paid.', reason: r.reason });
+  });
+
+  // Send points to another account (lib/pointsTransfer.ts): from the wallet,
+  // or as a points tip on one of the receiver's posts (`post`).
+  fastify.post('/points/transfer', {
+    preHandler: [requireAuth, checkBan],
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['to', 'amount'],
+        properties: {
+          to: { type: 'string', pattern: '^@?[a-z][a-z0-9.-]{2,15}$' },
+          amount: { type: 'integer', minimum: 1, maximum: TRANSFER_MAX },
+          post: { type: 'string', pattern: '^[a-z][a-z0-9.-]{2,15}/[a-z0-9-]{1,255}$' },
+          // 3SP: the txid of the transfer the user's wallet signed after a 428.
+          burnTx: { type: 'string', pattern: '^[0-9a-fA-F]{40}$' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const from = pointsAccount(request.username);
+    if (!from) return reply.code(400).send({ message: 'Not a Hive account.' });
+    const body = request.body as { to: string; amount: number; post?: string; burnTx?: string };
+    try {
+      const res = await transferPoints({ from, ...body });
+      if ('pending' in res) return sendSpendPending(reply, res.spendId);
+      return reply.code(201).send(res);
+    } catch (err) {
+      if (err instanceof PointsSpendError) return sendSpendError(reply, err);
+      throw err;
+    }
   });
 
   // A spend of the signed-in account (a pending points boost, stake or promotion).
