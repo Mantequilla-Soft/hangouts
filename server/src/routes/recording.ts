@@ -8,6 +8,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { checkBan } from '../middleware/checkBan.js';
 import { canRecordVideo, canRecordAudio } from '../lib/permissions.js';
 import { FREE_STREAM_CAP_MS } from '../lib/streamQuota.js';
+import { streamExtraMs } from '../lib/shopLive.js';
 import { publishRecordingToVod, getPublishState, hasPublish } from '../lib/streamVodPublish.js';
 import { noteVodRecording, cutPendingClips } from '../lib/vodClips.js';
 import { readFile, unlink, stat } from 'node:fs/promises';
@@ -420,7 +421,7 @@ export const recordingRoutes: FastifyPluginAsync = async (fastify) => {
         name,
         check.meta as Parameters<typeof startStandaloneVod>[1],
         freeStreamVod
-          ? { publish: true, download: false, owner: request.username, maxMs: FREE_STREAM_CAP_MS }
+          ? { publish: true, download: false, owner: request.username, maxMs: FREE_STREAM_CAP_MS + await streamExtraMs(request.username) }
           : { publish, download, owner: request.username },
         request.log,
       );

@@ -11,7 +11,9 @@ export type PointsKind = 'watch' | 'stream' | 'chat' | 'raid' | 'battle' | 'boos
   | 'reach' | 'storystreak' | 'challenge' | 'collab' | 'premheld' | 'clip' | 'tag' | 'pollvote' | 'reply' | 'community'
   | 'tip' | 'remixed' | 'raided' | 'followers' | 'peak10' | 'referral' | 'invited' | 'pwa' | 'party' | 'quest'
   // Sending points to another account (lib/pointsTransfer.ts): one row each side.
-  | 'transfer';
+  | 'transfer'
+  // Points a held shop order pays out (a bounty to the host, a requested video to its creator).
+  | 'payout';
 
 /** One letter per kind on the chain (custom_json is capped at 8 KB), two for
  *  the award kinds added later. The token's mintBatch rows carry the same
@@ -23,7 +25,7 @@ export const KIND_CODE: Record<PointsKind, string> = {
   streak: 'sk', week5: 'w5', anniv: 'an', first5: 'f5', vodtime: 'vt', finish: 'fi', listen: 'li', premiere: 'pr',
   playlist: 'pl', first: 'fs', reach: 'rc', storystreak: 'ss', challenge: 'ch', collab: 'co', premheld: 'ph', clip: 'cl',
   tag: 'tg', pollvote: 'pv', reply: 'rp', community: 'cm', tip: 'tp', remixed: 'rx', raided: 'rd', followers: 'fo',
-  peak10: 'pk', referral: 'rf', invited: 'iv', pwa: 'pw', party: 'pa', quest: 'qs', transfer: 'tr',
+  peak10: 'pk', referral: 'rf', invited: 'iv', pwa: 'pw', party: 'pa', quest: 'qs', transfer: 'tr', payout: 'po',
 };
 
 /** Kinds whose ref would tell the public chain what someone watched, voted on

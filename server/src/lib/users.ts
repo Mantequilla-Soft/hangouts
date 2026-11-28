@@ -212,3 +212,59 @@ export async function startPremiumTesting(username: string, durationHours: numbe
     return { ok: false, reason: 'unavailable' };
   }
 }
+
+export type ProPassResult =
+  | { ok: true; expiresAt: string }
+  | { ok: false; reason: 'unavailable' | 'already_premium' };
+
+/** Pro from a subscription or given by hand (no end date, or not a pass): a pass must not touch it. */
+export function passCannotExtend(u: Pick<PremiumStatus, 'premium' | 'premium_source' | 'premium_expires_at'>, now = Date.now()): boolean {
+  if (!u.premium) return false;
+  const exp = u.premium_expires_at ? Date.parse(u.premium_expires_at) : NaN;
+  if (!Number.isFinite(exp) || exp <= now) return !Number.isFinite(exp);
+  return u.premium_source !== 'points' && u.premium_source !== 'testing';
+}
+
+/**
+ * A Pro pass bought with points (lib/shopAccount.ts): `hours` more of Pro,
+ * from now or from the end of a pass or trial still running. Tagged
+ * `premium_source: 'points'` with `premium_expires_at`, which the checker's
+ * premiumSubsSync sweep turns off once it passes. Never touches Pro from a
+ * subscription or given by hand: the filter only matches a row that is not
+ * premium, or whose premium is a pass or a trial (the race-safe check).
+ */
+export async function grantProPass(username: string, hours: number, now = new Date()): Promise<ProPassResult> {
+  const name = normalise(username);
+  const col = await getCollection();
+  if (!col) return { ok: false, reason: 'unavailable' };
+  const cur = await getPremiumStatus(name);
+  if (passCannotExtend(cur, now.getTime())) return { ok: false, reason: 'already_premium' };
+  const curExp = cur.premium && cur.premium_expires_at ? Date.parse(cur.premium_expires_at) : NaN;
+  const from = Number.isFinite(curExp) && curExp > now.getTime() ? curExp : now.getTime();
+  const expiresAt = new Date(from + hours * 60 * 60 * 1000);
+  const set = { premium: true, premium_source: 'points', premium_expires_at: expiresAt, premium_synced_at: now };
+  try {
+    if (await col.findOne({ username: name }, { projection: { _id: 1 } })) {
+      // Only a row that is not premium, or premium by a pass or a trial.
+      const res = await col.updateOne({
+        username: name,
+        $or: [
+          { premium: { $ne: true } },
+          { premium_source: { $in: ['points', 'testing'] }, premium_expires_at: { $type: 'date' } },
+        ],
+      }, { $set: set });
+      if (res.matchedCount === 0) return { ok: false, reason: 'already_premium' };
+    } else {
+      await col.insertOne({ username: name, banned: false, ...set });
+    }
+    cache.delete(name);
+    return { ok: true, expiresAt: expiresAt.toISOString() };
+  } catch (err) {
+    // A duplicate key: the upsert raced into a row that is premium another way.
+    if ((err as { code?: number }).code === 11000) return { ok: false, reason: 'already_premium' };
+    console.error('[Users] grantProPass failed:', err);
+    collection = null;
+    db = null;
+    return { ok: false, reason: 'unavailable' };
+  }
+}

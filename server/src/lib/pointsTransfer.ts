@@ -1,6 +1,7 @@
 import { pointsStore } from './points.js';
 import { ledgerStore, newRow } from './pointsLedger.js';
-import { PointsSpendError, existingAccounts, spendOnChain, tokenLive } from './pointsToken.js';
+import { PointsSpendError, existingAccounts, registerSpendCompleter, spendOnChain, tokenLive } from './pointsToken.js';
+import { recordSupport } from './pointsShop.js';
 
 /**
  * Send points to another Hive account: a gift from the wallet, or a points tip
@@ -57,5 +58,13 @@ export async function transferPoints(input: TransferInput): Promise<TransferResu
   await pointsStore().apply(new Map([[to, amount]]));
   const now = Date.now();
   await ledgerStore().insert([newRow(from, -amount, 'transfer', now, ref), newRow(to, amount, 'transfer', now, from)]).catch(() => undefined);
+  await recordSupport(from, to, amount, now);
   return { balance: left, to, amount };
 }
+
+// A confirmed Magi transfer (lib/pointsToken.ts moved both balances): it
+// counts toward the recipient's supporters like any points spent on them.
+registerSpendCompleter('transfer', async (spend) => {
+  if (spend.purpose.type === 'transfer') await recordSupport(spend.user, spend.purpose.to, spend.amount);
+  return null;
+});

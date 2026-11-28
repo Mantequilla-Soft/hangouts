@@ -13,6 +13,8 @@ import { flushPoints, startPointsSampler, sweepPoints } from './lib/points.js';
 import { setPointsLogWriter } from './lib/pointsLedger.js';
 import { hivePointsLogWriter } from './lib/pointsChain.js';
 import { startPointsToken } from './lib/pointsToken.js';
+import { sweepShop } from './lib/pointsShop.js';
+import { sweepShopRooms } from './lib/shopLive.js';
 
 const server = await buildApp();
 await server.listen({ port: config.PORT, host: '0.0.0.0' });
@@ -31,6 +33,10 @@ if (!pointsWriter) server.log.warn('[Points] no POINTS_LOG_POSTING_KEY: movement
 startPointsSampler();
 // 3SP on Magi: the mint queue and the spend follower (off without a contract).
 startPointsToken((msg) => server.log.info(msg));
+
+// Points shop: held orders nobody decided on come back, and the spotlight
+// auction closes when its week starts. Every minute.
+setInterval(() => { void sweepShop().catch((err) => server.log.warn({ err }, 'points shop sweep failed')); }, 60 * 1000).unref();
 
 // Headless (OBS) streams live in an in-memory session map, which a restart
 // loses. Re-adopt any that are still publishing and tear down the rest — now,
@@ -52,6 +58,7 @@ setInterval(() => {
       sweepPolls(names);
       sweepPoints();
       sweepRaids(names);
+      await sweepShopRooms(names).catch((err) => server.log.warn({ err }, 'points shop room sweep failed'));
     } catch (err) {
       server.log.warn({ err }, 'room-data sweep failed');
     }

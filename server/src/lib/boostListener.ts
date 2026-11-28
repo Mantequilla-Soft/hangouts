@@ -30,6 +30,7 @@ import { recordBoost } from './streamStats.js';
 import { recordBoostTally } from './boostGoals.js';
 import { POINTS_BOOST_MAX, POINTS_BOOST_MIN, POINTS_PER_HBD, applyPointsNow, earnForBoost, spendPoints } from './points.js';
 import { registerSpendCompleter, spendOnChain, tokenLive, type SpendPurpose } from './pointsToken.js';
+import { recordSupport } from './pointsShop.js';
 import { noteBoost } from './streamHighlights.js';
 import { recordBattleBoost } from './battles.js';
 
@@ -391,6 +392,7 @@ export async function processPointsBoost(input: {
     await applyPointsNow(new Map([[sender, amount]]), 'refund', input.room).catch(() => undefined);
     throw new PointsBoostError(503, 'The boost could not reach the stream. Your points are back.');
   }
+  await recordSupport(sender, recipient, amount);
   return { event, balance };
 }
 
@@ -428,6 +430,7 @@ registerSpendCompleter('boost', async (spend) => {
   } catch {
     throw new Error('The boost could not reach the stream.');
   }
+  await recordSupport(spend.user, p.recipient, spend.amount);
   return event;
 });
 

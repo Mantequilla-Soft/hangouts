@@ -169,6 +169,79 @@ points:replay` (server) rebuilds every balance from the chain alone. Every chang
 
 `poll` is a `PollView`: `{ id, room, host, kind, question, options: [{ label, votes, points? }], total, pot?, status: 'open'|'locked'|'closed'|'resolved'|'cancelled', createdAt, endsAt, endedAt?, offset, winner? }`.
 
+## Points shop
+
+Every other way to spend 3Speak Points goes through one buy route
+(`POST /points/shop/buy`, `lib/pointsShop.ts`): the item checks the request
+and names its price, the points are paid (the Mongo balance, or a Magi burn
+with purpose `shop` once the token is live), then the item happens. If it
+cannot, the points come back ("Your points are back."). The spend's ref is
+`shop:<item>:<what>`. Some items are held: paid now, decided later (a host
+accepts a suggested poll, a creator delivers a requested video, the spotlight
+auction closes). A held order is finished once: done (the points stay spent,
+or are paid to the host or creator as `payout`, never doubled) or refunded;
+one nobody decided on in time comes back (the shop sweep, every minute).
+Points spent on someone's channel (shop orders with a channel, points boosts,
+transfers and points tips) add up per month in `points-support`: the channel's
+top supporters, its supporter badge (all months, `SHOP_SUPPORTER_MIN`, 10,000)
+and the monthly board of who spent most on others.
+
+Items (prices change with `SHOP_<NAME>` in the env):
+
+| Item | Price | Fields | What happens |
+|---|---|---|---|
+| `highlight` | 500 | `room*, text*` (200) | A chat line that stands out, pinned on top for a minute (`pinnedChat` in the room metadata; chat system kind `highlight`). |
+| `readaloud` | 1,000 | `room*, text*` (200) | `{ type: 'readaloud', sender, message }` on the `boost` topic; the stream reads it aloud. 409 `off` when the host set `boost.alerts.readAloud: false`. |
+| `suggestpoll` | 2,000 | `room*, question*, options*` (2 to 4) | Held 30 minutes for the host (`poll` topic `poll-suggestion`). Accept runs it; reject, no answer or the stream ending refunds. 3 open per viewer and stream. |
+| `reward` | the host's | `room*, rewardId*, input?` | One of the host's channel rewards, queued for the host (`rewards` topic, chat system kind `reward`). Held 24 hours: done keeps it spent, refund or no answer gives it back. |
+| `bounty` | 100 and up | `room*, amount*, text` (new) or `bountyId` (add to one) | Viewers pool points on a challenge (`bounty` topic). Done pays every pledge to the host; declined or 6 hours without an answer gives them back. 5 open per stream. |
+| `stickers` | 1,000 | `channel*` | The channel's sticker set, for good (`GET /points/shop` `stickers`; chat shows `:st-<id>:` big for owners). |
+| `minutes` | 10,000 | | 30 more minutes past the free stream cap, for today (UTC), 4 a day; not for Pro. A running OBS stream gets them at once; the free VOD records that long. |
+| `cosmetic` | 2,000 to 10,000 | `id*, to?` | A chat name colour, badge, avatar frame or profile theme (`cosmetics` in `GET /points/shop`), for yourself or a gift. |
+| `proday` | 50,000 | `to?` | 24 hours of Pro (`embed-users` `premium_source: 'points'`, `premium_expires_at`), from the end of a pass or trial still running. 409 `already_pro` for Pro from a subscription or given by hand. |
+| `audiolong` | 5,000 | | One free audio upload 20 minutes past the cap, within 30 days (`audio_length_grants`, used up by snapieaudio). 3 open at most; not for Pro. |
+| `streakfreeze` | 1,000 | `day*` | A missed sign-in day of the last 14 keeps the streak (not the 5-of-7 week). 2 a month. |
+| `request` | 1,000 and up | `creator*, text*` (300), `amount*` | Held for the creator 14 days. Delivered (a post of theirs), the asker approves or it is paid in 7 days; declined, taken back or never delivered comes back. |
+| `spotlight` | 20,000 and up | `author*, permlink*, bid*` | A bid for next ISO week's home spotlight, at least the top bid + 1,000. The top bid stays and lower ones come back at once; when the week starts the checker books the winner (`spotlight` grant), or it comes back. |
+| `publishslot` | 25,000 | `kind*: 'video'\|'short'` | Checker: one more publish of that kind within 24 hours. |
+| `story48` | 2,000 | `author*` (you), `permlink*` | Checker: your live Story kept 48 hours. |
+| `storyfreeze` | 1,000 | `day*` | Checker: a missed Story day keeps the Story streak (2 a month). |
+| `premierefront` | 500 | `owner*, permlink*` | Checker: your name in the premiere's front row. |
+| `encode` | 5,000 | `author*` (you), `permlink*` | Checker: your waiting video encodes first. |
+| `adcredit` | 10,000 per HBD | `campaignId*, hbd*` | Checker: pays a self-promo ad booking (capped per month by the checker). |
+
+The checker items ask `GET <CHECKER_URL>/points/grant/check` first (a refusal
+costs nothing: 409 with the checker's code), then book `PUT /points/grant`
+(`x-points-award-secret`, once per spend id; network errors and 5xx are tried
+again, a refusal refunds). Without `POINTS_AWARD_SECRET` they, and the
+spotlight, are off.
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `GET /points/shop` | none, cached 300 s | | `{ items: { <item>: { enabled, price?, min?, max?, ... } }, stickers, cosmetics: { <id>: { kind, price } }, supporterMin }` |
+| `POST /points/shop/buy` | session+ban, 20/min | `{ item*, burnTx?, ...the item's fields }` | 201 `{ order, balance }` (`order.status` `done` or `held`, `order.result`); 202 `{ pending, spendId, orderId }`; 400 `invalid` or `insufficient`; 403, 404 (no such item, off, stream not live), 409 (the item's code, or "Your points are back."), 429 a limit; 428 `code: 'sign', op`. |
+| `GET /points/shop/orders` | session | `?item=` | `{ orders }`, your last 50. |
+| `GET /points/shop/orders/:id` | session | | `{ order }`; 404 not yours. |
+| `GET /rooms/:name/poll-suggestions` | none | | `{ suggestions: [{ id, from, question, options, at }] }` |
+| `POST /rooms/:name/poll-suggestions/:id/accept\|reject` | session, host or mod, 30/min | `{ durationSec? }` (15..600, default 60) | accept 201 `{ poll }`; reject `{ ok }` (refunded). |
+| `GET /channels/:owner/rewards` | none, cached 30 s | | `{ rewards: [{ id, title, cost, prompt, enabled }] }` |
+| `PUT /channels/rewards` | session+ban, 20/min | `{ rewards*: [{ id?, title*, cost*: 100..1,000,000, prompt?, enabled? }] }` (12 at most) | `{ rewards }`, your channel's, saved whole. |
+| `GET /rooms/:name/rewards/queue` | session, host or mod | | `{ queue: [{ id, from, rewardId, title, cost, input?, at }] }` |
+| `POST /rooms/:name/rewards/:id/done\|refund` | session, host or mod, 60/min | | `{ ok }` |
+| `GET /rooms/:name/bounties` | none | | `{ bounties: [{ id, text, total, backers, createdBy, ... }] }`, open ones. |
+| `POST /rooms/:name/bounties/:id/done\|decline` | session, host, 30/min | | `{ bounty }` |
+| `GET /points/stream-extra` | session | | `{ extraMs }`, bought for today's streams. |
+| `GET /points/streak` | session | | `{ run, today, missed: ['YYYY-MM-DD'], freezesLeft, perMonth }` |
+| `GET /points/audio-grants` | session | | `{ grants: [{ extraSeconds, expiresAt }] }` |
+| `GET /users/:account/cosmetics` | none, cached 60 s | | `{ owned, equipped: { color?, badge?, frame?, theme? }, stickers: [channel] }` |
+| `PUT /points/cosmetics` | session+ban, 30/min | `{ color?, badge?, frame?, theme? }` (an id you own, or null) | the same as above, yours. |
+| `GET /channels/:owner/supporters` | none, cached 60 s | `?month=YYYY-MM` | `{ month, top: [{ user, points }], badges: [user], min }` |
+| `GET /points/supporters` | none, cached 300 s | `?month=YYYY-MM` | `{ month, top: [{ user, points, channels }] }`, who spent most on others. |
+| `GET /points/requests` | session | `?role=from\|creator` | `{ requests: [{ id, from, creator, text, points, state, permlink?, at, until? }] }` |
+| `GET /channels/:owner/requests` | none, cached 60 s | | `{ requests }`, open and delivered ones. |
+| `POST /points/requests/:id/deliver\|decline\|approve\|cancel` | session+ban, 30/min | `{ permlink }` (deliver) | `{ request }`; 403 not yours to do, 409 the wrong state. |
+| `GET /points/spotlight` | optional session | | `{ week, endsAt, min, step, top: { bid, user, author, permlink, mine } \| null }` |
+
 ## Raids
 
 A host sends their viewers to another live stream after a countdown
@@ -360,7 +433,7 @@ Built-in plugins: chess, fast draw, word guess. Game state travels on the `game`
 inside the handlers and are described above.
 
 <!-- routes:start (generated by server/scripts/list-routes.ts, do not edit by hand) -->
-136 routes.
+159 routes.
 
 | Method | Path | preHandler | Rate limit | Query | Body (`*` = required) |
 |---|---|---|---|---|---|
@@ -378,6 +451,10 @@ inside the handlers and are described above.
 | POST | `/boosts/ingest` | none | none |  | txId*: string, opIndex*: number, blockNum*: number, timestamp*: number, to*: string, amount*: string, memo*: string |
 | GET | `/boosts/ledger` | none | none | room: string |  |
 | GET | `/captions/status` | none | none |  |  |
+| GET | `/channels/:owner/requests` | none | none |  |  |
+| GET | `/channels/:owner/rewards` | none | none |  |  |
+| GET | `/channels/:owner/supporters` | none | none |  |  |
+| PUT | `/channels/rewards` | requireAuth, checkBan | 20 / 1 minute |  | rewards*: any[] |
 | DELETE | `/clips/:id` | requireAuth | 30 / 1 minute |  |  |
 | POST | `/clips/:id/vertical` | requireAuth | 6 / 1 minute |  |  |
 | GET | `/clips/mine` | requireAuth | 60 / 1 minute |  |  |
@@ -402,15 +479,27 @@ inside the handlers and are described above.
 | GET | `/podcast/recordings` | requireAuth | none |  |  |
 | GET | `/points` | requireAuth | 30 / 1 minute |  |  |
 | GET | `/points/:channel` | requireAuth | 30 / 1 minute |  |  |
+| GET | `/points/audio-grants` | requireAuth | none |  |  |
 | POST | `/points/awards` | none | 30 / 1 minute |  | awards*: object[] |
 | GET | `/points/awards/config` | none | none |  |  |
+| PUT | `/points/cosmetics` | requireAuth, checkBan | 30 / 1 minute |  |  |
 | POST | `/points/daily` | requireAuth | 10 / 1 minute |  |  |
 | GET | `/points/events` | none | none |  |  |
 | POST | `/points/promote` | requireAuth, checkBan | 10 / 1 minute |  | author*: string, permlink*: string, days*: integer, burnTx: string |
 | GET | `/points/promote/quote` | none | none |  |  |
 | POST | `/points/pwa` | requireAuth | 5 / 1 minute |  |  |
 | GET | `/points/quests` | none | 60 / 1 minute | user*: string |  |
+| GET | `/points/requests` | requireAuth | none |  |  |
+| POST | `/points/requests/:id/:action` | requireAuth, checkBan | 30 / 1 minute |  | permlink: string |
+| GET | `/points/shop` | none | none |  |  |
+| POST | `/points/shop/buy` | requireAuth, checkBan | 20 / 1 minute |  | item*: string, burnTx: string |
+| GET | `/points/shop/orders` | requireAuth | none |  |  |
+| GET | `/points/shop/orders/:id` | requireAuth | none |  |  |
 | GET | `/points/spends/:id` | requireAuth | 60 / 1 minute |  |  |
+| GET | `/points/spotlight` | none | none |  |  |
+| GET | `/points/streak` | requireAuth | none |  |  |
+| GET | `/points/stream-extra` | requireAuth | none |  |  |
+| GET | `/points/supporters` | none | none |  |  |
 | POST | `/points/transfer` | requireAuth, checkBan | 10 / 1 minute |  | to*: string, amount*: integer, post: string, burnTx: string |
 | GET | `/premium` | none | none |  |  |
 | GET | `/premium/:username` | none | none |  |  |
@@ -426,6 +515,8 @@ inside the handlers and are described above.
 | PATCH | `/rooms/:name/boost` | requireAuth | none |  | enabled: boolean, minBoostUsd: number, creatorPayoutAccount: string, goal: object\|null, tiers: boolean, alerts: object, presets: number[] |
 | GET | `/rooms/:name/boost/summary` | none | none |  |  |
 | POST | `/rooms/:name/boosts/points` | requireAuth, checkBan | 10 / 1 minute |  | amount*: integer, message*: string, displayName: string, recipient: string, burnTx: string |
+| GET | `/rooms/:name/bounties` | none | none |  |  |
+| POST | `/rooms/:name/bounties/:id/:action` | requireAuth | 30 / 1 minute |  |  |
 | PATCH | `/rooms/:name/broadcast` | requireAuth | none |  | broadcasting*: boolean |
 | POST | `/rooms/:name/captions/start` | requireAuth, checkBan | 12 / 1 minute |  | lang: string |
 | POST | `/rooms/:name/captions/stop` | requireAuth, checkBan | 12 / 1 minute |  |  |
@@ -459,6 +550,8 @@ inside the handlers and are described above.
 | POST | `/rooms/:name/podcast/start` | requireAuth, checkBan | 10 / 1 minute |  |  |
 | GET | `/rooms/:name/podcast/status` | requireAuth | none |  |  |
 | POST | `/rooms/:name/podcast/stop` | requireAuth | 10 / 1 minute |  |  |
+| GET | `/rooms/:name/poll-suggestions` | none | none |  |  |
+| POST | `/rooms/:name/poll-suggestions/:id/:action` | requireAuth | 30 / 1 minute |  | durationSec: integer |
 | GET | `/rooms/:name/polls` | none | 30 / 1 minute |  |  |
 | POST | `/rooms/:name/polls` | requireAuth, checkBan | 20 / 5 minutes |  | kind: poll\|prediction, question*: string, options*: string[], durationSec*: integer |
 | POST | `/rooms/:name/polls/:id/cancel` | requireAuth, checkBan | 30 / 1 minute |  |  |
@@ -481,6 +574,8 @@ inside the handlers and are described above.
 | GET | `/rooms/:name/record/status` | requireAuth, checkBan | none |  |  |
 | POST | `/rooms/:name/record/stop` | requireAuth, checkBan | none |  |  |
 | POST | `/rooms/:name/record/upload` | requireAuth, checkBan | none |  | filePath*: string, duration: number, title: string, tags: string[] |
+| POST | `/rooms/:name/rewards/:id/:action` | requireAuth | 60 / 1 minute |  |  |
+| GET | `/rooms/:name/rewards/queue` | requireAuth | none |  |  |
 | POST | `/rooms/:name/stream/start` | requireAuth, checkBan | none |  | platform*: youtube\|twitch\|custom, streamKey*: string, backgroundImageUrl: string, videoEnabled: boolean |
 | GET | `/rooms/:name/stream/status` | requireAuth, checkBan | none |  |  |
 | POST | `/rooms/:name/stream/stop` | requireAuth, checkBan | none |  |  |
@@ -495,6 +590,7 @@ inside the handlers and are described above.
 | DELETE | `/templates/:id` | requireAuth, checkBan | none |  |  |
 | PATCH | `/templates/:id` | requireAuth, checkBan | 60 / 5 minutes |  |  |
 | GET | `/templates/:id/status` | requireAuth, checkBan | none |  |  |
+| GET | `/users/:account/cosmetics` | none | none |  |  |
 | GET | `/users/:account/points` | none | 60 / 1 minute |  |  |
 | GET | `/users/:account/points/history` | none | 60 / 1 minute | before: integer, limit: integer |  |
 | POST | `/whip/:owner/:slug` | none | 10 / 1 minute |  |  |

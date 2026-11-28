@@ -497,17 +497,44 @@ export async function awardDailyLogin(username: string, now = Date.now()): Promi
   return r.awarded;
 }
 
+/** The UTC days ('YYYY-MM-DD') `user` signed in on, from `since`. */
+export async function loginDays(user: string, since: number): Promise<Set<string>> {
+  const rows = await store.list({ user, kind: 'login', since }, STREAK_LOOKBACK_DAYS + 5);
+  // The days from the ids (the day signed in, whenever the row was written).
+  return new Set(rows.map((a) => a.id.slice(a.id.lastIndexOf(':') + 1)));
+}
+
+/** Days a streak freeze covers (lib/shopAccount.ts): they keep the sign-in streak going. */
+let frozenDays: (user: string, since: number) => Promise<string[]> = async () => [];
+export function setStreakFreezes(fn: (user: string, since: number) => Promise<string[]>): void { frozenDays = fn; }
+
+/** The sign-in streak: consecutive days up to today (or up to yesterday when
+ *  today has no sign-in yet), frozen days included. */
+export async function loginStreak(user: string, now = Date.now()): Promise<{ run: number; today: boolean }> {
+  const today = utcMidnight(now);
+  const since = today - (STREAK_LOOKBACK_DAYS - 1) * DAY_MS;
+  const days = await loginDays(user, since);
+  const signedToday = days.has(utcDay(today));
+  for (const d of await frozenDays(user, since).catch(() => [])) days.add(d);
+  let run = 0;
+  const from = signedToday ? today : today - DAY_MS;
+  while (run < STREAK_LOOKBACK_DAYS && days.has(utcDay(from - run * DAY_MS))) run += 1;
+  return { run, today: signedToday };
+}
+
 async function loginMilestones(user: string, now: number): Promise<void> {
   const today = utcMidnight(now);
-  const rows = await store.list({ user, kind: 'login', since: today - (STREAK_LOOKBACK_DAYS - 1) * DAY_MS }, STREAK_LOOKBACK_DAYS + 5);
-  // The days from the ids (the day signed in, whenever the row was written).
-  const days = new Set(rows.map((a) => a.id.slice(a.id.lastIndexOf(':') + 1)));
+  const since = today - (STREAK_LOOKBACK_DAYS - 1) * DAY_MS;
+  const days = await loginDays(user, since);
+  // Frozen days count for the streak only, not for the 5-of-7 week.
+  const streakDays = new Set(days);
+  for (const d of await frozenDays(user, since).catch(() => [])) streakDays.add(d);
   const awards: AwardInput[] = [];
 
   // The run of consecutive days up to today. Only when its first day is in
   // view, or a long run would look like a new one at the edge.
   let run = 0;
-  while (run < STREAK_LOOKBACK_DAYS && days.has(utcDay(today - run * DAY_MS))) run += 1;
+  while (run < STREAK_LOOKBACK_DAYS && streakDays.has(utcDay(today - run * DAY_MS))) run += 1;
   if (run < STREAK_LOOKBACK_DAYS) {
     const start = utcDay(today - (run - 1) * DAY_MS);
     for (const n of [7, 30]) if (run >= n) awards.push({ id: `streak:${user}:${start}:${n}`, user, kind: 'streak' });

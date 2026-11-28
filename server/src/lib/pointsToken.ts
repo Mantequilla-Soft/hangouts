@@ -66,7 +66,9 @@ export type SpendPurpose =
   | { type: 'promote'; room: string; author: string; permlink: string; days: number }
   // Points sent to `to` (lib/pointsTransfer.ts): a Magi `transfer`, not a
   // burn. `room` is the sender's ledger ref (`to`, or the tipped post).
-  | { type: 'transfer'; room: string; to: string };
+  | { type: 'transfer'; room: string; to: string }
+  // The points shop (lib/pointsShop.ts): `order` is the shop order it pays for.
+  | { type: 'shop'; room: string; item: string; order: string };
 
 export interface SpendDoc {
   id: string;

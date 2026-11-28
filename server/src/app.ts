@@ -23,6 +23,7 @@ import { chatRoutes } from './routes/chat.js';
 import { pollRoutes } from './routes/polls.js';
 import { pointsTokenRoutes } from './routes/pointsToken.js';
 import { promotePointsRoutes } from './routes/promotePoints.js';
+import { pointsShopRoutes } from './routes/pointsShop.js';
 import { raidRoutes } from './routes/raids.js';
 import { battleRoutes } from './routes/battles.js';
 import { captionRoutes } from './routes/captions.js';
@@ -75,6 +76,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await server.register(pollRoutes);
   await server.register(pointsTokenRoutes);
   await server.register(promotePointsRoutes);
+  await server.register(pointsShopRoutes);
   await server.register(raidRoutes);
   await server.register(battleRoutes);
   await server.register(captionRoutes);

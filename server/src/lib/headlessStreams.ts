@@ -10,6 +10,7 @@ import { mutateRoomMetadata } from './roomMeta.js';
 import { createStreamRoom, closeStreamRoom, type RoomMetadata } from './streamRoom.js';
 import { getUserStatus } from './users.js';
 import { recordGoLive, FREE_STREAM_CAP_MS as FREE_CAP_MS } from './streamQuota.js';
+import { onStreamExtra, streamExtraMs } from './shopLive.js';
 import { getTemplateById, setTemplateLastLiveAt, type TemplateDoc } from './streamTemplates.js';
 import { startStandaloneVod, stopStandaloneVod } from '../routes/recording.js';
 import { startDvrSession, stopDvrSession } from '../routes/dvr.js';
@@ -84,8 +85,8 @@ const CAP_COOLDOWN_MS = 15 * 60 * 1000;
 /** Same caps the studio enforces (packages/sdk-react/src/lib/streamLimits.ts). */
 export const FREE_STREAM_CAP_MS = FREE_CAP_MS;
 export const PRO_STREAM_CAP_MS = 4 * 60 * 60 * 1000;
-export function streamCapMs(premium: boolean): number {
-  return premium ? PRO_STREAM_CAP_MS : FREE_STREAM_CAP_MS;
+export function streamCapMs(premium: boolean, extraMs = 0): number {
+  return premium ? PRO_STREAM_CAP_MS : FREE_STREAM_CAP_MS + Math.max(0, extraMs);
 }
 
 export type HeadlessState = 'connecting' | 'live' | 'ending';
@@ -328,7 +329,9 @@ export async function startHeadlessStream(template: TemplateDoc, offerSdp: strin
     ingressId = linked.ingressId;
     const { resourceUrl, answer, headers, status } = linked;
 
-    const capMs = streamCapMs(premium);
+    // Free streams: plus the minutes bought with points for today (lib/shopLive.ts).
+    const extraMs = premium ? 0 : await streamExtraMs(owner);
+    const capMs = streamCapMs(premium, extraMs);
     const session: Session = {
       key, templateId, template, owner, roomName, ingressId, resourceUrl, premium, capMs,
       createdAt: Date.now(), liveAt: null, state: 'connecting',
@@ -644,7 +647,7 @@ async function goLive(s: Session, video: TrackInfo | undefined, info: IngressInf
   if (vodAllowed) {
     startStandaloneVod(s.roomName, meta as Parameters<typeof startStandaloneVod>[1], {
       publish: true, download: false, owner: s.owner,
-      ...(s.premium ? {} : { maxMs: FREE_STREAM_CAP_MS }),
+      ...(s.premium ? {} : { maxMs: s.capMs }),
     }, log).catch((err) => log.warn(err, `VOD start failed for ${s.roomName}`));
   }
   if (tpl.recording.allowClips && s.premium && config.DVR_ENABLED) {
@@ -793,7 +796,7 @@ export async function reconcileHeadlessRooms(): Promise<void> {
       // The ingress's resource URL is /w/<streamKey>/<resourceId>.
       resourceUrl: ing.state?.resourceId ? `${base}/${encodeURIComponent(ing.streamKey)}/${ing.state.resourceId}` : null,
       premium,
-      capMs: streamCapMs(premium),
+      capMs: streamCapMs(premium, premium ? 0 : await streamExtraMs(meta.host)),
       createdAt: Date.now(),
       liveAt: Number.isFinite(liveAt) ? liveAt : null,
       state: Number.isFinite(liveAt) ? 'live' : 'connecting',
@@ -825,3 +828,10 @@ export function _resetHeadlessForTests(): void {
   lastEnds.clear();
   if (timer) { clearInterval(timer); timer = null; }
 }
+
+// Minutes bought while live: the running OBS stream of that host gets them at once.
+onStreamExtra((user, extraMs) => {
+  for (const s of sessions.values()) {
+    if (s.owner === user && !s.premium) s.capMs = streamCapMs(false, extraMs);
+  }
+});
