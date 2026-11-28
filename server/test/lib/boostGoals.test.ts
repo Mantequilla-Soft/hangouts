@@ -50,6 +50,8 @@ describe('parseBoostExtras', () => {
   it('merges alert toggles into the stored ones', () => {
     expect(apply({ alerts: { tts: true } }, { alerts: { sound: false, ttsMinHbd: 2 } })).toEqual({ alerts: { sound: false, tts: true, ttsMinHbd: 2 } });
     expect(apply({ alerts: { sound: true, ttsMinHbd: 1.23456 } })).toEqual({ alerts: { sound: true, ttsMinHbd: 1.235 } });
+    // Read-aloud messages paid with points: the host's off switch is kept.
+    expect(apply({ alerts: { readAloud: false } }, { alerts: { tts: true } })).toEqual({ alerts: { tts: true, readAloud: false } });
   });
 
   it('refuses a negative or huge TTS minimum', () => {

@@ -886,6 +886,7 @@ export const roomRoutes: FastifyPluginAsync = async (fastify) => {
               sound: { type: 'boolean' },
               tts: { type: 'boolean' },
               ttsMinHbd: { type: 'number' },
+              readAloud: { type: 'boolean' },
             },
           },
           // Preset amounts in the viewer's boost dialog; [] = the defaults.

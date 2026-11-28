@@ -192,7 +192,8 @@ export const pointsShopRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── stream time, streaks, longer audio ──────────────────────────────────
 
-  fastify.get('/points/stream-extra', { preHandler: [requireAuth] }, async (request, reply) => {
+  // The OBS dock reads it too (its own session kind: `dock`).
+  fastify.get('/points/stream-extra', { preHandler: [requireAuth], config: { dock: true } }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     return reply.send({ extraMs: await streamExtraMs(request.username) });
   });

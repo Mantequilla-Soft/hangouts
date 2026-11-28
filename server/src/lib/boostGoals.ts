@@ -37,6 +37,8 @@ export interface BoostAlertSettings {
   tts?: boolean;
   /** Only read boosts worth at least this much (HBD). */
   ttsMinHbd?: number;
+  /** Read-aloud messages viewers pay for with points (lib/shopLive.ts); off only when false. */
+  readAloud?: boolean;
 }
 
 export interface BoostSupporter {
@@ -141,6 +143,7 @@ export function parseBoostExtras(body: BoostExtrasInput): BoostExtrasResult {
         ...(a.sound !== undefined ? { sound: a.sound } : {}),
         ...(a.tts !== undefined ? { tts: a.tts } : {}),
         ...(a.ttsMinHbd !== undefined ? { ttsMinHbd: round3(a.ttsMinHbd) } : {}),
+        ...(a.readAloud !== undefined ? { readAloud: a.readAloud } : {}),
       };
     });
   }
