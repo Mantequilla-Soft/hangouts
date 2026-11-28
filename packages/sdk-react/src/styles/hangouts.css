@@ -4,6 +4,8 @@
 
 /* Polls and predictions, raids (their own file so feature branches do not collide here). */
 @import './live-interact.css';
+/* The points shop in the live room: chat cosmetics, stickers, the pinned highlight, the dialogs and host panels. */
+@import './points-shop.css';
 
 /* === Theme Variables === */
 

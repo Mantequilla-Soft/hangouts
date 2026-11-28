@@ -1,6 +1,8 @@
 import { useRoomBoost, useGoalCelebration } from '../../hooks/useRoomBoost.js';
 import { useBoosts } from '../../hooks/useBoosts.js';
 import { useBoostAlerts, type BoostAlertOptions } from '../../hooks/useBoostAlerts.js';
+import { useReadAloud } from '../../hooks/useReadAloud.js';
+import { readAloudOn } from '../../lib/pointsShop.js';
 import { fillLabel, formatHbd, type BoostSupporter } from '../../lib/boostGoals.js';
 import { playBoostChime } from '../../lib/boostChime.js';
 import { boostLabels, type BoostLabels } from '../../lib/boostLabels.js';
@@ -91,7 +93,10 @@ export function BoostTopSupporters({ labels, className, supporters }: BoostTopSu
   );
 }
 
-export interface BoostAlertsProps extends BoostAlertOptions {}
+export interface BoostAlertsProps extends BoostAlertOptions {
+  /** What a points shop read-aloud message says: {name} {message}. */
+  readAloudTemplate?: string;
+}
 
 /**
  * Invisible: plays the host's boost alerts (chime, optional read-aloud, and a
@@ -104,6 +109,10 @@ export function BoostAlerts(options: BoostAlertsProps) {
   const { boosts } = useBoosts();
   const { alerts, stats, loaded } = useRoomBoost();
   useBoostAlerts(boosts, alerts, options);
+  // Points shop read-aloud messages, read like a boost (see useReadAloud).
+  useReadAloud({ tts: alerts.tts, readAloud: readAloudOn(alerts) }, {
+    muted: options.muted, speechLang: options.speechLang, speechTemplate: options.readAloudTemplate,
+  });
   useGoalCelebration(stats, loaded, () => {
     if (alerts.sound && !options.muted) playBoostChime('goal');
   });

@@ -1,0 +1,209 @@
+/* The points shop in the live room: chat cosmetics and stickers, the pinned
+   highlight, the server's shop lines, the "Use points" dialogs, the studio's
+   host panels, read-aloud cards and the extra stream time button.
+   Flat (no gradients), theme variables and currentColor only, so a light or a
+   dark chat, and an integrator's skin of the boost dialog, carry over.
+   Imported by hangouts.css. */
+
+/* === Chat: cosmetics === */
+
+/* A bought name colour, mixed with the name colour the surface already uses
+   (white on the SDK's dark glass, the skin's text colour elsewhere): readable
+   on light and dark without knowing which one it is. */
+.hh-chat__name-tint {
+  color: var(--hh-tint);
+  color: color-mix(in srgb, var(--hh-tint) 72%, currentColor);
+}
+.hh-chat__badge { margin-right: 0.2rem; font-size: 0.85em; }
+.hh-chat__supporter { margin-left: 0.25rem; font-size: 0.8em; cursor: default; }
+
+/* Avatar frames: flat rings drawn with box-shadow (no gradient, even for the rainbow). */
+.hh-frame { border-radius: 50%; }
+.hh-frame--gold { box-shadow: 0 0 0 2px #f5b400; }
+.hh-frame--neon { box-shadow: 0 0 0 2px #13c4d6, 0 0 0 4px color-mix(in srgb, #13c4d6 35%, transparent); }
+.hh-frame--rainbow {
+  box-shadow: 0 0 0 1px #ff5fa2, 0 0 0 2px #f5b400, 0 0 0 3px #2fbf68, 0 0 0 4px #13c4d6, 0 0 0 5px #9b7bff;
+}
+.hh-chat__msg-avatar.hh-frame { margin: 2px; }
+
+/* Profile themes, for a profile card or channel header: flat colours as
+   variables the page uses (background, text, accent). */
+.hh-profile-theme {
+  background: var(--hh-profile-bg);
+  color: var(--hh-profile-text);
+  --hh-accent: var(--hh-profile-accent);
+}
+.hh-profile-theme--midnight { --hh-profile-bg: #12163a; --hh-profile-text: #e8ebff; --hh-profile-accent: #9b7bff; }
+.hh-profile-theme--sunset { --hh-profile-bg: #3a1622; --hh-profile-text: #ffeef2; --hh-profile-accent: #ff8a5c; }
+.hh-profile-theme--forest { --hh-profile-bg: #12301f; --hh-profile-text: #e9f7ee; --hh-profile-accent: #2fbf68; }
+
+/* === Chat: highlighted message, stickers, pinned line, shop lines === */
+
+.hh-chat__msg--highlight {
+  padding: 0.45rem 0.6rem;
+  border-left: 3px solid var(--hh-pro-gold, #d4af37);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--hh-pro-gold, #d4af37) 16%, transparent);
+}
+.hh-chat__highlight-tag {
+  display: block;
+  margin-bottom: 0.1rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--hh-pro-gold, #d4af37);
+}
+.hh-chat__sticker {
+  display: block;
+  font-size: 2.6rem;
+  line-height: 1.1;
+}
+.hh-chat__sticker-tray { gap: 4px; }
+.hh-chat__sticker-btn { font-size: 1.6rem; min-width: 48px; min-height: 48px; }
+
+.hh-chat__pinned {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0.5rem 0.5rem 0;
+  padding: 0.45rem 0.65rem;
+  border-left: 3px solid var(--hh-pro-gold, #d4af37);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--hh-pro-gold, #d4af37) 18%, transparent);
+}
+.hh-chat__pinned-tag {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--hh-pro-gold, #d4af37);
+}
+.hh-chat__pinned-line { min-width: 0; overflow-wrap: anywhere; }
+
+.hh-chat__msg--reward,
+.hh-chat__msg--bounty,
+.hh-chat__msg--bountydone { border-left: 3px solid var(--hh-accent); }
+.hh-chat__msg--bountydone { border-left-color: var(--hh-success); }
+
+/* === "Use points": the menu and the dialogs (inside .hh-boost-dialog) === */
+
+.hh-shop__button { white-space: nowrap; }
+.hh-shop__body { gap: 0.6rem; }
+.hh-shop__menu { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.hh-shop__item,
+.hh-shop__choice {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  min-height: 48px;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.hh-shop__item:hover,
+.hh-shop__choice:hover:not(:disabled) { border-color: var(--hh-primary); }
+.hh-shop__choice { flex-direction: column; align-items: flex-start; gap: 0.1rem; }
+.hh-shop__choice.is-active { border-color: var(--hh-primary); background: color-mix(in srgb, var(--hh-primary) 12%, transparent); }
+.hh-shop__choice:disabled { opacity: 0.55; cursor: not-allowed; }
+.hh-shop__item-icon { flex-shrink: 0; font-size: 1.25rem; }
+.hh-shop__item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.hh-shop__item-title,
+.hh-shop__choice-title { font-weight: 600; font-size: 0.9rem; overflow-wrap: anywhere; }
+.hh-shop__item-hint,
+.hh-shop__choice-meta { font-size: 0.75rem; opacity: 0.7; }
+.hh-shop__item-price { flex-shrink: 0; font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
+.hh-shop__fields,
+.hh-shop__choices { display: flex; flex-direction: column; gap: 0.45rem; }
+.hh-shop__input { width: 100%; font-size: 0.95rem; }
+.hh-shop__opt { display: flex; gap: 0.4rem; align-items: center; }
+.hh-shop__remove {
+  flex-shrink: 0; width: 40px; height: 40px; border: 0; border-radius: 8px;
+  background: transparent; color: inherit; opacity: 0.6; cursor: pointer;
+}
+.hh-shop__remove:hover { opacity: 1; background: color-mix(in srgb, currentColor 8%, transparent); }
+.hh-shop__add { align-self: flex-start; }
+.hh-shop__label { font-size: 0.75rem; font-weight: 600; opacity: 0.75; }
+.hh-shop__amount { display: flex; flex-direction: column; gap: 0.3rem; }
+.hh-shop__empty { margin: 0; font-size: 0.85rem; opacity: 0.7; }
+.hh-shop__stickers { display: flex; flex-wrap: wrap; gap: 0.35rem; font-size: 2rem; line-height: 1; }
+.hh-shop__sticker {
+  display: grid; place-items: center; width: 52px; height: 52px; border-radius: 10px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+/* === Studio: the host panels (Live tab, OBS dock) === */
+
+.hh-shophost__stack { display: flex; flex-direction: column; gap: 0.9rem; }
+.hh-shophost { display: flex; flex-direction: column; gap: 0.5rem; }
+.hh-shophost__title { margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--hh-text); }
+.hh-shophost__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.hh-shophost__row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--hh-border-light);
+  border-radius: 10px;
+  background: var(--hh-bg);
+  color: var(--hh-text);
+}
+.hh-shophost__row--edit { flex-wrap: wrap; align-items: flex-end; }
+.hh-shophost__info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.hh-shophost__main { font-weight: 600; font-size: 0.88rem; overflow-wrap: anywhere; }
+.hh-shophost__quote { font-size: 0.82rem; overflow-wrap: anywhere; border-left: 2px solid var(--hh-border); padding-left: 0.4rem; }
+.hh-shophost__meta { font-size: 0.75rem; color: var(--hh-text-muted); }
+.hh-shophost__actions { display: flex; flex-wrap: wrap; gap: 0.35rem; flex-shrink: 0; }
+.hh-shophost__field { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.75rem; color: var(--hh-text-muted); width: 110px; }
+.hh-shophost__field--grow { flex: 1; min-width: 160px; }
+.hh-shophost__check { display: flex; align-items: center; gap: 0.3rem; min-height: 40px; font-size: 0.8rem; }
+.hh-shophost__empty,
+.hh-shophost__saved { margin: 0; font-size: 0.82rem; color: var(--hh-text-muted); }
+.hh-shophost__saved { color: var(--hh-success); }
+.hh-shophost__error { margin: 0; font-size: 0.8rem; color: var(--hh-danger); }
+@media (max-width: 480px) {
+  .hh-shophost__row { flex-wrap: wrap; }
+  .hh-shophost__actions { width: 100%; justify-content: flex-end; }
+  .hh-shophost__field { width: 100%; }
+}
+
+/* === Read-aloud cards (the studio shows them top right) === */
+
+.hh-readaloud { display: flex; flex-direction: column; gap: 0.4rem; pointer-events: none; }
+.hh-readaloud__card {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--hh-border);
+  border-left: 3px solid var(--hh-accent);
+  border-radius: 10px;
+  background: var(--hh-bg);
+  color: var(--hh-text);
+  box-shadow: 0 6px 20px var(--hh-shadow);
+  font-size: 0.85rem;
+}
+.hh-readaloud__icon { flex-shrink: 0; }
+.hh-readaloud__text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; overflow-wrap: anywhere; }
+.hh-readaloud__title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--hh-accent); }
+.hh-studio__readaloud {
+  position: fixed;
+  z-index: 950;
+  top: calc(72px + env(safe-area-inset-top, 0px));
+  right: 16px;
+  width: min(340px, calc(100vw - 32px));
+}
+
+/* === Extra stream time === */
+
+.hh-buytime { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.hh-buytime__note { font-size: 0.75rem; opacity: 0.85; }
+.hh-buytime__note--error { color: var(--hh-danger); opacity: 1; }
+.hh-studio__buytime { white-space: nowrap; }
+.hh-studio__timecap-card .hh-buytime { flex-shrink: 0; }

@@ -19,6 +19,8 @@ import {
 } from '../../lib/boostGoals.js';
 
 import { playBoostChime, speakBoost } from '../../lib/boostChime.js';
+import { readAloudOn, saveLocalReadAloud } from '../../lib/pointsShop.js';
+import { shopLabels, type ShopLabels } from '../../lib/shopLabels.js';
 import { StudioSubtabs, type StudioSubtab } from './StudioSubtabs.js';
 import { BoostHistoryList } from './BoostHistoryPanel.js';
 
@@ -82,9 +84,12 @@ interface Props {
   /** The payout account is shown but not sent (the OBS dock: its link may
    *  change the settings, never where the money goes). */
   payoutLocked?: boolean;
+  /** The points shop's text (the read-aloud setting), see ShopLabels. */
+  shopLabels?: Partial<ShopLabels>;
 }
 
-export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, embedded = false, payoutLocked = false }: Props) {
+export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, embedded = false, payoutLocked = false, shopLabels: shopLabelsProp }: Props) {
+  const SL = shopLabels(shopLabelsProp);
   const { apiClient, apiBaseUrl } = useHangoutsContext();
   const panelRef = useRef<HTMLDivElement>(null);
   const goal = readBoostGoal(currentConfig);
@@ -102,6 +107,11 @@ export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, 
   const [sound, setSound] = useState(alerts.sound);
   const [tts, setTts] = useState(alerts.tts);
   const [ttsMin, setTtsMin] = useState(String(alerts.ttsMinHbd));
+  // Points shop read-aloud messages (alerts.readAloud, default on).
+  const [readAloud, setReadAloud] = useState(readAloudOn(alerts));
+  // The server answered without the field: it does not store it (yet), so the
+  // choice lives in this browser only (lib/pointsShop.ts readAloudOn).
+  const [readAloudLocal, setReadAloudLocal] = useState(false);
   const [presets, setPresets] = useState(boostPresets(currentConfig).join(', '));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -169,10 +179,12 @@ export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, 
           ...(payoutLocked ? {} : { creatorPayoutAccount: payoutAccount.trim() || undefined }),
           goal: goalUpdate,
           tiers,
-          alerts: { sound, tts, ttsMinHbd: ttsMinNum },
+          alerts: { sound, tts, ttsMinHbd: ttsMinNum, readAloud },
           presets: sameAsDefault ? [] : presetList,
         },
       );
+      saveLocalReadAloud(readAloud);
+      setReadAloudLocal(typeof (boost?.alerts as { readAloud?: unknown } | undefined)?.readAloud !== 'boolean');
       onSaved(boost);
       setSaved(true);
       if (embedded) setTimeout(() => setSaved(false), 2500);
@@ -182,7 +194,7 @@ export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, 
     } finally {
       setSaving(false);
     }
-  }, [apiBaseUrl, apiClient, roomName, enabled, minUsd, payoutAccount, goalTitle, goalTarget, goalPosition, tiers, sound, tts, ttsMin, presets, onSaved, onClose, embedded, payoutLocked]);
+  }, [apiBaseUrl, apiClient, roomName, enabled, minUsd, payoutAccount, goalTitle, goalTarget, goalPosition, tiers, sound, tts, ttsMin, readAloud, presets, onSaved, onClose, embedded, payoutLocked]);
 
   const panel = (
     <div
@@ -284,6 +296,12 @@ export function BoostSettingsPanel({ roomName, currentConfig, onClose, onSaved, 
                   />
                 </label>
               )}
+              <label className="hh-boost-settings__row">
+                <span>{SL.readAloudToggle}</span>
+                <input type="checkbox" checked={readAloud} onChange={(e) => setReadAloud(e.target.checked)} disabled={saving} />
+              </label>
+              <span className="hh-boost-settings__hint">{SL.readAloudHint}</span>
+              {readAloudLocal && <span className="hh-boost-settings__hint" role="status">{SL.readAloudLocalOnly}</span>}
               <span className="hh-boost-settings__hint">They play on this device, not in the stream.</span>
               {(sound || tts) && (
                 <button type="button" className="hh-btn hh-btn--secondary hh-btn--small hh-boost-settings__try" onClick={tryAlert}>

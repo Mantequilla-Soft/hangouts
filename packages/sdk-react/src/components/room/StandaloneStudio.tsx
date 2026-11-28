@@ -57,6 +57,11 @@ import { StudioSubtabs } from './StudioSubtabs.js';
 import { useStudioCaptions, type StudioCaptionsOptions } from '../../hooks/useStudioCaptions.js';
 import { LiveCaptionsToggle } from './LiveCaptionsToggle.js';
 import type { CaptionCue } from '../../lib/liveCaptions.js';
+import { useStreamExtra } from '../../hooks/useShopData.js';
+import { useReadAloud } from '../../hooks/useReadAloud.js';
+import { readAloudOn } from '../../lib/pointsShop.js';
+import { shopLabels as resolveShopLabels, type ShopLabels } from '../../lib/shopLabels.js';
+import { BuyStreamTimeButton, ReadAloudAlerts } from './ShopHostPanels.js';
 
 /** Program canvas resolution — every scene composites into this fixed
  *  16:9 frame, and this exact frame is what gets published. */
@@ -808,6 +813,9 @@ export interface StandaloneStudioProps {
   /** Offer live captions (host opt-in): the integrator's speech-to-text for
    *  the host's mic, sent to viewers on the data channel. See useStudioCaptions. */
   captions?: StudioCaptionsOptions;
+  /** The points shop's text (host panels, read-aloud, extra stream time), for
+   *  translation. English by default (see ShopLabels). */
+  shopLabels?: Partial<ShopLabels>;
 }
 
 
@@ -833,7 +841,7 @@ function rememberObsNeedsVp8(): void {
   try { localStorage.setItem(OBS_VP8_KEY, '1'); } catch { /* private mode: asks again next time */ }
 }
 
-export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium: isPremiumOverride, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false, obsBaseUrl = 'https://hangout.3speak.tv', phoneSourceLabels, captions }: StandaloneStudioProps) {
+export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremium: isPremiumOverride, watermarkLogoUrl, initialPost, onStreamStart, renderPostExtras, onClose, onStreamVod, canPublishVod = true, isUnlisted = false, obsBaseUrl = 'https://hangout.3speak.tv', phoneSourceLabels, captions, shopLabels }: StandaloneStudioProps) {
   // Resolves itself unless the integrator forces it. Starts false, so the
   // free-tier watermark and the short cap apply until premium is confirmed —
   // erring the safe way for a gate that's also enforced server-side.
@@ -1033,6 +1041,13 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
   const boostTiersRef = useRef(roomBoost.tiersOn);
   boostTiersRef.current = roomBoost.tiersOn;
   useBoostAlerts(boostList, roomBoost.alerts);
+  // Read-aloud messages viewers bought with points: spoken when the host reads
+  // boosts aloud (whatever the boost minimum) and has not switched them off.
+  const shopText = useMemo(() => resolveShopLabels(shopLabels), [shopLabels]);
+  const readAlouds = useReadAloud(
+    { tts: roomBoost.alerts.tts, readAloud: readAloudOn(roomBoost.alerts) },
+    { speechTemplate: shopText.readAloudSpeech },
+  );
   useGoalCelebration(roomBoost.stats, roomBoost.loaded, () => {
     if (roomBoost.alerts.sound) playBoostChime('goal');
   });
@@ -1678,11 +1693,24 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     return () => window.clearInterval(id);
   }, [streamState]);
 
+  // A free host can buy 30 more minutes with points (the points shop's
+  // `minutes`): today's bought time adds to the free cap.
+  const streamExtra = useStreamExtra(!isPremium);
+  const extraMs = streamExtra.extraMs;
+  // More time bought: the warnings it pushed back may fire again later.
+  useEffect(() => {
+    if (!extraMs) return;
+    const startedAt = streamStartedAtRef.current;
+    const remaining = resolveStreamCap(isPremium, extraMs).capMs - (startedAt == null ? 0 : Date.now() - startedAt);
+    warnedRemainingRef.current = new Set([...warnedRemainingRef.current].filter((m) => remaining <= m));
+    setTimeWarning('');
+  }, [extraMs, isPremium]);
+
   // BOTH tiers are time-capped (free short, Pro long — a safety ceiling under
   // the egress janitor's 6h kill). Warn as the cap nears, then stop exactly like
   // the host hitting Stop, so the VOD is saved either way.
   useEffect(() => {
-    const cap = resolveStreamCap(isPremium);
+    const cap = resolveStreamCap(isPremium, extraMs);
     const tick = () => {
       const startedAt = streamStartedAtRef.current;
       if (startedAt == null || streamStateRef.current !== 'live') return;
@@ -1707,7 +1735,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
     };
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
-  }, [isPremium]);
+  }, [isPremium, extraMs]);
 
 
   /**
@@ -4722,17 +4750,23 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
         {(isMobile || !warnInRail) && throttleWarning}
         <div className="hh-studio__header-actions">
           {(streamState === 'live' || streamState === 'paused') && streamStartedAtRef.current != null && (() => {
-            const cap = resolveStreamCap(isPremium);
+            const cap = resolveStreamCap(isPremium, extraMs);
             const elapsed = Date.now() - streamStartedAtRef.current;
             const remaining = Math.max(0, cap.capMs - elapsed);
             return (
-              <span
-                className={`hh-studio__timer${remaining <= 60_000 ? ' hh-studio__timer--low' : ''}`}
-                title={`Streamed ${formatDuration(elapsed)} — ${formatDuration(remaining)} left (${cap.label} max)`}
-              >
-                ⏱ {formatDuration(elapsed)}
-                <span className="hh-studio__timer-left"> · {formatDuration(remaining)} left</span>
-              </span>
+              <>
+                <span
+                  className={`hh-studio__timer${remaining <= 60_000 ? ' hh-studio__timer--low' : ''}`}
+                  title={`Streamed ${formatDuration(elapsed)}, ${formatDuration(remaining)} left (${cap.label} max)`}
+                >
+                  ⏱ {formatDuration(elapsed)}
+                  <span className="hh-studio__timer-left"> · {formatDuration(remaining)} left</span>
+                </span>
+                {/* Free: 30 more minutes for points (the phone header only once time runs short). */}
+                {!cap.isPro && remaining > 0 && (!isMobile || remaining <= 15 * 60_000) && (
+                  <BuyStreamTimeButton labels={shopLabels} onBought={() => void streamExtra.refresh()} className="hh-btn hh-btn--secondary hh-btn--small hh-studio__buytime" />
+                )}
+              </>
             );
           })()}
           {isMobile ? (
@@ -4779,10 +4813,15 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
           <div className="hh-studio__timecap-card">
             <span className="hh-studio__timecap-icon" aria-hidden="true">⏳</span>
             <p className="hh-studio__timecap-text">{timeWarning}</p>
+            {!isPremium && (streamState === 'live' || streamState === 'paused') && (
+              <BuyStreamTimeButton labels={shopLabels} onBought={() => void streamExtra.refresh()} className="hh-btn hh-btn--primary hh-btn--small hh-studio__timecap-buy" />
+            )}
             <button className="hh-studio__timecap-close" onClick={() => setTimeWarning('')} aria-label="Dismiss">✕</button>
           </div>
         </div>
       )}
+      {/* Points shop read-aloud messages as they arrive (spoken with the boosts' voice). */}
+      <ReadAloudAlerts events={readAlouds} labels={shopLabels} className="hh-studio__readaloud" />
 
       {isMobile ? (
         <div className={`hh-studio__body hh-studio__body--mobile${mobileSheet ? ' hh-studio__body--sheet' : ''}${mobileSheet === 'chat' ? ' hh-studio__body--chatsheet' : ''}`}>
@@ -5018,6 +5057,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                 <StudioLivePanel
                   roomName={roomName}
                   battle={liveBattle}
+                  shopLabels={shopLabels}
                   overlays={<StudioOverlaysPanel api={overlays} streamState={streamState} onClose={() => setMobileSheet(null)} embedded />}
                 />
               )}
@@ -5451,7 +5491,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
             </div>
             <div className="hh-studio__tab-body">
               {rightTab === 'chat' ? <ChatPanel /> : rightTab === 'settings' ? renderSettings()
-                : rightTab === 'live' ? <StudioLivePanel roomName={roomName} battle={liveBattle} />
+                : rightTab === 'live' ? <StudioLivePanel roomName={roomName} battle={liveBattle} shopLabels={shopLabels} />
                 : rightTab === 'health' ? <div className="hh-post hh-settings hh-studio__health"><StreamHealthDetails state={health} /></div>
                 : rightTab === 'overlays' ? (
                   <StudioOverlaysPanel embedded api={overlays} streamState={streamState} onClose={() => setRightTab('chat')} />
@@ -5460,6 +5500,7 @@ export function StandaloneStudio({ roomName, title, onEndRoom, shareUrl, isPremi
                     embedded
                     roomName={roomName}
                     currentConfig={boostConfigForPanel}
+                    shopLabels={shopLabels}
                     onClose={() => setRightTab('chat')}
                     onSaved={() => { /* the room metadata update re-renders the goal and the tab */ }}
                   />

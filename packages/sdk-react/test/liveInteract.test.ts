@@ -213,7 +213,7 @@ describe('studio Live tab', () => {
   it('offers a poll or a prediction and the raid list', () => {
     const html = inRoom(h(StudioLivePanel, { roomName: 'badadib-live' }));
     // Polls first; Battle only when the studio passes it; Raid last.
-    expect(html.match(/role="tab"[^>]*>[A-Za-z]+/g)?.map((t) => t.split('>')[1])).toEqual(['Polls', 'Raid']);
+    expect(html.match(/role="tab"[^>]*>[A-Za-z]+/g)?.map((t) => t.split('>')[1])).toEqual(['Polls', 'Rewards', 'Bounties', 'Raid']);
     expect(html).toContain('Start poll');
     expect(html).not.toContain('Loading');
     expect(inRoom(h(StudioLivePanel, { roomName: 'badadib-live', initialTab: 'raid' }))).toContain('Loading');
@@ -221,7 +221,7 @@ describe('studio Live tab', () => {
 
   it('has the live battle when the studio passes it, on air or not', () => {
     const idle = inRoom(h(StudioLivePanel, { roomName: 'badadib-live', battle: { onAir: false, onOpen: () => {} } }));
-    expect(idle.match(/role="tab"[^>]*>[A-Za-z]+/g)?.map((t) => t.split('>')[1])).toEqual(['Polls', 'Battle', 'Raid']);
+    expect(idle.match(/role="tab"[^>]*>[A-Za-z]+/g)?.map((t) => t.split('>')[1])).toEqual(['Polls', 'Rewards', 'Bounties', 'Battle', 'Raid']);
     expect(idle).not.toContain('hh-subtabs__dot');
     expect(inRoom(h(StudioLivePanel, { roomName: 'badadib-live', initialTab: 'battle', battle: { onAir: false, onOpen: () => {} } }))).toContain('Start a battle');
     const on = inRoom(h(StudioLivePanel, { roomName: 'badadib-live', initialTab: 'battle', battle: { onAir: true, opponent: 'fan', onOpen: () => {} } }));
@@ -232,7 +232,7 @@ describe('studio Live tab', () => {
   it('has the overlays as a tab when the phone studio passes them', () => {
     const tabs = (html: string) => html.match(/role="tab"[^>]*>[A-Za-z]+/g)?.map((t) => t.split('>')[1]);
     const overlays = h('p', null, 'The overlays panel');
-    expect(tabs(inRoom(h(StudioLivePanel, { roomName: 'badadib-live', overlays })))).toEqual(['Polls', 'Overlays', 'Raid']);
+    expect(tabs(inRoom(h(StudioLivePanel, { roomName: 'badadib-live', overlays })))).toEqual(['Polls', 'Overlays', 'Rewards', 'Bounties', 'Raid']);
     expect(inRoom(h(StudioLivePanel, { roomName: 'badadib-live', overlays, initialTab: 'overlays' }))).toContain('The overlays panel');
   });
 

@@ -1,6 +1,7 @@
 /**
  * The viewer-facing text of the live-interaction pieces: the poll and
- * prediction card, the raid banner and the raid line in chat. Integrators that
+ * prediction card, the raid banner, and the server's lines in chat (a raid,
+ * and the points shop's highlight, reward and bounty lines). Integrators that
  * translate pass `labels` (any subset; the rest stays English), like
  * BoostLabels. Placeholders are `{name}` and are filled by the SDK.
  */
@@ -41,6 +42,20 @@ export interface LiveLabels {
   /** The folded line of a finished poll in the chat opens it again. */
   showResult: string;
   hideResult: string;
+  /** Points shop lines in chat. The tag on a highlighted message. */
+  highlightTag: string;
+  /** {name} {title}: a viewer redeemed one of the host's channel rewards. */
+  rewardLine: string;
+  /** {name} {title} {points}: a viewer put up a bounty. */
+  bountyLine: string;
+  /** {name} {title} {points}: the host completed a bounty. */
+  bountyDoneLine: string;
+  /** Over the highlighted message pinned on top of the chat. */
+  pinnedTag: string;
+  /** The small mark next to a channel supporter's name (its tooltip). */
+  supporterMark: string;
+  /** The sticker row in the emoji tray. */
+  stickersRow: string;
 }
 
 export const DEFAULT_LIVE_LABELS: LiveLabels = {
@@ -69,6 +84,13 @@ export const DEFAULT_LIVE_LABELS: LiveLabels = {
   close: 'Close',
   showResult: 'Show the result',
   hideResult: 'Hide the result',
+  highlightTag: 'Highlighted',
+  rewardLine: '@{name} redeemed {title}',
+  bountyLine: '@{name} put up a bounty: {title} ({points} points)',
+  bountyDoneLine: '@{name} completed: {title} ({points} points)',
+  pinnedTag: 'Pinned',
+  supporterMark: 'Channel supporter',
+  stickersRow: 'Stickers',
 };
 
 export function liveLabels(labels?: Partial<LiveLabels>): LiveLabels {
